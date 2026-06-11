@@ -185,6 +185,12 @@ def run(argv=None):
 
     known_args, pipeline_args = parser.parse_known_args(argv)
 
+    # Pass project and region to Beam as well
+    pipeline_args.extend([
+        f"--project={known_args.project}",
+        f"--region={known_args.region}",
+    ])
+
     bucket = known_args.bucket or f"{known_args.project}-lakehouse"
     input_path = known_args.input_path or f"gs://{bucket}/source/customer_v{known_args.schema_version}.jsonl"
 
