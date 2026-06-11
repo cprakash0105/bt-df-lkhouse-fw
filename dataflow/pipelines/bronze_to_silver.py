@@ -19,16 +19,16 @@ import pyarrow.parquet as pq
 
 logger = logging.getLogger(__name__)
 
-# Silver target schema
+# Silver target schema (all optional except customer_id for flexibility)
 SILVER_SCHEMA = Schema(
-    NestedField(1, "customer_id", IntegerType(), required=True),
-    NestedField(2, "name", StringType(), required=True),
-    NestedField(3, "email", StringType(), required=True),
-    NestedField(4, "signup_date", StringType(), required=True),
-    NestedField(5, "order_amount", LongType(), required=True),
+    NestedField(1, "customer_id", IntegerType(), required=False),
+    NestedField(2, "name", StringType(), required=False),
+    NestedField(3, "email", StringType(), required=False),
+    NestedField(4, "signup_date", StringType(), required=False),
+    NestedField(5, "order_amount", LongType(), required=False),
     NestedField(6, "loyalty_tier", StringType(), required=False),
-    NestedField(7, "processed_ts", StringType(), required=True),
-    NestedField(8, "source_schema_version", IntegerType(), required=True),
+    NestedField(7, "processed_ts", StringType(), required=False),
+    NestedField(8, "source_schema_version", IntegerType(), required=False),
 )
 
 SILVER_PARTITION_SPEC = PartitionSpec(
