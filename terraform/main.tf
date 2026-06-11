@@ -30,7 +30,7 @@ resource "google_project_service" "apis" {
 
 # --- GCS Bucket ---
 resource "google_storage_bucket" "lakehouse" {
-  name          = "${var.project_id}-schema-poc"
+  name          = "${var.project_id}-lakehouse"
   location      = var.region
   storage_class = "STANDARD"
   force_destroy = true

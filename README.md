@@ -64,6 +64,7 @@ schema-evolution-gcp-native/
 # 1. Set project
 export PROJECT_ID=schema-evolution-poc
 export REGION=europe-west2
+export BUCKET="${PROJECT_ID}-lakehouse"
 
 # 2. Deploy infrastructure
 cd terraform

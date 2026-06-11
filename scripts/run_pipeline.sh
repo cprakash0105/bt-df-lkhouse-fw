@@ -5,7 +5,7 @@ set -e
 export PROJECT_ID=${1:-$(gcloud config get-value project)}
 export SCHEMA_VERSION=${2:-1}
 export REGION=${3:-europe-west2}
-export BUCKET="${PROJECT_ID}-schema-poc"
+export BUCKET="${PROJECT_ID}-lakehouse"
 export SA_EMAIL="schema-poc-dataflow@${PROJECT_ID}.iam.gserviceaccount.com"
 
 echo "=== Running Bronze→Silver (schema v${SCHEMA_VERSION}) ==="

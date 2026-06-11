@@ -175,7 +175,7 @@ def run(argv=None):
 
     known_args, pipeline_args = parser.parse_known_args(argv)
 
-    bucket = known_args.bucket or f"{known_args.project}-schema-poc"
+    bucket = known_args.bucket or f"{known_args.project}-lakehouse"
     input_path = known_args.input_path or f"gs://{bucket}/source/customer_v{known_args.schema_version}.jsonl"
 
     pipeline_options = PipelineOptions(pipeline_args)

@@ -144,7 +144,7 @@ def run(argv=None):
     parser.add_argument("--bucket", default=None)
 
     known_args, pipeline_args = parser.parse_known_args(argv)
-    bucket = known_args.bucket or f"{known_args.project}-schema-poc"
+    bucket = known_args.bucket or f"{known_args.project}-lakehouse"
 
     pipeline_options = PipelineOptions(pipeline_args)
     pipeline_options.view_as(SetupOptions).save_main_session = True

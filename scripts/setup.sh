@@ -4,7 +4,7 @@ set -e
 
 export PROJECT_ID=${1:-$(gcloud config get-value project)}
 export REGION=${2:-europe-west2}
-export BUCKET="${PROJECT_ID}-schema-poc"
+export BUCKET="${PROJECT_ID}-lakehouse"
 
 echo "=== Deploying infrastructure ==="
 cd terraform
