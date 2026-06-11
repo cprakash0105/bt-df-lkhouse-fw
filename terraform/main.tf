@@ -29,7 +29,7 @@ resource "google_project_service" "apis" {
     "bigquery.googleapis.com",
     "bigqueryconnection.googleapis.com",
     "biglake.googleapis.com",
-    "dataflow.googleapis.com",
+    "dataproc.googleapis.com",
     "iam.googleapis.com",
     "compute.googleapis.com",
   ])
@@ -51,40 +51,51 @@ resource "google_storage_bucket" "lakehouse" {
 
 # Create folder placeholders
 resource "google_storage_bucket_object" "folders" {
-  for_each = toset(["source/", "bronze/", "silver/", "gold/", "temp/"])
+  for_each = toset(["source/", "bronze/", "silver/", "gold/", "spark/"])
   name     = each.value
   bucket   = google_storage_bucket.lakehouse.name
   content  = " "
 }
 
-# --- Service Account ---
-resource "google_service_account" "dataflow_sa" {
-  account_id   = "schema-poc-dataflow"
-  display_name = "Schema POC Dataflow Runner"
+# --- Service Account (for Dataproc Serverless) ---
+resource "google_service_account" "spark_sa" {
+  account_id   = "schema-poc-spark"
+  display_name = "Schema POC Spark/Dataproc Runner"
 }
 
-resource "google_project_iam_member" "dataflow_worker" {
+# Dataproc worker role
+resource "google_project_iam_member" "spark_dataproc_worker" {
   project = var.project_id
-  role    = "roles/dataflow.worker"
-  member  = "serviceAccount:${google_service_account.dataflow_sa.email}"
+  role    = "roles/dataproc.worker"
+  member  = "serviceAccount:${google_service_account.spark_sa.email}"
 }
 
-resource "google_storage_bucket_iam_member" "dataflow_bucket" {
+# GCS full access (read/write data + Iceberg metadata)
+resource "google_storage_bucket_iam_member" "spark_bucket" {
   bucket = google_storage_bucket.lakehouse.name
   role   = "roles/storage.objectAdmin"
-  member = "serviceAccount:${google_service_account.dataflow_sa.email}"
+  member = "serviceAccount:${google_service_account.spark_sa.email}"
 }
 
-resource "google_project_iam_member" "dataflow_biglake" {
+# BigLake admin (for BLMS catalog operations)
+resource "google_project_iam_member" "spark_biglake" {
   project = var.project_id
   role    = "roles/biglake.admin"
-  member  = "serviceAccount:${google_service_account.dataflow_sa.email}"
+  member  = "serviceAccount:${google_service_account.spark_sa.email}"
 }
 
-resource "google_project_iam_member" "dataflow_bq" {
+# BigQuery data editor (for linked dataset visibility)
+resource "google_project_iam_member" "spark_bq" {
   project = var.project_id
   role    = "roles/bigquery.dataEditor"
-  member  = "serviceAccount:${google_service_account.dataflow_sa.email}"
+  member  = "serviceAccount:${google_service_account.spark_sa.email}"
+}
+
+# Service account user (to run as itself)
+resource "google_project_iam_member" "spark_sa_user" {
+  project = var.project_id
+  role    = "roles/iam.serviceAccountUser"
+  member  = "serviceAccount:${google_service_account.spark_sa.email}"
 }
 
 # --- BigLake Metastore Catalog ---
@@ -134,14 +145,7 @@ resource "google_storage_bucket_iam_member" "bq_agent_reader" {
   member = "serviceAccount:${google_bigquery_connection.biglake.cloud_resource[0].service_account_id}"
 }
 
-# --- BigQuery Linked Datasets ---
-# Note: Linked datasets for BLMS may require manual creation via bq CLI
-# if the Terraform google provider doesn't yet support BLMS-linked datasets natively.
-# Uncomment and use this script instead:
-#   bq mk --dataset --linked_resource="projects/${var.project_id}/locations/${var.region}/catalogs/schema_poc/databases/silver" --location=${var.region} ${var.project_id}:silver_iceberg
-#   bq mk --dataset --linked_resource="projects/${var.project_id}/locations/${var.region}/catalogs/schema_poc/databases/gold" --location=${var.region} ${var.project_id}:gold_iceberg
-
-# Standard BQ datasets (for views and queries) — these always work
+# --- BigQuery Datasets ---
 resource "google_bigquery_dataset" "silver_dataset" {
   dataset_id = "silver_dataset"
   location   = var.region
@@ -154,4 +158,46 @@ resource "google_bigquery_dataset" "gold_dataset" {
   location   = var.region
 
   depends_on = [google_project_service.apis["bigquery.googleapis.com"]]
+}
+
+# --- Network (required for Dataproc Serverless) ---
+resource "google_compute_network" "default" {
+  name                    = "schema-poc-network"
+  auto_create_subnetworks = true
+
+  depends_on = [google_project_service.apis["compute.googleapis.com"]]
+}
+
+resource "google_compute_firewall" "allow_internal" {
+  name    = "schema-poc-allow-internal"
+  network = google_compute_network.default.name
+
+  allow {
+    protocol = "tcp"
+    ports    = ["0-65535"]
+  }
+  allow {
+    protocol = "udp"
+    ports    = ["0-65535"]
+  }
+  allow {
+    protocol = "icmp"
+  }
+
+  source_ranges = ["10.0.0.0/8"]
+}
+
+# NAT for internet access (Dataproc workers need to download Iceberg JARs)
+resource "google_compute_router" "router" {
+  name    = "schema-poc-router"
+  network = google_compute_network.default.name
+  region  = var.region
+}
+
+resource "google_compute_router_nat" "nat" {
+  name                               = "schema-poc-nat"
+  router                             = google_compute_router.router.name
+  region                             = var.region
+  nat_ip_allocate_option             = "AUTO_ONLY"
+  source_subnetwork_ip_ranges_to_nat = "ALL_SUBNETWORKS_ALL_IP_RANGES"
 }

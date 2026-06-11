@@ -1,98 +1,86 @@
-# Schema Evolution POC — GCP Native (Dataflow + Iceberg + BigQuery)
+# Schema Evolution POC — GCP Native (Dataproc Serverless + Iceberg + BLMS + BigQuery)
 
-Fully GCP-native implementation of schema evolution in a Bronze → Silver → Gold lakehouse using managed services only.
+Fully GCP-native implementation of schema evolution using managed services only.
+
+## Architecture
+
+```
+Source (GCS JSONL)
+    │
+    ▼
+Dataproc Serverless (PySpark)
+    │
+    ├── Schema Bridge (normalise any version → Silver)
+    ├── DQ Validation
+    ├── Dedup
+    │
+    ▼
+Spark Iceberg Write ──── BiglakeCatalog ──── BLMS (managed catalog)
+    │                                            │
+    ▼                                            ▼
+GCS (Parquet data + Iceberg metadata)      BigQuery (linked datasets)
+```
 
 ## Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Ingestion | **Cloud Dataflow** (Apache Beam Python SDK) |
-| Storage | **GCS** (single bucket) |
-| Table Format | **Apache Iceberg** |
-| Catalog | **BigLake Metastore (BLMS)** |
-| Query | **BigQuery** (linked datasets) |
-| Infrastructure | **Terraform** |
-| CI/CD | GitHub Actions (optional) |
-
-## Architecture
-
-```
-Source (GCS)  →  Dataflow (Beam)  →  GCS (Iceberg)  →  BigQuery (Linked DS)
-                      ↕ REST
-              BigLake Metastore (BLMS)
-```
+| Compute | Dataproc Serverless (PySpark) |
+| Storage | GCS (single bucket) |
+| Table Format | Apache Iceberg (via Spark runtime) |
+| Catalog | BigLake Metastore (BLMS) via `BiglakeCatalog` |
+| Query | BigQuery (linked datasets) |
+| IaC | Terraform |
 
 ## Project Structure
 
 ```
-schema-evolution-gcp-native/
-├── README.md
-├── DESIGN.md
-├── terraform/
-│   ├── main.tf                    # All infra: bucket, BLMS, BQ, SA, APIs
-│   ├── variables.tf
-│   ├── outputs.tf
-│   └── terraform.tfvars.example
-├── dataflow/
-│   ├── pipelines/
-│   │   ├── bronze_to_silver.py    # Beam pipeline: Bronze → Silver Iceberg
-│   │   ├── silver_to_gold.py      # Beam pipeline: Silver → Gold Iceberg
-│   │   └── schema_bridge.py       # Historical reprocess pipeline
-│   ├── schemas/
-│   │   ├── customer_v1.json       # Schema v1 (baseline)
-│   │   ├── customer_v2.json       # Schema v2 (+loyalty_tier)
-│   │   ├── customer_v3.json       # Schema v3 (rename + drop)
-│   │   └── compatibility.json     # Governance rules
-│   ├── testdata/
-│   │   ├── customer_v1.jsonl      # 10 records
-│   │   ├── customer_v2.jsonl      # 8 records
-│   │   └── customer_v3.jsonl      # 5 records
-│   └── requirements.txt
-├── bigquery/
-│   ├── setup_linked_datasets.sql
-│   └── consumer_views.sql
+├── terraform/            # All infrastructure (APIs, bucket, SA, BLMS, BQ, network)
+├── spark/
+│   ├── bronze_to_silver.py    # PySpark: source → schema bridge → DQ → Iceberg write
+│   └── silver_to_gold.py      # PySpark: read Iceberg → aggregate → write Iceberg
+├── dataflow/testdata/         # Test data (JSONL) for v1, v2, v3
+├── bigquery/                  # Consumer views SQL
 ├── scripts/
-│   ├── setup.sh                   # One-shot setup script
-│   ├── run_pipeline.sh            # Run Dataflow jobs
-│   └── validate.sh                # Post-run validation queries
+│   ├── setup.sh
+│   ├── submit_spark_job.sh    # Submit to Dataproc Serverless
+│   └── validate.sh
 └── .gitignore
 ```
 
 ## Quick Start
 
 ```bash
-# 1. Set project
-export PROJECT_ID=schema-evolution-poc
-export REGION=europe-west2
-export BUCKET="${PROJECT_ID}-lakehouse"
-
-# 2. Deploy infrastructure
+# 1. Deploy infrastructure
 cd terraform
 terraform init
 terraform apply
+cd ..
 
-# 3. Upload test data
-gsutil cp dataflow/testdata/customer_v1.jsonl gs://${PROJECT_ID}-schema-poc/source/
+# 2. Run Bronze → Silver (schema v1)
+bash scripts/submit_spark_job.sh schema-evolution-poc europe-west2 1
 
-# 4. Run pipeline
-python dataflow/pipelines/bronze_to_silver.py \
-  --project=$PROJECT_ID \
-  --region=$REGION \
-  --runner=DataflowRunner \
-  --temp_location=gs://${PROJECT_ID}-schema-poc/temp/ \
-  --schema_version=1
+# 3. Query in BigQuery
+bq query --use_legacy_sql=false \
+  'SELECT * FROM `schema-evolution-poc.silver_dataset.customer` LIMIT 10'
 
-# 5. Query in BigQuery
-bq query 'SELECT * FROM `'$PROJECT_ID'.silver_iceberg.customer` LIMIT 10'
+# 4. Evolve schema (v2: add loyalty_tier)
+bash scripts/submit_spark_job.sh schema-evolution-poc europe-west2 2
+
+# 5. Verify evolution
+bq query --use_legacy_sql=false \
+  'SELECT customer_id, loyalty_tier, source_schema_version
+   FROM `schema-evolution-poc.silver_dataset.customer` ORDER BY customer_id'
 ```
 
-## Schema Evolution Demo
+## Why Dataproc Serverless + Spark (not Dataflow + PyIceberg)
 
-```bash
-# Batch 2: Add loyalty_tier column
-gsutil cp dataflow/testdata/customer_v2.jsonl gs://${PROJECT_ID}-schema-poc/source/
-python dataflow/pipelines/bronze_to_silver.py --schema_version=2 ...
-
-# Verify in BigQuery: old rows NULL, new rows populated
-bq query 'SELECT customer_id, loyalty_tier FROM `'$PROJECT_ID'.silver_iceberg.customer`'
+| Concern | Dataflow + PyIceberg | Dataproc Serverless + Spark |
+|---------|---------------------|----------------------------|
+| Iceberg write | PyIceberg (library) | Spark Iceberg runtime (native) |
+| BLMS catalog | REST auth issues | BiglakeCatalog (native, ADC) |
+| Serverless | ✅ | ✅ |
+| Schema evolution | Manual PyIceberg calls | `merge-schema` option built-in |
+| Production maturity | PyIceberg is newer | Spark + Iceberg is battle-tested |
+| Persistent catalog | Needs external DB | BLMS via BiglakeCatalog |
 ```
