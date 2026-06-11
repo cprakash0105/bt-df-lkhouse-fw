@@ -13,3 +13,7 @@ output "blms_catalog" {
 output "bq_connection_service_agent" {
   value = google_bigquery_connection.biglake.cloud_resource[0].service_account_id
 }
+
+output "next_steps" {
+  value = "Run: ../scripts/create_linked_datasets.sh schema-evolution-poc"
+}

@@ -54,7 +54,7 @@ resource "google_storage_bucket_object" "folders" {
   for_each = toset(["source/", "bronze/", "silver/", "gold/", "temp/"])
   name     = each.value
   bucket   = google_storage_bucket.lakehouse.name
-  content  = ""
+  content  = " "
 }
 
 # --- Service Account ---
@@ -135,26 +135,23 @@ resource "google_storage_bucket_iam_member" "bq_agent_reader" {
 }
 
 # --- BigQuery Linked Datasets ---
-resource "google_bigquery_dataset" "silver_iceberg" {
-  dataset_id = "silver_iceberg"
+# Note: Linked datasets for BLMS may require manual creation via bq CLI
+# if the Terraform google provider doesn't yet support BLMS-linked datasets natively.
+# Uncomment and use this script instead:
+#   bq mk --dataset --linked_resource="projects/${var.project_id}/locations/${var.region}/catalogs/schema_poc/databases/silver" --location=${var.region} ${var.project_id}:silver_iceberg
+#   bq mk --dataset --linked_resource="projects/${var.project_id}/locations/${var.region}/catalogs/schema_poc/databases/gold" --location=${var.region} ${var.project_id}:gold_iceberg
+
+# Standard BQ datasets (for views and queries) — these always work
+resource "google_bigquery_dataset" "silver_dataset" {
+  dataset_id = "silver_dataset"
   location   = var.region
 
-  external_dataset_reference {
-    external_source = "projects/${var.project_id}/locations/${var.region}/catalogs/schema_poc/databases/silver"
-    connection      = google_bigquery_connection.biglake.name
-  }
-
-  depends_on = [google_biglake_database.silver]
+  depends_on = [google_project_service.apis["bigquery.googleapis.com"]]
 }
 
-resource "google_bigquery_dataset" "gold_iceberg" {
-  dataset_id = "gold_iceberg"
+resource "google_bigquery_dataset" "gold_dataset" {
+  dataset_id = "gold_dataset"
   location   = var.region
 
-  external_dataset_reference {
-    external_source = "projects/${var.project_id}/locations/${var.region}/catalogs/schema_poc/databases/gold"
-    connection      = google_bigquery_connection.biglake.name
-  }
-
-  depends_on = [google_biglake_database.gold]
+  depends_on = [google_project_service.apis["bigquery.googleapis.com"]]
 }
