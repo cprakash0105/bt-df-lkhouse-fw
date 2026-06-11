@@ -15,10 +15,10 @@ ICEBERG_PROPS="^::^spark.jars.packages=org.apache.iceberg:iceberg-spark-runtime-
 echo "=== Uploading Spark jobs to GCS ==="
 gsutil -q cp spark/*.py gs://${BUCKET}/spark/
 
-# Stage 1: Landing → Bronze
+# Stage 1: Landing → Bronze (now also Iceberg + BLMS)
 if [[ "$STAGE" == "all" || "$STAGE" == "landing_to_bronze" ]]; then
   echo ""
-  echo "=== Stage 1: Landing → Bronze ==="
+  echo "=== Stage 1: Landing → Bronze (Iceberg) ==="
   gcloud dataproc batches submit pyspark \
     gs://${BUCKET}/spark/landing_to_bronze.py \
     --project=${PROJECT_ID} \
@@ -26,7 +26,9 @@ if [[ "$STAGE" == "all" || "$STAGE" == "landing_to_bronze" ]]; then
     --service-account=${SA_EMAIL} \
     --subnet=${SUBNET} \
     --version=2.2 \
+    --jars=gs://spark-lib/biglake/biglake-catalog-iceberg1.9.1-0.1.3-with-dependencies.jar \
     --deps-bucket=gs://${BUCKET} \
+    --properties="${ICEBERG_PROPS}" \
     -- --project=${PROJECT_ID} --region=${REGION}
 fi
 

@@ -106,6 +106,17 @@ resource "google_biglake_catalog" "schema_poc" {
   depends_on = [google_project_service.apis["biglake.googleapis.com"]]
 }
 
+resource "google_biglake_database" "bronze" {
+  name    = "bronze"
+  catalog = google_biglake_catalog.schema_poc.id
+  type    = "HIVE"
+
+  hive_options {
+    location_uri = "gs://${google_storage_bucket.lakehouse.name}/bronze"
+    parameters   = {}
+  }
+}
+
 resource "google_biglake_database" "silver" {
   name    = "silver"
   catalog = google_biglake_catalog.schema_poc.id
