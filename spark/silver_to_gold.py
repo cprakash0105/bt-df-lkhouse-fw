@@ -27,8 +27,6 @@ def create_spark_session(project_id, region):
         .config("spark.sql.catalog.lakehouse.gcp_location", region)
         .config("spark.sql.catalog.lakehouse.blms_catalog", "schema_poc")
         .config("spark.sql.catalog.lakehouse.warehouse", f"gs://{project_id}-lakehouse")
-        .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
-        .config("spark.sql.defaultCatalog", "lakehouse")
         .getOrCreate()
     )
 
