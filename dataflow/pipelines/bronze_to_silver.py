@@ -115,14 +115,13 @@ class DedupFn(beam.CombineFn):
 
 
 def get_catalog(project_id, region, bucket):
-    """Load Iceberg catalog — uses Hadoop (filesystem) catalog on GCS."""
+    """Load Iceberg catalog — uses SQL catalog with GCS warehouse."""
     return load_catalog(
         "lakehouse",
         **{
             "type": "sql",
             "uri": f"sqlite:///{bucket}_catalog.db",
             "warehouse": f"gs://{bucket}",
-            "py-io-impl": "pyiceberg.io.fsspec.FsspecFileIO",
         }
     )
 
