@@ -62,7 +62,7 @@ schema-evolution-gcp-native/
 
 ```bash
 # 1. Set project
-export PROJECT_ID=your-gcp-project
+export PROJECT_ID=schema-evolution-poc
 export REGION=europe-west2
 
 # 2. Deploy infrastructure
