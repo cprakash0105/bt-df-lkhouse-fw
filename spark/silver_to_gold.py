@@ -1,24 +1,22 @@
-"""Silver to Gold PySpark pipeline — read Iceberg, aggregate, write Iceberg.
+"""Silver to Gold: Join all tables into a reporting-ready Gold Iceberg table.
+
+Reads customers, orders, payments from Silver Iceberg tables,
+joins them, aggregates, and writes to Gold Iceberg table via BLMS.
+
+Gold table: customer_order_summary
+- Per customer: total orders, total spend, avg order value, payment stats, loyalty, region
 
 Usage:
-    gcloud dataproc batches submit pyspark \
-      gs://schema-evolution-poc-lakehouse/spark/silver_to_gold.py \
-      --project=schema-evolution-poc \
-      --region=europe-west2 \
-      --service-account=schema-poc-spark@schema-evolution-poc.iam.gserviceaccount.com \
-      --subnet=projects/schema-evolution-poc/regions/europe-west2/subnetworks/schema-poc-network \
-      --properties="spark.jars.packages=org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.7.1,org.apache.iceberg:iceberg-gcp-bundle-1.7.1"
+    gcloud dataproc batches submit pyspark gs://schema-evolution-poc-lakehouse/spark/silver_to_gold.py \
+      --jars=gs://spark-lib/biglake/biglake-catalog-iceberg1.9.1-0.1.3-with-dependencies.jar \
+      --properties="^::^spark.jars.packages=org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.9.1::spark.sql.catalog.lakehouse=org.apache.iceberg.spark.SparkCatalog::spark.sql.catalog.lakehouse.catalog-impl=org.apache.iceberg.gcp.biglake.BigLakeCatalog::spark.sql.catalog.lakehouse.gcp_project=schema-evolution-poc::spark.sql.catalog.lakehouse.gcp_location=europe-west2::spark.sql.catalog.lakehouse.blms_catalog=schema_poc::spark.sql.catalog.lakehouse.warehouse=gs://schema-evolution-poc-lakehouse" \
+      -- --project=schema-evolution-poc
 """
 
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
-
-
-def create_spark_session(project_id, region):
-    """Create Spark session — catalog config passed via --properties at submit time."""
-    return SparkSession.builder.appName("SilverToGold").getOrCreate()
 
 
 def main():
@@ -27,56 +25,121 @@ def main():
     parser.add_argument("--region", default="europe-west2")
     args = parser.parse_args()
 
-    print("=== Silver to Gold: Aggregation ===")
+    spark = SparkSession.builder.appName("SilverToGold").getOrCreate()
 
-    spark = create_spark_session(args.project, args.region)
+    print("=== Silver → Gold: Building reporting table ===")
 
-    # Read Silver Iceberg table
-    silver_df = spark.read.table("lakehouse.silver.customer")
-    print(f"Read {silver_df.count()} records from silver.customer")
+    # Read Silver Iceberg tables
+    customers = spark.read.table("lakehouse.silver.customers")
+    orders = spark.read.table("lakehouse.silver.orders")
+    payments = spark.read.table("lakehouse.silver.payments")
 
-    # Aggregate by loyalty_tier, signup_month
-    gold_df = (
-        silver_df
-        .withColumn("signup_month", F.substring(F.col("signup_date"), 1, 7))
-        .groupBy("loyalty_tier", "signup_month")
+    print(f"  Customers: {customers.count():,}")
+    print(f"  Orders: {orders.count():,}")
+    print(f"  Payments: {payments.count():,}")
+
+    # Aggregate payments per order
+    payment_agg = (
+        payments
+        .filter(F.col("status") == "completed")
+        .groupBy("order_id")
         .agg(
-            F.count("customer_id").alias("customer_count"),
-            F.sum("order_amount").alias("total_order_amount"),
-            F.avg("order_amount").alias("avg_order_amount"),
+            F.sum("amount").alias("total_paid"),
+            F.count("payment_id").alias("payment_count"),
+            F.collect_set("payment_method").alias("payment_methods_used"),
         )
-        .withColumn("generated_ts", F.lit(datetime.utcnow().isoformat()))
     )
 
-    print(f"Gold aggregation: {gold_df.count()} rows")
+    # Join orders with payment aggregation
+    orders_enriched = (
+        orders
+        .join(payment_agg, on="order_id", how="left")
+        .withColumn("total_paid", F.coalesce(F.col("total_paid"), F.lit(0.0)))
+        .withColumn("payment_count", F.coalesce(F.col("payment_count"), F.lit(0)))
+    )
 
-    # Create Gold table if not exists
+    # Aggregate per customer
+    customer_orders = (
+        orders_enriched
+        .groupBy("customer_id")
+        .agg(
+            F.count("order_id").alias("total_orders"),
+            F.sum("total_amount").alias("total_spend"),
+            F.avg("total_amount").alias("avg_order_value"),
+            F.sum("total_paid").alias("total_paid"),
+            F.sum("payment_count").alias("total_payments"),
+            F.sum("discount_amount").alias("total_discounts"),
+            F.min("order_date").alias("first_order_date"),
+            F.max("order_date").alias("last_order_date"),
+            F.countDistinct("channel").alias("channels_used"),
+            F.sum(F.when(F.col("status") == "delivered", 1).otherwise(0)).alias("delivered_orders"),
+            F.sum(F.when(F.col("status") == "cancelled", 1).otherwise(0)).alias("cancelled_orders"),
+            F.sum(F.when(F.col("status") == "returned", 1).otherwise(0)).alias("returned_orders"),
+        )
+    )
+
+    # Join with customer dimensions
+    gold_df = (
+        customers
+        .select("customer_id", "name", "email", "region", "loyalty_tier", "signup_date", "is_active")
+        .join(customer_orders, on="customer_id", how="left")
+        .withColumn("total_orders", F.coalesce(F.col("total_orders"), F.lit(0)))
+        .withColumn("total_spend", F.coalesce(F.col("total_spend"), F.lit(0.0)))
+        .withColumn("avg_order_value", F.coalesce(F.col("avg_order_value"), F.lit(0.0)))
+        .withColumn("total_paid", F.coalesce(F.col("total_paid"), F.lit(0.0)))
+        .withColumn("total_payments", F.coalesce(F.col("total_payments"), F.lit(0)))
+        .withColumn("total_discounts", F.coalesce(F.col("total_discounts"), F.lit(0.0)))
+        .withColumn("delivered_orders", F.coalesce(F.col("delivered_orders"), F.lit(0)))
+        .withColumn("cancelled_orders", F.coalesce(F.col("cancelled_orders"), F.lit(0)))
+        .withColumn("returned_orders", F.coalesce(F.col("returned_orders"), F.lit(0)))
+        .withColumn("generated_ts", F.lit(datetime.now(timezone.utc).isoformat()))
+    )
+
+    print(f"  Gold records: {gold_df.count():,}")
+
+    # Write to Gold Iceberg
     spark.sql("CREATE NAMESPACE IF NOT EXISTS lakehouse.gold")
     spark.sql("""
-        CREATE TABLE IF NOT EXISTS lakehouse.gold.customer_summary (
+        CREATE TABLE IF NOT EXISTS lakehouse.gold.customer_order_summary (
+            customer_id INT,
+            name STRING,
+            email STRING,
+            region STRING,
             loyalty_tier STRING,
-            signup_month STRING,
-            customer_count BIGINT,
-            total_order_amount BIGINT,
-            avg_order_amount DOUBLE,
+            signup_date STRING,
+            is_active BOOLEAN,
+            total_orders BIGINT,
+            total_spend DOUBLE,
+            avg_order_value DOUBLE,
+            total_paid DOUBLE,
+            total_payments BIGINT,
+            total_discounts DOUBLE,
+            first_order_date STRING,
+            last_order_date STRING,
+            channels_used BIGINT,
+            delivered_orders BIGINT,
+            cancelled_orders BIGINT,
+            returned_orders BIGINT,
             generated_ts STRING
-        )
-        USING iceberg
-        PARTITIONED BY (signup_month)
+        ) USING iceberg
+        PARTITIONED BY (region)
     """)
 
-    # Overwrite Gold table
-    (
-        gold_df.writeTo("lakehouse.gold.customer_summary")
-        .option("merge-schema", "true")
-        .overwritePartitions()
-    )
+    gold_df.writeTo("lakehouse.gold.customer_order_summary").overwritePartitions()
+    print("  ✅ Written to lakehouse.gold.customer_order_summary")
 
-    # Verify
-    count = spark.sql("SELECT COUNT(*) as cnt FROM lakehouse.gold.customer_summary").collect()[0]["cnt"]
-    print(f"=== Gold table now has {count} total records ===")
-
-    spark.sql("SELECT * FROM lakehouse.gold.customer_summary").show(truncate=False)
+    # Show summary stats
+    print("\n=== Gold Summary ===")
+    spark.sql("""
+        SELECT region, loyalty_tier, 
+               COUNT(*) as customers,
+               SUM(total_orders) as orders,
+               ROUND(SUM(total_spend), 2) as revenue
+        FROM lakehouse.gold.customer_order_summary
+        GROUP BY region, loyalty_tier
+        ORDER BY revenue DESC
+        LIMIT 20
+    """).show(truncate=False)
 
     spark.stop()
 
