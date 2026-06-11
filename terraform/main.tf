@@ -13,6 +13,15 @@ provider "google" {
   region  = var.region
 }
 
+# --- Bootstrap: Cloud Resource Manager must be enabled first ---
+# Run manually if this is a fresh project:
+#   gcloud services enable cloudresourcemanager.googleapis.com --project=schema-evolution-poc
+
+resource "google_project_service" "resourcemanager" {
+  service            = "cloudresourcemanager.googleapis.com"
+  disable_on_destroy = false
+}
+
 # --- APIs ---
 resource "google_project_service" "apis" {
   for_each = toset([
@@ -26,6 +35,8 @@ resource "google_project_service" "apis" {
   ])
   service            = each.value
   disable_on_destroy = false
+
+  depends_on = [google_project_service.resourcemanager]
 }
 
 # --- GCS Bucket ---
