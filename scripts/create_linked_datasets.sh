@@ -1,6 +1,5 @@
 #!/bin/bash
-# Run AFTER terraform apply — creates BLMS-linked datasets in BigQuery
-# (Terraform google provider doesn't natively support linked datasets on BLMS yet)
+# Create BigQuery linked datasets pointing to BLMS databases
 set -e
 
 export PROJECT_ID=${1:-schema-evolution-poc}
@@ -8,20 +7,25 @@ export REGION=${2:-europe-west2}
 
 echo "=== Creating BigQuery linked datasets ==="
 
-# Silver linked dataset
 bq mk --dataset \
-  --external_table_definition="" \
-  --linked_resource="projects/${PROJECT_ID}/locations/${REGION}/catalogs/schema_poc/databases/silver" \
+  --linked_resource="projects/${PROJECT_ID}/locations/${REGION}/catalogs/lakehouse/databases/raw" \
   --location=${REGION} \
-  ${PROJECT_ID}:silver_iceberg 2>/dev/null || echo "silver_iceberg already exists or BLMS not ready yet"
+  ${PROJECT_ID}:lakehouse_raw 2>/dev/null && echo "  ✅ lakehouse_raw" || echo "  ⚠️  lakehouse_raw exists"
 
-# Gold linked dataset
 bq mk --dataset \
-  --external_table_definition="" \
-  --linked_resource="projects/${PROJECT_ID}/locations/${REGION}/catalogs/schema_poc/databases/gold" \
+  --linked_resource="projects/${PROJECT_ID}/locations/${REGION}/catalogs/lakehouse/databases/curated" \
   --location=${REGION} \
-  ${PROJECT_ID}:gold_iceberg 2>/dev/null || echo "gold_iceberg already exists or BLMS not ready yet"
+  ${PROJECT_ID}:lakehouse_curated 2>/dev/null && echo "  ✅ lakehouse_curated" || echo "  ⚠️  lakehouse_curated exists"
 
-echo "=== Done. Verify: ==="
-echo "bq ls silver_iceberg"
-echo "bq ls gold_iceberg"
+bq mk --dataset \
+  --linked_resource="projects/${PROJECT_ID}/locations/${REGION}/catalogs/lakehouse/databases/consumption" \
+  --location=${REGION} \
+  ${PROJECT_ID}:lakehouse_consumption 2>/dev/null && echo "  ✅ lakehouse_consumption" || echo "  ⚠️  lakehouse_consumption exists"
+
+echo ""
+echo "=== Done. Tables auto-appear after Spark jobs write to BLMS ==="
+echo ""
+echo "Query examples:"
+echo "  SELECT COUNT(*) FROM \`${PROJECT_ID}.lakehouse_raw.customers\`"
+echo "  SELECT COUNT(*) FROM \`${PROJECT_ID}.lakehouse_curated.orders\`"
+echo "  SELECT * FROM \`${PROJECT_ID}.lakehouse_consumption.customer_360\` LIMIT 10"
