@@ -1,0 +1,180 @@
+# ============================================================
+# bt-df-lkhouse-fw Pipeline Configuration
+# Use Case: E-Commerce Lakehouse
+# ============================================================
+
+pipeline:
+  name: ecommerce
+  description: "E-Commerce lakehouse with schema evolution"
+  catalog: lakehouse
+  bucket: bt-df-lkhouse-lakehouse
+  namespaces:
+    reservoir: reservoir
+    ccn: ccn
+    dataproduct: dataproduct
+
+# ============================================================
+# TABLE DEFINITIONS (Landing → Reservoir → CCN)
+# ============================================================
+tables:
+  customers:
+    description: "Customer master data"
+    primary_key: customer_id
+    dedup_order_by: ingestion_ts DESC
+    dq_rules:
+      not_null: [customer_id, name, email]
+      accepted_values:
+        loyalty_tier: [Bronze, Silver, Gold, Platinum, Diamond]
+        region: [North, South, Midlands, London, Scotland, Wales, East, West]
+    type_overrides: {}
+    schema_evolution:
+      allowed: [add_column, type_widen]
+      blocked: [drop_column, type_narrow]
+
+  products:
+    description: "Product catalog"
+    primary_key: product_id
+    dedup_order_by: ingestion_ts DESC
+    dq_rules:
+      not_null: [product_id, product_name, category]
+      positive: [price]
+      accepted_values:
+        category: [Electronics, Clothing, Home, Sports, Books, Food, Health, Toys, Auto, Garden]
+    type_overrides:
+      price: double
+      cost_price: double
+    schema_evolution:
+      allowed: [add_column, type_widen]
+      blocked: [drop_column, type_narrow]
+
+  orders:
+    description: "Customer orders"
+    primary_key: order_id
+    dedup_order_by: ingestion_ts DESC
+    dq_rules:
+      not_null: [order_id, customer_id, order_date, total_amount]
+      positive: [total_amount]
+      accepted_values:
+        status: [delivered, shipped, processing, cancelled, returned]
+        channel: [web, mobile, store, phone, marketplace]
+    type_overrides:
+      subtotal: double
+      tax: double
+      total_amount: double
+      shipping_cost: double
+      discount_amount: double
+    schema_evolution:
+      allowed: [add_column, type_widen]
+      blocked: [drop_column, type_narrow]
+
+  payments:
+    description: "Payment transactions"
+    primary_key: payment_id
+    dedup_order_by: ingestion_ts DESC
+    dq_rules:
+      not_null: [payment_id, order_id, payment_date, amount]
+      positive: [amount]
+      accepted_values:
+        status: [completed, pending, failed, refunded]
+        payment_method: [Credit Card, Debit Card, PayPal, Bank Transfer, Apple Pay, Google Pay, Crypto]
+    type_overrides:
+      amount: double
+    schema_evolution:
+      allowed: [add_column, type_widen]
+      blocked: [drop_column, type_narrow]
+
+# ============================================================
+# CONSUMPTION DEFINITIONS (CCN → Data Product)
+# ============================================================
+consumption:
+  customer_360:
+    description: "Customer 360 - full customer view with order and payment history"
+    base_table: customers
+    joins:
+      - name: order_agg
+        source: orders
+        type: left
+        on: customer_id
+        aggregations:
+          - column: order_id
+            function: count
+            alias: total_orders
+          - column: total_amount
+            function: sum
+            alias: total_spend
+          - column: total_amount
+            function: avg
+            alias: avg_order_value
+          - column: order_date
+            function: max
+            alias: last_order_date
+          - column: order_date
+            function: min
+            alias: first_order_date
+          - column: discount_amount
+            function: sum
+            alias: total_discounts
+
+      - name: payment_agg
+        source: payments
+        type: left
+        link_through: orders
+        link_key: order_id
+        on: customer_id
+        aggregations:
+          - column: payment_id
+            function: count
+            alias: total_payments
+          - column: amount
+            function: sum
+            alias: total_paid
+
+    output_columns:
+      from_base:
+        - customer_id
+        - name
+        - email
+        - region
+        - loyalty_tier
+        - signup_date
+        - is_active
+        - customer_segment   # V2+ (nullable)
+      from_joins:
+        - total_orders
+        - total_spend
+        - avg_order_value
+        - first_order_date
+        - last_order_date
+        - total_discounts
+        - total_payments
+        - total_paid
+
+# ============================================================
+# SCHEMA DRIFT SCENARIOS (V2)
+# ============================================================
+schema_drift:
+  v2_changes:
+    customers:
+      add_columns:
+        - name: customer_segment
+          type: string
+          description: "Business segment classification"
+          values: [Enterprise, SMB, Consumer, Government, Education]
+      enum_expansion:
+        - column: loyalty_tier
+          new_values: [Diamond]
+
+    orders:
+      enum_expansion:
+        - column: channel
+          new_values: [marketplace]
+
+    payments:
+      add_columns:
+        - name: payment_channel
+          type: string
+          description: "Channel through which payment was made"
+          values: [online, in-store, phone, partner-api]
+      enum_expansion:
+        - column: payment_method
+          new_values: [Crypto]

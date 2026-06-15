@@ -8,24 +8,24 @@ export REGION=${2:-europe-west2}
 echo "=== Creating BigQuery linked datasets ==="
 
 bq mk --dataset \
-  --linked_resource="projects/${PROJECT_ID}/locations/${REGION}/catalogs/lakehouse/databases/raw" \
+  --linked_resource="projects/${PROJECT_ID}/locations/${REGION}/catalogs/lakehouse/databases/reservoir" \
   --location=${REGION} \
-  ${PROJECT_ID}:lakehouse_raw 2>/dev/null && echo "  ✅ lakehouse_raw" || echo "  ⚠️  lakehouse_raw exists"
+  ${PROJECT_ID}:lakehouse_reservoir 2>/dev/null && echo "  ✅ lakehouse_reservoir" || echo "  ⚠️  lakehouse_reservoir exists"
 
 bq mk --dataset \
-  --linked_resource="projects/${PROJECT_ID}/locations/${REGION}/catalogs/lakehouse/databases/curated" \
+  --linked_resource="projects/${PROJECT_ID}/locations/${REGION}/catalogs/lakehouse/databases/ccn" \
   --location=${REGION} \
-  ${PROJECT_ID}:lakehouse_curated 2>/dev/null && echo "  ✅ lakehouse_curated" || echo "  ⚠️  lakehouse_curated exists"
+  ${PROJECT_ID}:lakehouse_ccn 2>/dev/null && echo "  ✅ lakehouse_ccn" || echo "  ⚠️  lakehouse_ccn exists"
 
 bq mk --dataset \
-  --linked_resource="projects/${PROJECT_ID}/locations/${REGION}/catalogs/lakehouse/databases/consumption" \
+  --linked_resource="projects/${PROJECT_ID}/locations/${REGION}/catalogs/lakehouse/databases/dataproduct" \
   --location=${REGION} \
-  ${PROJECT_ID}:lakehouse_consumption 2>/dev/null && echo "  ✅ lakehouse_consumption" || echo "  ⚠️  lakehouse_consumption exists"
+  ${PROJECT_ID}:lakehouse_dataproduct 2>/dev/null && echo "  ✅ lakehouse_dataproduct" || echo "  ⚠️  lakehouse_dataproduct exists"
 
 echo ""
-echo "=== Done. Tables auto-appear after Spark jobs write to BLMS ==="
+echo "=== Done ==="
 echo ""
 echo "Query examples:"
-echo "  SELECT COUNT(*) FROM \`${PROJECT_ID}.lakehouse_raw.customers\`"
-echo "  SELECT COUNT(*) FROM \`${PROJECT_ID}.lakehouse_curated.orders\`"
-echo "  SELECT * FROM \`${PROJECT_ID}.lakehouse_consumption.customer_360\` LIMIT 10"
+echo "  SELECT COUNT(*) FROM \`${PROJECT_ID}.lakehouse_reservoir.customers\`"
+echo "  SELECT COUNT(*) FROM \`${PROJECT_ID}.lakehouse_ccn.orders\`"
+echo "  SELECT * FROM \`${PROJECT_ID}.lakehouse_dataproduct.customer_360\` LIMIT 10"

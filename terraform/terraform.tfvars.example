@@ -1,2 +1,2 @@
-project_id = "schema-evolution-poc"
+project_id = "bt-df-lkhouse"
 region     = "europe-west2"

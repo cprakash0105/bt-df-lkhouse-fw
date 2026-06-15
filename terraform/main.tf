@@ -46,7 +46,7 @@ resource "google_storage_bucket" "lakehouse" {
 }
 
 resource "google_storage_bucket_object" "folders" {
-  for_each = toset(["landing/", "raw/", "curated/", "consumption/", "spark/"])
+  for_each = toset(["landing/", "reservoir/", "ccn/", "dataproduct/", "spark/", "contracts/"])
   name     = each.value
   bucket   = google_storage_bucket.lakehouse.name
   content  = " "
@@ -95,32 +95,32 @@ resource "google_biglake_catalog" "lakehouse" {
   depends_on = [google_project_service.apis["biglake.googleapis.com"]]
 }
 
-resource "google_biglake_database" "raw" {
-  name    = "raw"
+resource "google_biglake_database" "reservoir" {
+  name    = "reservoir"
   catalog = google_biglake_catalog.lakehouse.id
   type    = "HIVE"
   hive_options {
-    location_uri = "gs://${google_storage_bucket.lakehouse.name}/raw"
+    location_uri = "gs://${google_storage_bucket.lakehouse.name}/reservoir"
     parameters   = {}
   }
 }
 
-resource "google_biglake_database" "curated" {
-  name    = "curated"
+resource "google_biglake_database" "ccn" {
+  name    = "ccn"
   catalog = google_biglake_catalog.lakehouse.id
   type    = "HIVE"
   hive_options {
-    location_uri = "gs://${google_storage_bucket.lakehouse.name}/curated"
+    location_uri = "gs://${google_storage_bucket.lakehouse.name}/ccn"
     parameters   = {}
   }
 }
 
-resource "google_biglake_database" "consumption" {
-  name    = "consumption"
+resource "google_biglake_database" "dataproduct" {
+  name    = "dataproduct"
   catalog = google_biglake_catalog.lakehouse.id
   type    = "HIVE"
   hive_options {
-    location_uri = "gs://${google_storage_bucket.lakehouse.name}/consumption"
+    location_uri = "gs://${google_storage_bucket.lakehouse.name}/dataproduct"
     parameters   = {}
   }
 }
