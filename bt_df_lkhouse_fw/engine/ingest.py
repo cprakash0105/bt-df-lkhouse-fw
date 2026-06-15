@@ -1,7 +1,7 @@
 """bt-df-lkhouse-fw — Ingest Engine (Landing → Reservoir).
 Config-driven ingestion with schema evolution support."""
-from engine.base import get_spark, load_config, get_table_config, parse_args, log, log_header, log_table_info, BANNER
-from engine.schema_evolver import SchemaEvolver
+from bt_df_lkhouse_fw.engine.base import get_spark, load_config, get_table_config, parse_args, log, log_header, log_table_info, BANNER
+from bt_df_lkhouse_fw.engine.schema_evolver import SchemaEvolver
 from pyspark.sql.functions import current_timestamp
 
 

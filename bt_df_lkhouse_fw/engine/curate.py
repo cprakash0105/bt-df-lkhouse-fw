@@ -1,6 +1,6 @@
 """bt-df-lkhouse-fw — Curate Engine (Reservoir → CCN).
 Config-driven DQ validation, deduplication, type enforcement."""
-from engine.base import get_spark, load_config, get_table_config, parse_args, log, log_header, log_table_info, BANNER
+from bt_df_lkhouse_fw.engine.base import get_spark, load_config, get_table_config, parse_args, log, log_header, log_table_info, BANNER
 from pyspark.sql.functions import col, row_number
 from pyspark.sql.window import Window
 from pyspark.sql.types import LongType, DoubleType, StringType, IntegerType

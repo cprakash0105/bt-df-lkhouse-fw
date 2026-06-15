@@ -1,6 +1,6 @@
 """bt-df-lkhouse-fw — Schema Evolution Engine.
 Detects drift, applies allowed changes, blocks breaking changes."""
-from engine.base import log
+from bt_df_lkhouse_fw.engine.base import log
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.functions import lit
 

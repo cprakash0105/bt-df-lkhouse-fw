@@ -1,6 +1,6 @@
 """bt-df-lkhouse-fw — Consume Engine (CCN → Data Product).
 Config-driven joins and aggregations to build data products."""
-from engine.base import get_spark, load_config, get_consumption_config, parse_args, log, log_header, BANNER
+from bt_df_lkhouse_fw.engine.base import get_spark, load_config, get_consumption_config, parse_args, log, log_header, BANNER
 from pyspark.sql.functions import col, count, sum as spark_sum, avg, max as spark_max, min as spark_min
 
 
