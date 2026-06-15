@@ -163,13 +163,13 @@ def main():
     print("\n=== Uploading V2 data to landing/ ===")
 
     print("Uploading customers v2...")
-    upload_jsonl_to_gcs(client, bucket_name, "landing/customers", customers)
+    upload_jsonl_to_gcs(client, bucket_name, "landing/customers/v2", customers)
 
     print("Uploading orders v2...")
-    upload_jsonl_to_gcs(client, bucket_name, "landing/orders", orders)
+    upload_jsonl_to_gcs(client, bucket_name, "landing/orders/v2", orders)
 
     print("Uploading payments v2...")
-    upload_jsonl_to_gcs(client, bucket_name, "landing/payments", payments, batch_size=100000)
+    upload_jsonl_to_gcs(client, bucket_name, "landing/payments/v2", payments, batch_size=100000)
 
     print(f"""
 === V2 Data Generated ===
@@ -184,7 +184,7 @@ Schema drift summary:
 └─────────────┴──────────────────────────────────────────────────────┘
 
 Next steps:
-  1. Re-run pipeline: bash scripts/run_pipeline.sh {args.project} europe-west2 all
+  1. Re-run pipeline with v2: bash scripts/run_pipeline.sh {args.project} europe-west2 all v2
   2. Pipeline will:
      - Raw: merge-schema adds new columns automatically
      - Curated: DQ passes (additive changes are safe), new columns flow through

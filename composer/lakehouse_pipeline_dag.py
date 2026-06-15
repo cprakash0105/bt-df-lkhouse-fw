@@ -45,18 +45,22 @@ with DAG(
     start_date=datetime(2025, 6, 1),
     catchup=False,
     tags=["lakehouse", "iceberg", "schema-evolution"],
+    params={"version": "v1"},
 ) as dag:
 
-    landing_to_raw = DataprocCreateBatchOperator(
-        task_id="landing_to_raw",
+    CONFIG_PATH = f"gs://{BUCKET}/framework/config/pipeline.yaml"
+
+    ingest = DataprocCreateBatchOperator(
+        task_id="ingest",
         project_id=PROJECT_ID,
         region=REGION,
-        batch_id=f"landing-to-raw-{{{{ ds_nodash }}}}",
+        batch_id=f"ingest-{{{{ ds_nodash }}}}",
         batch={
             "pyspark_batch": {
-                "main_python_file_uri": f"gs://{BUCKET}/spark/landing_to_raw.py",
-                "args": [f"--project={PROJECT_ID}"],
+                "main_python_file_uri": f"gs://{BUCKET}/framework/engine/ingest.py",
+                "args": ["--config", CONFIG_PATH, "--all", "--version", "{{ params.version }}"],
                 "jar_file_uris": ICEBERG_JARS,
+                "python_file_uris": [f"gs://{BUCKET}/framework/"],
             },
             "runtime_config": {
                 "version": "2.2",
@@ -72,16 +76,17 @@ with DAG(
         },
     )
 
-    raw_to_curated = DataprocCreateBatchOperator(
-        task_id="raw_to_curated",
+    curate = DataprocCreateBatchOperator(
+        task_id="curate",
         project_id=PROJECT_ID,
         region=REGION,
-        batch_id=f"raw-to-curated-{{{{ ds_nodash }}}}",
+        batch_id=f"curate-{{{{ ds_nodash }}}}",
         batch={
             "pyspark_batch": {
-                "main_python_file_uri": f"gs://{BUCKET}/spark/raw_to_curated.py",
-                "args": [f"--project={PROJECT_ID}"],
+                "main_python_file_uri": f"gs://{BUCKET}/framework/engine/curate.py",
+                "args": ["--config", CONFIG_PATH, "--all"],
                 "jar_file_uris": ICEBERG_JARS,
+                "python_file_uris": [f"gs://{BUCKET}/framework/"],
             },
             "runtime_config": {
                 "version": "2.2",
@@ -97,16 +102,17 @@ with DAG(
         },
     )
 
-    curated_to_consumption = DataprocCreateBatchOperator(
-        task_id="curated_to_consumption",
+    consume = DataprocCreateBatchOperator(
+        task_id="consume",
         project_id=PROJECT_ID,
         region=REGION,
-        batch_id=f"curated-to-consumption-{{{{ ds_nodash }}}}",
+        batch_id=f"consume-{{{{ ds_nodash }}}}",
         batch={
             "pyspark_batch": {
-                "main_python_file_uri": f"gs://{BUCKET}/spark/curated_to_consumption.py",
-                "args": [f"--project={PROJECT_ID}"],
+                "main_python_file_uri": f"gs://{BUCKET}/framework/engine/consume.py",
+                "args": ["--config", CONFIG_PATH, "--all"],
                 "jar_file_uris": ICEBERG_JARS,
+                "python_file_uris": [f"gs://{BUCKET}/framework/"],
             },
             "runtime_config": {
                 "version": "2.2",
@@ -122,5 +128,4 @@ with DAG(
         },
     )
 
-    # DAG dependency chain
-    landing_to_raw >> raw_to_curated >> curated_to_consumption
+    ingest >> curate >> consume

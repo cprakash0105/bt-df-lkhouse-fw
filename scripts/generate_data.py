@@ -176,37 +176,34 @@ def main():
     orders = generate_orders(NUM_CUSTOMERS, NUM_PRODUCTS)
     payments = generate_payments(NUM_ORDERS)
 
-    # Upload to GCS landing zone (raw data from source systems)
-    print("\n=== Uploading to GCS landing/ ===")
+    # Upload to GCS landing zone (versioned paths for framework)
+    print("\n=== Uploading to GCS landing/ (v1) ===")
     
     print("Uploading customers...")
-    upload_jsonl_to_gcs(client, bucket_name, "landing/customers", customers)
+    upload_jsonl_to_gcs(client, bucket_name, "landing/customers/v1", customers)
     
     print("Uploading products...")
-    upload_jsonl_to_gcs(client, bucket_name, "landing/products", products)
+    upload_jsonl_to_gcs(client, bucket_name, "landing/products/v1", products)
     
     print("Uploading orders...")
-    upload_jsonl_to_gcs(client, bucket_name, "landing/orders", orders)
+    upload_jsonl_to_gcs(client, bucket_name, "landing/orders/v1", orders)
     
     print("Uploading payments...")
-    upload_jsonl_to_gcs(client, bucket_name, "landing/payments", payments, batch_size=100000)
+    upload_jsonl_to_gcs(client, bucket_name, "landing/payments/v1", payments, batch_size=100000)
 
     print(f"""
 === Done ===
 Generated and uploaded:
-  - {NUM_CUSTOMERS:,} customers  → gs://{bucket_name}/landing/customers/
-  - {NUM_PRODUCTS:,} products   → gs://{bucket_name}/landing/products/
-  - {NUM_ORDERS:,} orders     → gs://{bucket_name}/landing/orders/
-  - {NUM_PAYMENTS:,} payments   → gs://{bucket_name}/landing/payments/
+  - {NUM_CUSTOMERS:,} customers  → gs://{bucket_name}/landing/customers/v1/
+  - {NUM_PRODUCTS:,} products   → gs://{bucket_name}/landing/products/v1/
+  - {NUM_ORDERS:,} orders     → gs://{bucket_name}/landing/orders/v1/
+  - {NUM_PAYMENTS:,} payments   → gs://{bucket_name}/landing/payments/v1/
 
 Referential integrity:
   - orders.customer_id → customers.customer_id (1..{NUM_CUSTOMERS})
   - payments.order_id → orders.order_id (1..{NUM_ORDERS})
 
-Pipeline flow:
-  landing/ → Bronze (raw Parquet) → Silver (cleansed Iceberg) → Gold (reporting Iceberg)
-
-Next: Run Spark jobs for Landing → Bronze → Silver → Gold
+Next: bash scripts/run_pipeline.sh <project-id> europe-west2 all v1
 """)
 
 

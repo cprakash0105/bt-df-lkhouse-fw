@@ -19,8 +19,14 @@ echo "=== bt-df-lkhouse-fw ==="
 echo "Project: ${PROJECT_ID} | Region: ${REGION} | Version: ${VERSION}"
 echo ""
 
-echo "=== Uploading framework to GCS ==="
-gsutil -q -m cp -r bt_df_lkhouse_fw/* gs://${BUCKET}/framework/
+echo "=== Packaging and uploading framework to GCS ==="
+cd "$(dirname "$0")/.."
+zip -r /tmp/bt_df_lkhouse_fw.zip bt_df_lkhouse_fw/
+gsutil -q cp /tmp/bt_df_lkhouse_fw.zip gs://${BUCKET}/framework/bt_df_lkhouse_fw.zip
+gsutil -q -m cp -r bt_df_lkhouse_fw/config/* gs://${BUCKET}/framework/config/
+gsutil -q -m cp -r bt_df_lkhouse_fw/engine/* gs://${BUCKET}/framework/engine/
+
+PY_FILES="gs://${BUCKET}/framework/bt_df_lkhouse_fw.zip"
 
 if [[ "$STAGE" == "all" || "$STAGE" == "ingest" ]]; then
   echo ""
@@ -32,7 +38,7 @@ if [[ "$STAGE" == "all" || "$STAGE" == "ingest" ]]; then
     --version=2.2 \
     --jars=gs://spark-lib/biglake/biglake-catalog-iceberg1.9.1-0.1.3-with-dependencies.jar \
     --deps-bucket=gs://${BUCKET} \
-    --py-files=gs://${BUCKET}/framework/ \
+    --py-files=${PY_FILES} \
     --properties="${ICEBERG_PROPS}" \
     -- --config=${CONFIG_PATH} --all --version=${VERSION}
 fi
@@ -47,7 +53,7 @@ if [[ "$STAGE" == "all" || "$STAGE" == "curate" ]]; then
     --version=2.2 \
     --jars=gs://spark-lib/biglake/biglake-catalog-iceberg1.9.1-0.1.3-with-dependencies.jar \
     --deps-bucket=gs://${BUCKET} \
-    --py-files=gs://${BUCKET}/framework/ \
+    --py-files=${PY_FILES} \
     --properties="${ICEBERG_PROPS}" \
     -- --config=${CONFIG_PATH} --all
 fi
@@ -62,7 +68,7 @@ if [[ "$STAGE" == "all" || "$STAGE" == "consume" ]]; then
     --version=2.2 \
     --jars=gs://spark-lib/biglake/biglake-catalog-iceberg1.9.1-0.1.3-with-dependencies.jar \
     --deps-bucket=gs://${BUCKET} \
-    --py-files=gs://${BUCKET}/framework/ \
+    --py-files=${PY_FILES} \
     --properties="${ICEBERG_PROPS}" \
     -- --config=${CONFIG_PATH} --all
 fi
