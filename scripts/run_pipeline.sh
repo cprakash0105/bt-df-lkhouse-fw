@@ -46,7 +46,7 @@ if [[ "$STAGE" == "all" || "$STAGE" == "ingest" ]]; then
     --version=2.2 \
     --deps-bucket=gs://${BUCKET} \
     --py-files=${PY_FILES} \
-    --properties="spark.jars.packages=org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.9.1" \
+    --properties="spark.jars.packages=org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.9.1,spark.executor.instances=2,spark.driver.cores=2,spark.executor.cores=2,spark.driver.memory=2g,spark.executor.memory=2g" \
     -- --config=${CONFIG_PATH} --all --version=${VERSION} --project=${PROJECT_ID}
 fi
 
@@ -62,7 +62,7 @@ if [[ "$STAGE" == "all" || "$STAGE" == "curate" ]]; then
     --jars=gs://spark-lib/biglake/biglake-catalog-iceberg1.9.1-0.1.3-with-dependencies.jar \
     --deps-bucket=gs://${BUCKET} \
     --py-files=${PY_FILES} \
-    --properties="${ICEBERG_PROPS}" \
+    --properties="${ICEBERG_PROPS}::spark.executor.instances=2::spark.driver.cores=2::spark.executor.cores=2::spark.driver.memory=2g::spark.executor.memory=2g" \
     -- --config=${CONFIG_PATH} --all --project=${PROJECT_ID}
 fi
 
