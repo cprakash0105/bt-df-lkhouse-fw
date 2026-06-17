@@ -125,18 +125,11 @@ resource "google_storage_bucket_iam_member" "bq_agent_reader" {
   member = "serviceAccount:${google_bigquery_connection.biglake.cloud_resource[0].service_account_id}"
 }
 
-# --- BigQuery Linked Dataset (CCN — Iceberg via BLMS) ---
-resource "google_bigquery_dataset" "ccn_linked" {
-  dataset_id = "lakehouse_ccn"
-  location   = var.region
-
-  external_dataset_reference {
-    external_source = "projects/${var.project_id}/locations/${var.region}/catalogs/lakehouse/databases/ccn"
-    connection      = google_bigquery_connection.biglake.name
-  }
-
-  depends_on = [google_biglake_database.ccn]
-}
+# --- BigQuery Linked Dataset (CCN) ---
+# Created via: bash scripts/create_linked_datasets.sh
+# Terraform's google_bigquery_dataset doesn't support linked datasets properly.
+# Use the bq CLI after terraform apply:
+#   bq mk --dataset --linked_resource="projects/<project>/locations/<region>/catalogs/lakehouse/databases/ccn" ...
 
 # --- BigQuery Dataset (Data Product — native BQ tables) ---
 resource "google_bigquery_dataset" "dataproduct" {
