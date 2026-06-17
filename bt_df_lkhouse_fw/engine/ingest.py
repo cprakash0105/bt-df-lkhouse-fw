@@ -7,7 +7,6 @@ from bt_df_lkhouse_fw.engine.base import (
     parse_args, resolve_pipeline_vars, log, log_header, log_table_info,
     log_error, log_summary, flush_logs_to_gcs, BANNER, LogLevel,
 )
-from bt_df_lkhouse_fw.engine.audit import write_audit
 from pyspark.sql.functions import current_timestamp
 
 
@@ -75,7 +74,8 @@ def main():
     spark = get_spark("ingest")
 
     if args.all:
-        tables = get_all_tables(config)
+        tables = [t for t in get_all_tables(config)
+                  if config["tables"][t].get("source") != "kafka"]
     elif args.table:
         tables = [args.table]
     else:
@@ -95,7 +95,8 @@ def main():
             results[table] = "FAILED"
 
     log_summary("ingest", results)
-    write_audit(spark, config, "ingest", results, args.version)
+    # Audit skipped during ingest (no Iceberg catalog configured)
+    # Audit is written during curate stage instead
 
     log_header("INGEST COMPLETE")
     flush_logs_to_gcs("ingest", config)

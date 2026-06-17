@@ -173,7 +173,8 @@ def main():
     spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {catalog}.{ns_ccn}")
 
     if args.all:
-        tables = get_all_tables(config)
+        tables = [t for t in get_all_tables(config)
+                  if config["tables"][t].get("source") != "kafka"]
     elif args.table:
         tables = [args.table]
     else:
