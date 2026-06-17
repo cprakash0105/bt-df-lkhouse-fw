@@ -51,7 +51,7 @@ gcloud dataproc batches submit pyspark \
   --jars=gs://spark-lib/biglake/biglake-catalog-iceberg1.9.1-0.1.3-with-dependencies.jar \
   --deps-bucket=gs://${BUCKET} \
   --py-files=${PY_FILES} \
-  --properties="${ICEBERG_PROPS}::spark.executor.instances=2::spark.driver.cores=2::spark.executor.cores=2::spark.driver.memory=2g::spark.executor.memory=2g" \
+  --properties="${ICEBERG_PROPS}::spark.executor.instances=2::spark.driver.cores=4::spark.executor.cores=4::spark.driver.memory=4g::spark.executor.memory=4g" \
   -- --config=${CONFIG_PATH} \
      --kafka-config=${KAFKA_CONFIG_PATH} \
      --table=${TABLE} \
