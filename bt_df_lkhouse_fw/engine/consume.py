@@ -1,119 +1,114 @@
-"""bt-df-lkhouse-fw — Consume Engine (CCN → Data Product).
-Config-driven joins and aggregations to build data products."""
-from bt_df_lkhouse_fw.engine.base import get_spark, load_config, get_consumption_config, parse_args, log, log_header, BANNER
-from pyspark.sql.functions import col, count, sum as spark_sum, avg, max as spark_max, min as spark_min
+"""bt-df-lkhouse-fw — Consume Engine (CCN Iceberg → Data Product BigQuery).
+Auto-discovers SQL files from config/consumption/*.sql and executes them in BigQuery.
+Add a new view: drop a .sql file into config/consumption/ → engine deploys it."""
+import sys
+from bt_df_lkhouse_fw.engine.base import (
+    load_config, get_all_consumption_views,
+    parse_args, resolve_pipeline_vars, log, log_header,
+    log_error, log_summary, flush_logs_to_gcs, BANNER, LogLevel,
+)
 
 
-AGG_FUNCTIONS = {
-    "count": count,
-    "sum": spark_sum,
-    "avg": avg,
-    "max": spark_max,
-    "min": spark_min,
-}
+def execute_bq_sql(sql: str, view_name: str, project_id: str) -> bool:
+    """Execute SQL in BigQuery using the bigquery client."""
+    try:
+        from google.cloud import bigquery
 
+        client = bigquery.Client(project=project_id)
 
-def build_aggregation(spark, catalog: str, ns: str, join_config: dict, base_key: str):
-    source_table = f"{catalog}.{ns}.{join_config['source']}"
-    source_df = spark.read.table(source_table)
-    join_key = join_config["on"]
+        # Substitute project variable
+        resolved_sql = sql.replace("${PROJECT_ID}", project_id)
 
-    if "link_through" in join_config:
-        link_table = f"{catalog}.{ns}.{join_config['link_through']}"
-        link_df = spark.read.table(link_table)
-        link_key = join_config["link_key"]
-        source_df = source_df.join(
-            link_df.select(link_key, join_key).distinct(),
-            link_key,
-            "inner"
-        )
+        log("bq", f"[{view_name}] Executing SQL ({len(resolved_sql)} chars)")
+        job = client.query(resolved_sql)
+        job.result()  # Wait for completion
 
-    if "aggregations" in join_config:
-        agg_exprs = []
-        for agg in join_config["aggregations"]:
-            func = AGG_FUNCTIONS[agg["function"]]
-            agg_exprs.append(func(agg["column"]).alias(agg["alias"]))
+        log("bq", f"[{view_name}] ✅ Deployed successfully (job: {job.job_id})")
 
-        agg_df = source_df.groupBy(join_key).agg(*agg_exprs)
-        log("consume", f"  Aggregated {join_config['source']} → {[a['alias'] for a in join_config['aggregations']]}")
-        return agg_df
+        # Get row count if it's a CREATE TABLE
+        if "CREATE OR REPLACE TABLE" in resolved_sql.upper():
+            table_ref = None
+            # Extract table reference from SQL
+            for part in resolved_sql.split("`"):
+                if project_id in part:
+                    table_ref = part
+                    break
+            if table_ref:
+                table = client.get_table(table_ref)
+                log("bq", f"[{view_name}] Rows: {table.num_rows}")
 
-    elif "columns" in join_config:
-        select_cols = [join_key] + [c for c in join_config["columns"] if c in source_df.columns]
-        return source_df.select(*select_cols).distinct()
+        return True
 
-    return source_df
-
-
-def consume_target(spark, pipeline_config: dict, target_name: str):
-    consumption_config = get_consumption_config(pipeline_config, target_name)
-    catalog = pipeline_config["pipeline"]["catalog"]
-    ns_ccn = pipeline_config["pipeline"]["namespaces"]["ccn"]
-    ns_dataproduct = pipeline_config["pipeline"]["namespaces"]["dataproduct"]
-
-    log_header(f"CONSUME: {target_name.upper()}")
-    log("consume", f"Description: {consumption_config.get('description', '')}")
-
-    base_table_name = consumption_config["base_table"]
-    base_table = f"{catalog}.{ns_ccn}.{base_table_name}"
-    base_df = spark.read.table(base_table)
-    log("consume", f"Base table: {base_table} ({base_df.count()} records)")
-
-    for join_config in consumption_config.get("joins", []):
-        join_name = join_config["name"]
-        join_type = join_config.get("type", "left")
-        join_key = join_config["on"]
-
-        log("consume", f"Joining: {join_name} ({join_type} on {join_key})")
-        join_df = build_aggregation(spark, catalog, ns_ccn, join_config, join_key)
-        base_df = base_df.join(join_df, join_key, join_type)
-
-    output_config = consumption_config.get("output_columns", {})
-    output_cols = []
-
-    for col_name in output_config.get("from_base", []):
-        if col_name in base_df.columns:
-            output_cols.append(col_name)
-
-    for col_name in output_config.get("from_joins", []):
-        if col_name in base_df.columns:
-            output_cols.append(col_name)
-
-    if output_cols:
-        result_df = base_df.select(*output_cols)
-    else:
-        result_df = base_df
-
-    target_table = f"{catalog}.{ns_dataproduct}.{target_name}"
-    result_df.writeTo(target_table).option("merge-schema", "true").createOrReplace()
-
-    log("consume", f"Written to: {target_table}")
-    log("consume", f"Records: {result_df.count()}")
-    log("consume", f"Schema: {result_df.columns}")
+    except Exception as e:
+        log_error("bq", f"[{view_name}] Failed", e)
+        return False
 
 
 def main():
     print(BANNER)
-    args = parse_args("bt-df-lkhouse-fw Consume: CCN → Data Product")
+    args = parse_args("bt-df-lkhouse-fw Consume: CCN (Iceberg) → Data Product (BigQuery)")
     config = load_config(args.config)
+    config = resolve_pipeline_vars(config, args)
 
-    spark = get_spark("consume")
-    catalog = config["pipeline"]["catalog"]
-    ns_dataproduct = config["pipeline"]["namespaces"]["dataproduct"]
-    spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {catalog}.{ns_dataproduct}")
+    pipeline = config["pipeline"]
+    project_id = pipeline["project_id"]
+    dataset = pipeline["dataproduct_dataset"]
+
+    views = get_all_consumption_views(config)
+
+    if not views:
+        log("consume", "No SQL files found in config/consumption/", LogLevel.WARN)
+        sys.exit(0)
+
+    log_header("DEPLOYING DATA PRODUCT VIEWS (BigQuery)")
+    log("consume", f"Project: {project_id}")
+    log("consume", f"Dataset: {dataset}")
+
+    # Ensure dataset exists
+    try:
+        from google.cloud import bigquery
+        client = bigquery.Client(project=project_id)
+        ds_ref = bigquery.DatasetReference(project_id, dataset)
+        try:
+            client.get_dataset(ds_ref)
+            log("consume", f"Dataset '{dataset}' exists")
+        except Exception:
+            ds = bigquery.Dataset(ds_ref)
+            ds.location = pipeline.get("region", "europe-west2")
+            client.create_dataset(ds)
+            log("consume", f"Created dataset: {dataset}")
+    except Exception as e:
+        log_error("consume", f"Cannot verify/create dataset: {dataset}", e)
+        sys.exit(1)
 
     if args.all:
-        targets = list(config["consumption"].keys())
+        targets = list(views.keys())
     elif args.target:
         targets = [args.target]
     else:
-        raise ValueError("Specify --target <name> or --all")
+        log_error("consume", "Specify --target <name> or --all")
+        sys.exit(1)
 
+    log("consume", f"Views to deploy: {targets}")
+
+    results = {}
     for target in targets:
-        consume_target(spark, config, target)
+        if target not in views:
+            log("consume", f"View '{target}' not found. Available: {list(views.keys())}", LogLevel.WARN)
+            results[target] = "SKIPPED"
+            continue
 
+        sql = views[target]
+        log("consume", f"Deploying: {target}")
+        success = execute_bq_sql(sql, target, project_id)
+        results[target] = "SUCCESS" if success else "FAILED"
+
+    log_summary("consume", results)
     log_header("CONSUME COMPLETE")
-    spark.stop()
+    flush_logs_to_gcs("consume", config)
+
+    if "FAILED" in results.values():
+        sys.exit(1)
 
 
 if __name__ == "__main__":

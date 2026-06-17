@@ -1,170 +1,179 @@
-# Schema Evolution POC — GCP Native Design
+# Schema Evolution POC — GCP Native Design (v2)
 
 ## Architecture
 
-All managed GCP services. No Ab Initio, no GKE workloads, no custom catalog infra.
+Each layer uses the right technology for its purpose:
 
 ```
 ┌─────────────────┐    ┌──────────────────────────────────────────────┐
 │  Source Files   │    │          GCS Bucket (single)                   │
-│  (GCS)          │───▶│  source/ → bronze/ → silver/ → gold/          │
-└─────────────────┘    │                     (Iceberg)   (Iceberg)     │
+│  (GCS JSONL)    │───▶│  landing/ → reservoir/ → ccn/                 │
+└─────────────────┘    │  (JSONL)    (Parquet)    (Iceberg)            │
                        └──────────────────────────────────────────────┘
-                                    ↑              ↑
-                                    │              │
-                       ┌────────────┴──────────────┴───────────┐
-                       │        Cloud Dataflow                   │
-                       │        (Apache Beam Python)             │
-                       │                                         │
-                       │  bronze_to_silver.py                    │
-                       │  silver_to_gold.py                      │
-                       └────────────────┬──────────────────────┘
-                                        │ REST
-                                        ▼
-                       ┌─────────────────────────────────────┐
-                       │  BigLake Metastore (BLMS)            │
-                       │  Managed Iceberg Catalog             │
-                       └────────────────┬────────────────────┘
-                                        │ native
-                                        ▼
-                       ┌─────────────────────────────────────┐
-                       │  BigQuery (Linked Datasets)          │
-                       │  silver_iceberg.* | gold_iceberg.*   │
-                       └─────────────────────────────────────┘
+                                                      ↑
+                                                      │
+                       ┌──────────────────────────────┴────────────────┐
+                       │  BigLake Metastore (BLMS)                      │
+                       │  Catalog: lakehouse  │  Database: ccn          │
+                       └──────────────────────┬────────────────────────┘
+                                              │ linked dataset
+                                              ▼
+                       ┌──────────────────────────────────────────────┐
+                       │  BigQuery                                      │
+                       │  lakehouse_ccn.*  (linked — Iceberg)           │
+                       │  lakehouse_dataproduct.*  (native BQ tables)   │
+                       └──────────────────────────────────────────────┘
 ```
 
-## Key Differences from Ab Initio Version
+## Layer Design
 
-| Aspect | Ab Initio Version | GCP Native Version |
-|--------|------------------|--------------------|
-| Ingestion | Ab Initio graphs | Cloud Dataflow (Beam) |
-| Compute | GKE (Arcam) | Dataflow (serverless) |
-| Schema bridge | Reformat component | Beam DoFn transform |
-| DQ validation | Filter by Expression | Beam DoFn + side output |
-| Dedup | Rollup component | Beam GroupByKey + CombineFn |
-| Iceberg write | Write Iceberg Table component | PyIceberg library |
-| Scheduling | Ab Initio scheduler / cron | Cloud Scheduler + Dataflow templates |
-| Infra | Manual setup | Terraform (IaC) |
-| Cost | GKE node pool + Ab Initio license | Pay-per-use Dataflow workers |
+| Layer | Storage | Format | Catalog | Purpose |
+|-------|---------|--------|---------|---------|
+| **Landing** | GCS `landing/` | JSONL | None | Raw files from source |
+| **Reservoir** | GCS `reservoir/` | Parquet | None | As-is + ingestion_ts, fast ingestion |
+| **CCN** | GCS `ccn/` | Iceberg | BLMS `lakehouse.ccn` | Governed: DQ, dedup, schema evolution |
+| **Data Product** | BigQuery | Native tables | BigQuery | Materialised joins/aggs for consumers |
 
-## Technology Choices
+### Why This Split?
 
-### Why Dataflow (Apache Beam)?
-- Serverless — no clusters to manage
-- Auto-scaling — handles any data volume
-- Python SDK — rapid development
-- Native GCS I/O connectors
-- Integrates with PyIceberg for Iceberg writes
+| Decision | Rationale |
+|----------|-----------|
+| Reservoir = Parquet (no catalog) | Fast writes, no catalog overhead. Schema-on-read. If source changes, we see it raw. |
+| CCN = Iceberg (BLMS) | Governance checkpoint. Schema evolution is controlled here. Time-travel. Linked to BQ. |
+| Data Product = BigQuery native | Optimised for consumers. BQ-native features (clustering, partitioning, ML). No Iceberg overhead. |
 
-### Why PyIceberg (not Spark)?
-- Lightweight Python library — no Spark cluster needed
-- Direct BLMS REST catalog support
-- Schema evolution built-in
-- Works within Dataflow workers
-- No Dataproc overhead for POC-scale data
+## Pipeline Flow
 
-### Iceberg Write Strategy
-Dataflow writes Parquet files to GCS, then uses PyIceberg to commit to BLMS:
-1. Beam pipeline processes records → writes Parquet to staging path
-2. PyIceberg `append` or `overwrite` commits files to Iceberg table
-3. BLMS tracks the new snapshot
-4. BigQuery linked dataset auto-reflects
+```
+Landing (JSONL on GCS)
+    │
+    ▼  [Dataproc Serverless — PySpark]
+Reservoir (Parquet on GCS)
+    │  • Read JSONL, add ingestion_ts
+    │  • Write Parquet (append mode)
+    │  • No catalog registration
+    ▼
+CCN (Iceberg via BLMS)
+    │  • Read Parquet from Reservoir
+    │  • DQ validation (not_null, positive, accepted_values)
+    │  • Deduplication (primary_key + order_by)
+    │  • Type enforcement (config-driven casts)
+    │  • Schema evolution (detect → govern → apply/block)
+    │  • Write Iceberg (merge-schema)
+    ▼
+Data Product (BigQuery native)
+    │  • Execute SQL from config/consumption/*.sql
+    │  • CREATE OR REPLACE TABLE (materialised)
+    │  • Reads CCN via linked dataset
+    ▼
+Consumers query BigQuery directly
+```
+
+## CPFlow Framework (v2)
+
+Config-driven — add tables and views with zero code changes.
+
+### Adding a Table
+Drop a YAML into `config/tables/`:
+```yaml
+table: new_table
+source: landing/new_table
+primary_key: id
+dedup_order_by: ingestion_ts DESC
+dq_rules:
+  not_null: [id]
+schema_evolution:
+  allowed: [add_column, type_widen]
+  blocked: [drop_column, type_narrow]
+```
+
+### Adding a Data Product View
+Drop a SQL into `config/consumption/`:
+```sql
+CREATE OR REPLACE TABLE `${PROJECT_ID}.lakehouse_dataproduct.new_view` AS
+SELECT ... FROM `${PROJECT_ID}.lakehouse_ccn.some_table`
+```
+
+### Engine Components
+
+| Engine | Input | Output | Spark? |
+|--------|-------|--------|--------|
+| `ingest.py` | Landing JSONL | Reservoir Parquet | Yes (Dataproc) |
+| `curate.py` | Reservoir Parquet | CCN Iceberg | Yes (Dataproc + BLMS) |
+| `consume.py` | CCN (via BQ linked dataset) | Data Product (BQ native) | No (BQ client only) |
+| `audit.py` | Pipeline results | `lakehouse.ccn.pipeline_audit` | Yes (called by ingest/curate) |
+
+## Schema Governance
+
+```
+Incoming Data              Existing Iceberg Table (CCN)
+    ↓                              ↓
+┌─────────────────────────────────────────────┐
+│  SchemaEvolver.detect_changes()             │
+│  • New columns?     → add_column            │
+│  • Type changed?    → type_widen / narrow   │
+│  • Column missing?  → drop_column           │
+└──────────────────────┬──────────────────────┘
+                       ▼
+┌─────────────────────────────────────────────┐
+│  Governance (from table YAML config)        │
+│  allowed: [add_column, type_widen]          │
+│  blocked: [drop_column, type_narrow]        │
+│                                             │
+│  ✅ Allowed → ALTER TABLE + write           │
+│  🚫 Blocked → RuntimeError (pipeline fails) │
+└─────────────────────────────────────────────┘
+```
+
+## Data Generator (Standalone)
+
+Separate concern — no Spark dependency, pure Python + GCS client.
+
+```bash
+# Full scale V1 (100K customers, 1M orders, 10M payments)
+python datagen/generate.py --project=bt-df-lkhouse --version=v1
+
+# Small scale for testing (1% of full)
+python datagen/generate.py --project=bt-df-lkhouse --version=v1 --scale=0.01
+
+# V2 with schema drift
+python datagen/generate.py --project=bt-df-lkhouse --version=v2
+```
+
+## Infrastructure (Terraform)
+
+| Resource | Purpose |
+|----------|---------|
+| GCS bucket | Single bucket for all layers |
+| Service account | Dataproc Serverless identity |
+| BLMS catalog + ccn database | Iceberg catalog for CCN layer |
+| BQ connection | For linked dataset to read Iceberg |
+| BQ linked dataset (lakehouse_ccn) | Query CCN Iceberg tables from BQ |
+| BQ dataset (lakehouse_dataproduct) | Native BQ tables for data products |
+| VPC + NAT | Network for Dataproc Serverless |
 
 ## GCS Bucket Layout
 
 ```
-gs://{project}-schema-poc/
-├── source/                          # Source JSONL files land here
-│   └── customer_v*.jsonl
-├── bronze/
-│   └── customer/{date}/             # Raw Parquet (no Iceberg)
-│       └── *.snappy.parquet
-├── silver/
-│   └── customer/
-│       ├── data/                    # Iceberg data files
-│       │   └── signup_date=*/
-│       │       └── *.parquet
-│       └── metadata/                # Iceberg metadata
-├── gold/
-│   └── customer_summary/
-│       ├── data/
-│       └── metadata/
-└── temp/                            # Dataflow temp/staging
+gs://{project}-lakehouse/
+├── landing/
+│   ├── customers/{v1,v2}/    (JSONL)
+│   ├── products/v1/          (JSONL)
+│   ├── orders/{v1,v2}/       (JSONL)
+│   └── payments/{v1,v2}/     (JSONL)
+├── reservoir/
+│   ├── customers/            (Parquet — no catalog)
+│   ├── products/
+│   ├── orders/
+│   └── payments/
+├── ccn/
+│   ├── customers/            (Iceberg — BLMS registered)
+│   ├── products/
+│   ├── orders/
+│   ├── payments/
+│   └── pipeline_audit/       (Iceberg — audit trail)
+└── framework/
+    ├── config/               (pipeline.yaml, tables/, consumption/)
+    ├── engine/               (Python modules)
+    └── bt_df_lkhouse_fw.zip  (packaged for Dataproc)
 ```
-
-## Pipeline Design
-
-### Pipeline 1: Bronze to Silver
-
-```python
-Source (GCS JSONL)
-  → Beam ReadFromText
-  → Parse JSON
-  → Schema Bridge (DoFn: normalise any version → Silver target)
-  → DQ Validation (DoFn: validate fields, route rejects)
-  → Dedup (GroupByKey on customer_id, keep latest)
-  → Write Parquet to GCS staging
-  → PyIceberg commit to BLMS (append)
-```
-
-### Pipeline 2: Silver to Gold
-
-```python
-PyIceberg scan (read Silver table)
-  → Beam Create from rows
-  → Join with reference data
-  → Aggregate (GroupByKey on loyalty_tier, region, month)
-  → Write Parquet to GCS staging
-  → PyIceberg commit to BLMS (overwrite partition)
-```
-
-### Schema Bridge Logic (DoFn)
-
-```python
-class SchemaBridge(beam.DoFn):
-    def process(self, record):
-        # Handle rename: cust_id → customer_id
-        customer_id = record.get('customer_id') or record.get('cust_id')
-        if not customer_id:
-            yield beam.pvalue.TaggedOutput('rejects', record)
-            return
-
-        yield {
-            'customer_id': customer_id,
-            'name': record['name'],
-            'email': record['email'],
-            'signup_date': record['signup_date'],
-            'order_amount': int(record['order_amount']),  # widen
-            'loyalty_tier': record.get('loyalty_tier'),    # NULL if missing
-        }
-```
-
-## Schema Governance
-
-Same framework as Ab Initio version — Dataflow pipeline is the control checkpoint:
-
-| Change Type | Handling in Dataflow |
-|-------------|---------------------|
-| Add nullable column | Schema bridge defaults to None; PyIceberg MERGE_SCHEMA |
-| Type widening | Python cast in DoFn; PyIceberg auto-promotes |
-| Rename column | Explicit mapping in SchemaBridge DoFn |
-| Drop column | Not mapped in DoFn output; DDL via BLMS REST |
-| Type narrowing | Validation DoFn rejects; pipeline fails |
-| Incompatible type | Validation DoFn rejects |
-
-## Consumer Pattern
-
-Same as Ab Initio version:
-- BigQuery linked datasets auto-reflect BLMS tables
-- Versioned views (customer_v1, customer_v2, customer_v3) per consumer
-- Time-travel via PyIceberg snapshot reads
-
-## Infrastructure (Terraform)
-
-All infra is codified:
-- APIs enabled
-- GCS bucket
-- Service account + IAM
-- BLMS catalog + databases
-- BigQuery connection + linked datasets
-- Dataflow permissions

@@ -1,0 +1,22 @@
+# Confluent Cloud connection config
+# Cluster: ecomm_cluster_0 | Environment: default | Region: us-east1
+# Fill in your API key from https://confluent.cloud
+
+bootstrap_servers: "<your-cluster>.us-east1.gcp.confluent.cloud:9092"
+security_protocol: SASL_SSL
+sasl_mechanism: PLAIN
+sasl_username: "<API_KEY>"
+sasl_password: "<API_SECRET>"
+
+topics:
+  clickstream: ecommerce.clickstream
+  transactions: ecommerce.transactions
+
+# Spark Kafka options (used by stream.py — topic is set at runtime)
+kafka_options:
+  kafka.bootstrap.servers: "<your-cluster>.us-east1.gcp.confluent.cloud:9092"
+  kafka.security.protocol: SASL_SSL
+  kafka.sasl.mechanism: PLAIN
+  kafka.sasl.jaas.config: "org.apache.kafka.common.security.plain.PlainLoginModule required username='<API_KEY>' password='<API_SECRET>';"
+  startingOffsets: earliest
+  maxOffsetsPerTrigger: "5000"

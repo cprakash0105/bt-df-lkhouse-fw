@@ -1,0 +1,18 @@
+# customers.yaml — Customer master data
+table: customers
+description: "Customer master data"
+source: landing/customers
+primary_key: customer_id
+dedup_order_by: ingestion_ts DESC
+
+dq_rules:
+  not_null: [customer_id, name, email]
+  accepted_values:
+    loyalty_tier: [Bronze, Silver, Gold, Platinum, Diamond]
+    region: [North, South, Midlands, London, Scotland, Wales, East, West]
+
+type_overrides: {}
+
+schema_evolution:
+  allowed: [add_column, type_widen]
+  blocked: [drop_column, type_narrow]

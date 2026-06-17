@@ -1,0 +1,20 @@
+# products.yaml — Product catalog
+table: products
+description: "Product catalog"
+source: landing/products
+primary_key: product_id
+dedup_order_by: ingestion_ts DESC
+
+dq_rules:
+  not_null: [product_id, product_name, category]
+  positive: [price]
+  accepted_values:
+    category: [Electronics, Clothing, Home, Sports, Books, Food, Health, Toys, Auto, Garden]
+
+type_overrides:
+  price: double
+  cost_price: double
+
+schema_evolution:
+  allowed: [add_column, type_widen]
+  blocked: [drop_column, type_narrow]

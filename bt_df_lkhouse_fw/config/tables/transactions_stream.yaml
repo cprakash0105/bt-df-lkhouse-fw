@@ -1,0 +1,22 @@
+# transactions_stream.yaml — Real-time transaction events (from Kafka)
+table: transactions_stream
+description: "Real-time e-commerce transaction events ingested via Spark Structured Streaming"
+source: kafka
+primary_key: transaction_id
+dedup_order_by: event_timestamp DESC
+
+dq_rules:
+  not_null: [transaction_id, order_id, customer_id, amount, event_timestamp]
+  positive: [amount]
+  accepted_values:
+    transaction_type: [payment, refund, chargeback, pre_auth, capture]
+    status: [success, failed, pending, reversed]
+
+type_overrides:
+  amount: double
+  customer_id: integer
+  order_id: integer
+
+schema_evolution:
+  allowed: [add_column, type_widen]
+  blocked: [drop_column, type_narrow]

@@ -1,0 +1,19 @@
+# clickstream.yaml — Real-time clickstream events (from Kafka)
+table: clickstream
+description: "E-commerce clickstream events ingested via Spark Structured Streaming"
+source: kafka  # indicates streaming source (not GCS landing)
+primary_key: event_id
+dedup_order_by: event_timestamp DESC
+
+dq_rules:
+  not_null: [event_id, customer_id, event_type, event_timestamp]
+  accepted_values:
+    event_type: [page_view, product_view, add_to_cart, remove_from_cart, search, checkout_start, purchase]
+
+type_overrides:
+  product_id: integer
+  customer_id: integer
+
+schema_evolution:
+  allowed: [add_column, type_widen]
+  blocked: [drop_column, type_narrow]

@@ -46,7 +46,7 @@ resource "google_storage_bucket" "lakehouse" {
 }
 
 resource "google_storage_bucket_object" "folders" {
-  for_each = toset(["landing/", "reservoir/", "ccn/", "dataproduct/", "spark/", "contracts/"])
+  for_each = toset(["landing/", "reservoir/", "ccn/", "framework/", "spark/"])
   name     = each.value
   bucket   = google_storage_bucket.lakehouse.name
   content  = " "
@@ -82,27 +82,23 @@ resource "google_project_iam_member" "spark_bq" {
   member  = "serviceAccount:${google_service_account.spark_sa.email}"
 }
 
+resource "google_project_iam_member" "spark_bq_user" {
+  project = var.project_id
+  role    = "roles/bigquery.user"
+  member  = "serviceAccount:${google_service_account.spark_sa.email}"
+}
+
 resource "google_project_iam_member" "spark_sa_user" {
   project = var.project_id
   role    = "roles/iam.serviceAccountUser"
   member  = "serviceAccount:${google_service_account.spark_sa.email}"
 }
 
-# --- BigLake Metastore Catalog ---
+# --- BigLake Metastore Catalog (CCN layer only) ---
 resource "google_biglake_catalog" "lakehouse" {
   name     = "lakehouse"
   location = var.region
   depends_on = [google_project_service.apis["biglake.googleapis.com"]]
-}
-
-resource "google_biglake_database" "reservoir" {
-  name    = "reservoir"
-  catalog = google_biglake_catalog.lakehouse.id
-  type    = "HIVE"
-  hive_options {
-    location_uri = "gs://${google_storage_bucket.lakehouse.name}/reservoir"
-    parameters   = {}
-  }
 }
 
 resource "google_biglake_database" "ccn" {
@@ -115,17 +111,7 @@ resource "google_biglake_database" "ccn" {
   }
 }
 
-resource "google_biglake_database" "dataproduct" {
-  name    = "dataproduct"
-  catalog = google_biglake_catalog.lakehouse.id
-  type    = "HIVE"
-  hive_options {
-    location_uri = "gs://${google_storage_bucket.lakehouse.name}/dataproduct"
-    parameters   = {}
-  }
-}
-
-# --- BigQuery Connection ---
+# --- BigQuery Connection (for linked dataset to read Iceberg) ---
 resource "google_bigquery_connection" "biglake" {
   connection_id = "biglake-conn"
   location      = var.region
@@ -137,6 +123,26 @@ resource "google_storage_bucket_iam_member" "bq_agent_reader" {
   bucket = google_storage_bucket.lakehouse.name
   role   = "roles/storage.objectViewer"
   member = "serviceAccount:${google_bigquery_connection.biglake.cloud_resource[0].service_account_id}"
+}
+
+# --- BigQuery Linked Dataset (CCN — Iceberg via BLMS) ---
+resource "google_bigquery_dataset" "ccn_linked" {
+  dataset_id = "lakehouse_ccn"
+  location   = var.region
+
+  external_dataset_reference {
+    external_source = "projects/${var.project_id}/locations/${var.region}/catalogs/lakehouse/databases/ccn"
+    connection      = google_bigquery_connection.biglake.name
+  }
+
+  depends_on = [google_biglake_database.ccn]
+}
+
+# --- BigQuery Dataset (Data Product — native BQ tables) ---
+resource "google_bigquery_dataset" "dataproduct" {
+  dataset_id  = "lakehouse_dataproduct"
+  location    = var.region
+  description = "Data Product layer — materialised BigQuery tables"
 }
 
 # --- Network ---

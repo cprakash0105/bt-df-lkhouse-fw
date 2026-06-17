@@ -1,162 +1,180 @@
-# Demo Walkthrough — Schema Evolution POC
+# Demo Walkthrough — Schema Evolution POC (v2)
 
 ## For: Amanda
-## Architecture: GCP Native Lakehouse (Dataproc Serverless + Iceberg + BLMS + BigQuery)
+## Architecture: Reservoir(Parquet) → CCN(Iceberg/BLMS) → Data Product(BigQuery)
+
+---
+
+## The Story
+
+> "Each layer uses the right technology for its purpose.
+> Reservoir is fast and raw. CCN is governed. Data Product is optimised for you."
 
 ---
 
 ## What You're Looking At
 
-A fully managed, GCP-native lakehouse with three layers — all Iceberg tables, all in one catalog:
-
-| Layer | Purpose | BigQuery Dataset |
-|-------|---------|-----------------|
-| **Raw** | Data as-is from source (no transforms) | `lakehouse_raw` |
-| **Curated** | Cleansed, validated, deduplicated | `lakehouse_curated` |
-| **Consumption** | Reporting-ready (joined, aggregated) | `lakehouse_consumption` |
-
----
-
-## Data Model
-
-```
-100,000 Customers
- └── 1,000,000 Orders (customer_id → customers)
-      └── 10,000,000 Payments (order_id → orders)
-
-10,000 Products
-
-Gold: customer_360 (one row per customer with full order/payment history)
-```
-
----
-
-## Pipeline Flow
-
-```
-Landing (JSONL on GCS)
-    │
-    ▼  [Dataproc Serverless - PySpark]
-Raw (Iceberg / BLMS)     ← no transforms, just format + catalog registration
-    │
-    ▼  [Dataproc Serverless - PySpark]
-Curated (Iceberg / BLMS) ← DQ validation, type enforcement, deduplication
-    │
-    ▼  [Dataproc Serverless - PySpark]
-Consumption (Iceberg / BLMS) ← joins + aggregation → customer_360
-    │
-    ▼  [auto]
-BigQuery (linked datasets) ← query immediately, no manual setup
-```
-
----
-
-## Spark Jobs
-
-| Job | File | What It Does |
-|-----|------|-------------|
-| Landing → Raw | `spark/landing_to_raw.py` | Reads JSONL, adds ingestion timestamp, writes Iceberg |
-| Raw → Curated | `spark/raw_to_curated.py` | Schema enforcement, DQ rules, dedup by primary key |
-| Curated → Consumption | `spark/curated_to_consumption.py` | Joins customers + orders + payments → customer_360 |
+| Layer | Technology | Purpose | Query Access |
+|-------|-----------|---------|--------------|
+| **Reservoir** | Parquet on GCS | Data as-is, fast ingest | Spark only |
+| **CCN** | Iceberg via BLMS | Governed, schema-evolved | BigQuery (linked dataset) |
+| **Data Product** | BigQuery native | Reporting-ready, materialised | BigQuery direct |
 
 ---
 
 ## Demo Steps
 
-### 1. Show the data in BigQuery
+### 1. Show Infrastructure (Terraform)
 
-```sql
--- Raw layer (as-is from source)
-SELECT * FROM `schema-evolution-poc.lakehouse_raw.customers` LIMIT 5;
-SELECT COUNT(*) FROM `schema-evolution-poc.lakehouse_raw.orders`;
-
--- Curated layer (cleansed)
-SELECT * FROM `schema-evolution-poc.lakehouse_curated.customers` LIMIT 5;
-
--- Consumption layer (reporting)
-SELECT * FROM `schema-evolution-poc.lakehouse_consumption.customer_360` LIMIT 5;
+```bash
+cd terraform && terraform plan
+# One command → bucket, BLMS catalog, BQ datasets, service account, network
 ```
 
-### 2. Show schema evolution
+### 2. Generate V1 Data
+
+```bash
+cd datagen
+python generate.py --project=bt-df-lkhouse --version=v1 --scale=0.01  # 1% for speed
+```
+
+Show: "Data generator is standalone — no Spark, just Python + GCS. Produces realistic JSONL."
+
+### 3. Run Pipeline (V1)
+
+```bash
+bash scripts/run_pipeline.sh bt-df-lkhouse europe-west2 all v1
+```
+
+Show the logs — structured output per table, DQ stats, dedup counts.
+
+### 4. Query in BigQuery
 
 ```sql
--- Run a new batch with loyalty_tier populated differently
--- After the pipeline re-runs, new column values appear immediately
+-- CCN layer (Iceberg via linked dataset) — governed, deduplicated
+SELECT COUNT(*) FROM `bt-df-lkhouse.lakehouse_ccn.customers`;
+SELECT * FROM `bt-df-lkhouse.lakehouse_ccn.customers` LIMIT 5;
 
-SELECT customer_id, name, loyalty_tier, total_orders, total_spend
-FROM `schema-evolution-poc.lakehouse_consumption.customer_360`
-WHERE loyalty_tier = 'Platinum'
+-- Data Product (native BigQuery) — consumer-ready
+SELECT * FROM `bt-df-lkhouse.lakehouse_dataproduct.customer_360` LIMIT 5;
+
+-- See the aggregations
+SELECT loyalty_tier, COUNT(*) AS customers, AVG(total_spend) AS avg_spend
+FROM `bt-df-lkhouse.lakehouse_dataproduct.customer_360`
+GROUP BY 1 ORDER BY avg_spend DESC;
+```
+
+### 5. Schema Evolution — Generate V2
+
+```bash
+cd datagen
+python generate.py --project=bt-df-lkhouse --version=v2 --scale=0.01
+```
+
+Show the drift summary:
+- `customers`: NEW column `customer_segment` + NEW loyalty tier `Diamond`
+- `orders`: amounts > INT_MAX (type widening)
+- `payments`: NEW column `payment_channel` + Crypto + multi-currency
+
+### 6. Re-run Pipeline (V2)
+
+```bash
+bash scripts/run_pipeline.sh bt-df-lkhouse europe-west2 all v2
+```
+
+Watch the logs — schema evolution detected and applied:
+```
+✅ ALLOWED: Adding column 'customer_segment' (string)
+✅ ALLOWED: Adding column 'payment_channel' (string)
+```
+
+### 7. Prove Schema Evolution in BigQuery
+
+```sql
+-- New column appears — old rows have NULL
+SELECT customer_id, name, customer_segment, loyalty_tier
+FROM `bt-df-lkhouse.lakehouse_ccn.customers`
+WHERE customer_segment IS NOT NULL
+LIMIT 5;
+
+-- Old rows (V1) — customer_segment is NULL
+SELECT customer_id, name, customer_segment
+FROM `bt-df-lkhouse.lakehouse_ccn.customers`
+WHERE customer_segment IS NULL
+LIMIT 5;
+
+-- New enum value (Diamond)
+SELECT loyalty_tier, COUNT(*) AS cnt
+FROM `bt-df-lkhouse.lakehouse_ccn.customers`
+GROUP BY 1 ORDER BY cnt DESC;
+
+-- New payment channel
+SELECT payment_channel, COUNT(*)
+FROM `bt-df-lkhouse.lakehouse_ccn.payments`
+GROUP BY 1;
+
+-- Schema drift detection (NULL percentage = added in V2)
+SELECT
+  'customer_segment' AS col,
+  ROUND(COUNTIF(customer_segment IS NOT NULL) / COUNT(*) * 100, 1) AS pct_populated
+FROM `bt-df-lkhouse.lakehouse_ccn.customers`;
+```
+
+### 8. Show Data Product Updated
+
+```sql
+-- customer_360 now includes customer_segment
+SELECT customer_id, name, customer_segment, loyalty_tier, total_spend
+FROM `bt-df-lkhouse.lakehouse_dataproduct.customer_360`
+WHERE customer_segment = 'Enterprise'
 ORDER BY total_spend DESC
 LIMIT 10;
 ```
 
-### 3. Show time-travel (Iceberg snapshots)
+### 9. Show Audit Trail
 
 ```sql
--- Query the table as it was before the last write
--- (via Spark: spark.read.option("as-of-timestamp", "2025-06-10T00:00:00Z").table(...))
+-- Pipeline execution history
+SELECT * FROM `bt-df-lkhouse.lakehouse_ccn.pipeline_audit`
+ORDER BY audit_timestamp DESC;
 ```
 
-### 4. Show governance (same table, different consumer views)
+### 10. Show "Drop & Go" (Config-Driven)
 
-```sql
--- Consumer A: sees v1 schema (no loyalty_tier)
-SELECT customer_id, name, total_spend
-FROM `schema-evolution-poc.lakehouse_consumption.customer_360` LIMIT 5;
+Open `config/tables/customers.yaml` → "This is all you need to define a table."
+Open `config/consumption/customer_360.sql` → "This is all you need for a data product."
 
--- Consumer B: sees full schema
-SELECT * FROM `schema-evolution-poc.lakehouse_consumption.customer_360` LIMIT 5;
-```
+> "Adding a new table = drop a YAML. Adding a new view = drop a SQL file. Zero code changes."
 
 ---
 
-## Key Technical Points
+## Key Points for Amanda
 
 | Question | Answer |
 |----------|--------|
-| What if source adds a new column? | `merge-schema=true` on write → Iceberg adds it automatically |
-| What if we need to widen a type? | Iceberg handles INT→BIGINT without rewriting data |
-| Where is the catalog? | BigLake Metastore (BLMS) — fully managed |
-| How does BigQuery see it? | Linked datasets auto-discover BLMS tables |
-| Is Bronze/Raw queryable? | Yes — all layers are Iceberg, all queryable via BQ |
-| How is this like Databricks? | Same pattern: all layers are managed Delta/Iceberg tables in a catalog |
-| What about governance? | Curated layer enforces DQ; blocked changes fail the pipeline |
+| What if source adds a column? | Schema evolver detects it, applies if allowed, blocks if not |
+| What if someone drops a column? | Pipeline fails immediately — blocked by governance |
+| Where's the governance? | YAML config per table: `allowed` + `blocked` lists |
+| How do consumers query? | BigQuery — CCN via linked dataset, Data Product directly |
+| Is there an audit trail? | Yes — `pipeline_audit` Iceberg table tracks every run |
+| How do I add a new table? | Drop a YAML file, re-run pipeline |
+| What about orchestration? | Cloud Composer DAG (Airflow) — `ingest >> curate >> consume` |
+| How is this like Databricks? | Same medallion pattern, same governance, but GCP-native |
 
 ---
 
-## Architecture Diagram
+## Architecture Diagram (for slide)
 
 ```
-┌──────────────┐     ┌─────────────────────────────────────────────┐
-│  Landing     │     │           GCS Bucket                         │
-│  (JSONL)     │────▶│  raw/ → curated/ → consumption/             │
-└──────────────┘     │  (all Iceberg tables)                       │
-                     └─────────────────────────────────────────────┘
-                                ↕ managed by
-                     ┌─────────────────────────────────────────────┐
-                     │  BigLake Metastore (BLMS)                    │
-                     │  Catalog: lakehouse                          │
-                     │  Databases: raw | curated | consumption      │
-                     └──────────────────────┬──────────────────────┘
-                                            │ linked datasets
-                                            ▼
-                     ┌─────────────────────────────────────────────┐
-                     │  BigQuery                                    │
-                     │  lakehouse_raw.*                             │
-                     │  lakehouse_curated.*                         │
-                     │  lakehouse_consumption.customer_360          │
-                     └─────────────────────────────────────────────┘
+┌──────────┐     ┌─────────────────────────────────────────────────────┐
+│ Landing  │     │                  GCS Bucket                          │
+│ (JSONL)  │────▶│  reservoir/ (Parquet)  │  ccn/ (Iceberg)            │
+└──────────┘     └───────────────────────┬─────────────────────────────┘
+                                         │ BLMS catalog
+                                         ▼
+                 ┌───────────────────────────────────────────────────────┐
+                 │  BigQuery                                              │
+                 │  lakehouse_ccn.* (linked dataset — Iceberg)            │
+                 │  lakehouse_dataproduct.* (native tables — materialised)│
+                 └───────────────────────────────────────────────────────┘
 ```
-
----
-
-## Infrastructure (all Terraform)
-
-- 1 GCS bucket
-- 1 BLMS catalog + 3 databases
-- 1 service account
-- 1 BigQuery connection + 3 linked datasets
-- Network (VPC + NAT for Dataproc)
-- All APIs enabled automatically
-
-`terraform apply` → everything created in ~2 minutes.

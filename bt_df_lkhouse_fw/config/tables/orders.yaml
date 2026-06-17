@@ -1,0 +1,24 @@
+# orders.yaml — Customer orders
+table: orders
+description: "Customer orders"
+source: landing/orders
+primary_key: order_id
+dedup_order_by: ingestion_ts DESC
+
+dq_rules:
+  not_null: [order_id, customer_id, order_date, total_amount]
+  positive: [total_amount]
+  accepted_values:
+    status: [delivered, shipped, processing, cancelled, returned]
+    channel: [web, mobile, store, phone, marketplace]
+
+type_overrides:
+  subtotal: double
+  tax: double
+  total_amount: double
+  shipping_cost: double
+  discount_amount: double
+
+schema_evolution:
+  allowed: [add_column, type_widen]
+  blocked: [drop_column, type_narrow]

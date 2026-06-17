@@ -1,6 +1,6 @@
 #!/bin/bash
-# bt-df-lkhouse-fw: Run Lakehouse Pipeline via Dataproc Serverless
-# Landing → Reservoir → CCN → Data Product
+# bt-df-lkhouse-fw v2: Run Lakehouse Pipeline
+# Reservoir(Parquet) → CCN(Iceberg/BLMS) → Data Product(BigQuery)
 set -e
 
 export PROJECT_ID=${1:-bt-df-lkhouse}
@@ -15,37 +15,45 @@ ICEBERG_PROPS="^::^spark.jars.packages=org.apache.iceberg:iceberg-spark-runtime-
 
 CONFIG_PATH="gs://${BUCKET}/framework/config/pipeline.yaml"
 
-echo "=== bt-df-lkhouse-fw ==="
-echo "Project: ${PROJECT_ID} | Region: ${REGION} | Version: ${VERSION}"
+echo "╔════════════════════════════════════════════════════════════╗"
+echo "║  bt-df-lkhouse-fw v2 — Pipeline Runner                    ║"
+echo "║  Project: ${PROJECT_ID}                                    ║"
+echo "║  Region:  ${REGION}                                        ║"
+echo "║  Version: ${VERSION}                                       ║"
+echo "║  Stage:   ${STAGE}                                         ║"
+echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
 
-echo "=== Packaging and uploading framework to GCS ==="
+# === Package and upload framework to GCS ===
+echo "=== Packaging framework → GCS ==="
 cd "$(dirname "$0")/.."
 zip -r /tmp/bt_df_lkhouse_fw.zip bt_df_lkhouse_fw/
 gsutil -q cp /tmp/bt_df_lkhouse_fw.zip gs://${BUCKET}/framework/bt_df_lkhouse_fw.zip
 gsutil -q -m cp -r bt_df_lkhouse_fw/config/* gs://${BUCKET}/framework/config/
 gsutil -q -m cp -r bt_df_lkhouse_fw/engine/* gs://${BUCKET}/framework/engine/
+echo "  ✅ Framework uploaded"
 
 PY_FILES="gs://${BUCKET}/framework/bt_df_lkhouse_fw.zip"
 
+# === Stage 1: Landing → Reservoir (Parquet) ===
 if [[ "$STAGE" == "all" || "$STAGE" == "ingest" ]]; then
   echo ""
-  echo "=== Stage 1: Landing → Reservoir ==="
+  echo "=== Stage 1: Landing (JSONL) → Reservoir (Parquet) ==="
   gcloud dataproc batches submit pyspark \
     gs://${BUCKET}/framework/engine/ingest.py \
     --project=${PROJECT_ID} --region=${REGION} \
     --service-account=${SA_EMAIL} --subnet=${SUBNET} \
     --version=2.2 \
-    --jars=gs://spark-lib/biglake/biglake-catalog-iceberg1.9.1-0.1.3-with-dependencies.jar \
     --deps-bucket=gs://${BUCKET} \
     --py-files=${PY_FILES} \
-    --properties="${ICEBERG_PROPS}" \
-    -- --config=${CONFIG_PATH} --all --version=${VERSION}
+    --properties="spark.jars.packages=org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.9.1" \
+    -- --config=${CONFIG_PATH} --all --version=${VERSION} --project=${PROJECT_ID}
 fi
 
+# === Stage 2: Reservoir (Parquet) → CCN (Iceberg/BLMS) ===
 if [[ "$STAGE" == "all" || "$STAGE" == "curate" ]]; then
   echo ""
-  echo "=== Stage 2: Reservoir → CCN ==="
+  echo "=== Stage 2: Reservoir (Parquet) → CCN (Iceberg/BLMS) ==="
   gcloud dataproc batches submit pyspark \
     gs://${BUCKET}/framework/engine/curate.py \
     --project=${PROJECT_ID} --region=${REGION} \
@@ -55,28 +63,24 @@ if [[ "$STAGE" == "all" || "$STAGE" == "curate" ]]; then
     --deps-bucket=gs://${BUCKET} \
     --py-files=${PY_FILES} \
     --properties="${ICEBERG_PROPS}" \
-    -- --config=${CONFIG_PATH} --all
+    -- --config=${CONFIG_PATH} --all --project=${PROJECT_ID}
 fi
 
+# === Stage 3: CCN (Iceberg) → Data Product (BigQuery native) ===
 if [[ "$STAGE" == "all" || "$STAGE" == "consume" ]]; then
   echo ""
-  echo "=== Stage 3: CCN → Data Product ==="
-  gcloud dataproc batches submit pyspark \
-    gs://${BUCKET}/framework/engine/consume.py \
-    --project=${PROJECT_ID} --region=${REGION} \
-    --service-account=${SA_EMAIL} --subnet=${SUBNET} \
-    --version=2.2 \
-    --jars=gs://spark-lib/biglake/biglake-catalog-iceberg1.9.1-0.1.3-with-dependencies.jar \
-    --deps-bucket=gs://${BUCKET} \
-    --py-files=${PY_FILES} \
-    --properties="${ICEBERG_PROPS}" \
-    -- --config=${CONFIG_PATH} --all
+  echo "=== Stage 3: CCN (Iceberg) → Data Product (BigQuery) ==="
+  # Consume runs as pure Python (BigQuery client) — no Spark needed
+  python3 -m bt_df_lkhouse_fw.engine.consume \
+    --config=bt_df_lkhouse_fw/config/pipeline.yaml \
+    --all --project=${PROJECT_ID}
 fi
 
 echo ""
-echo "=== Pipeline complete ==="
-echo ""
-echo "BigQuery:"
-echo "  lakehouse_reservoir.*     — raw ingested data"
-echo "  lakehouse_ccn.*           — cleansed, validated, deduped"
-echo "  lakehouse_dataproduct.*   — customer_360"
+echo "╔════════════════════════════════════════════════════════════╗"
+echo "║  ✅ Pipeline complete                                      ║"
+echo "╠════════════════════════════════════════════════════════════╣"
+echo "║  Reservoir: gs://${BUCKET}/reservoir/*  (Parquet)          ║"
+echo "║  CCN:       lakehouse_ccn.*  (Iceberg via BLMS linked DS)  ║"
+echo "║  DP:        lakehouse_dataproduct.*  (BigQuery native)     ║"
+echo "╚════════════════════════════════════════════════════════════╝"

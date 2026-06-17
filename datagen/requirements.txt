@@ -1,0 +1,4 @@
+faker>=20.0
+google-cloud-storage>=2.10
+confluent-kafka>=2.3
+pyyaml>=6.0

@@ -1,24 +1,11 @@
-# Terraform
-terraform/.terraform/
-terraform/*.tfstate
-terraform/*.tfstate.backup
-terraform/.terraform.lock.hcl
-# terraform/terraform.tfvars  # not ignored — personal project
-
-# Python
 __pycache__/
 *.pyc
-*.egg-info/
-.venv/
+.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+terraform.tfvars
+*.zip
+.env
 venv/
-
-# IDE
-.idea/
-.vscode/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# GCP
-*-sa-key.json
+confluent/kafka.yaml
