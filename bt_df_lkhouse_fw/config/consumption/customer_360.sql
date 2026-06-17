@@ -10,7 +10,6 @@ SELECT
     c.loyalty_tier,
     c.signup_date,
     c.is_active,
-    c.customer_segment,
     COALESCE(o.total_orders, 0) AS total_orders,
     COALESCE(o.total_spend, 0.0) AS total_spend,
     COALESCE(o.avg_order_value, 0.0) AS avg_order_value,
