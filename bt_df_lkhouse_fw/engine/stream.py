@@ -164,6 +164,18 @@ def main():
         .withColumn("ingestion_ts", current_timestamp())
     )
 
+    # Ensure target Iceberg table exists (create empty if not)
+    try:
+        spark.read.table(target_table)
+        log("stream", f"Table {target_table} exists")
+    except Exception:
+        log("stream", f"Table {target_table} not found — creating from schema")
+        empty_df = spark.createDataFrame([], stream_schema)
+        from pyspark.sql.functions import current_timestamp as _ct
+        empty_df = empty_df.withColumn("ingestion_ts", _ct())
+        empty_df.writeTo(target_table).create()
+        log("stream", f"Created empty table: {target_table}")
+
     # Apply DQ
     clean_stream = apply_stream_dq(parsed_stream, table_config)
 
