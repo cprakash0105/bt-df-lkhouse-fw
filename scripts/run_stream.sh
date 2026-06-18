@@ -11,7 +11,7 @@ export BUCKET="${PROJECT_ID}-lakehouse"
 export SA_EMAIL="schema-poc-spark@${PROJECT_ID}.iam.gserviceaccount.com"
 export SUBNET="projects/${PROJECT_ID}/regions/${REGION}/subnetworks/schema-poc-network"
 
-ICEBERG_PROPS="^::^spark.jars.packages=org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.9.1,org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1::spark.sql.catalog.lakehouse=org.apache.iceberg.spark.SparkCatalog::spark.sql.catalog.lakehouse.catalog-impl=org.apache.iceberg.gcp.biglake.BigLakeCatalog::spark.sql.catalog.lakehouse.gcp_project=${PROJECT_ID}::spark.sql.catalog.lakehouse.gcp_location=${REGION}::spark.sql.catalog.lakehouse.blms_catalog=lakehouse::spark.sql.catalog.lakehouse.warehouse=gs://${BUCKET}"
+ICEBERG_PROPS="^::^spark.jars.packages=org.apache.iceberg:iceberg-spark-runtime-3.5_2.13:1.9.1,org.apache.spark:spark-sql-kafka-0-10_2.13:3.5.1::spark.sql.catalog.lakehouse=org.apache.iceberg.spark.SparkCatalog::spark.sql.catalog.lakehouse.catalog-impl=org.apache.iceberg.gcp.biglake.BigLakeCatalog::spark.sql.catalog.lakehouse.gcp_project=${PROJECT_ID}::spark.sql.catalog.lakehouse.gcp_location=${REGION}::spark.sql.catalog.lakehouse.blms_catalog=lakehouse::spark.sql.catalog.lakehouse.warehouse=gs://${BUCKET}"
 
 CONFIG_PATH="gs://${BUCKET}/framework/config/pipeline.yaml"
 KAFKA_CONFIG_PATH="gs://${BUCKET}/framework/confluent/kafka.yaml"
