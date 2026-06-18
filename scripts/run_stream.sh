@@ -51,7 +51,7 @@ gcloud dataproc batches submit pyspark \
   --jars=gs://spark-lib/biglake/biglake-catalog-iceberg1.9.1-0.1.3-with-dependencies.jar \
   --deps-bucket=gs://${BUCKET} \
   --py-files=${PY_FILES} \
-  --properties="${ICEBERG_PROPS}::spark.executor.instances=0::spark.dynamicAllocation.enabled=false" \
+  --properties="${ICEBERG_PROPS}::spark.executor.instances=2::spark.dynamicAllocation.enabled=false" \
   -- --config=${CONFIG_PATH} \
      --kafka-config=${KAFKA_CONFIG_PATH} \
      --table=${TABLE} \
