@@ -11,7 +11,7 @@ export BUCKET="${PROJECT_ID}-lakehouse"
 export SA_EMAIL="schema-poc-spark@${PROJECT_ID}.iam.gserviceaccount.com"
 export SUBNET="projects/${PROJECT_ID}/regions/${REGION}/subnetworks/schema-poc-network"
 
-ICEBERG_PROPS="^::^spark.jars.packages=org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.9.1,org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,org.apache.kafka:kafka-clients:3.5.0::spark.sql.catalog.lakehouse=org.apache.iceberg.spark.SparkCatalog::spark.sql.catalog.lakehouse.catalog-impl=org.apache.iceberg.gcp.biglake.BigLakeCatalog::spark.sql.catalog.lakehouse.gcp_project=${PROJECT_ID}::spark.sql.catalog.lakehouse.gcp_location=${REGION}::spark.sql.catalog.lakehouse.blms_catalog=lakehouse::spark.sql.catalog.lakehouse.warehouse=gs://${BUCKET}"
+ICEBERG_PROPS="^::^spark.jars.packages=org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.9.1::spark.sql.catalog.lakehouse=org.apache.iceberg.spark.SparkCatalog::spark.sql.catalog.lakehouse.catalog-impl=org.apache.iceberg.gcp.biglake.BigLakeCatalog::spark.sql.catalog.lakehouse.gcp_project=${PROJECT_ID}::spark.sql.catalog.lakehouse.gcp_location=${REGION}::spark.sql.catalog.lakehouse.blms_catalog=lakehouse::spark.sql.catalog.lakehouse.warehouse=gs://${BUCKET}"
 
 CONFIG_PATH="gs://${BUCKET}/framework/config/pipeline.yaml"
 KAFKA_CONFIG_PATH="gs://${BUCKET}/framework/confluent/kafka.yaml"
@@ -49,9 +49,10 @@ gcloud dataproc batches submit pyspark \
   --service-account=${SA_EMAIL} --subnet=${SUBNET} \
   --version=2.2 \
   --jars=gs://spark-lib/biglake/biglake-catalog-iceberg1.9.1-0.1.3-with-dependencies.jar \
+  --packages=org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.4,org.apache.kafka:kafka-clients:3.5.2 \
   --deps-bucket=gs://${BUCKET} \
   --py-files=${PY_FILES} \
-  --properties="${ICEBERG_PROPS}::spark.executor.instances=2::spark.driver.cores=4::spark.executor.cores=4::spark.driver.memory=4g::spark.executor.memory=4g" \
+  --properties="${ICEBERG_PROPS}::spark.executor.instances=0::spark.dynamicAllocation.enabled=false" \
   -- --config=${CONFIG_PATH} \
      --kafka-config=${KAFKA_CONFIG_PATH} \
      --table=${TABLE} \
