@@ -106,8 +106,13 @@ async def handle_message(message: cl.Message):
     elif lower.startswith("search "):
         query = text[7:].strip()
         await _search_glossary(query)
-    elif lower.startswith("profile "):
-        await _handle_profile(text[8:].strip())
+    elif lower.startswith("profile"):
+        # Strip 'profile' prefix and any whitespace/newline
+        data = text[7:].strip() if len(text) > 7 else ""
+        if data:
+            await _profile_and_discover(data, "csv")
+        else:
+            await cl.Message(content="Paste CSV data after the `profile` command, or upload a .csv file.").send()
     elif lower.startswith("discover "):
         asset_name = text[9:].strip()
         await _ask_for_fields(asset_name)
@@ -132,8 +137,13 @@ async def handle_message(message: cl.Message):
         if parsed:
             await _run_discovery_from_dict(parsed)
         else:
-            # Try natural language parsing
-            await _try_natural_language(text)
+            # Check if it looks like CSV data (has commas, multiple lines, header-like first line)
+            lines = text.strip().split("\n")
+            if len(lines) >= 3 and "," in lines[0] and all("," in l for l in lines[:3]):
+                await _profile_and_discover(text, "csv")
+            else:
+                # Try natural language parsing
+                await _try_natural_language(text)
 
 
 async def _run_discovery(content: str):
