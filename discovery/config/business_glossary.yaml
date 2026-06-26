@@ -1,0 +1,30 @@
+business_glossary:
+  - id: TERM_CUSTOMER
+    name: Customer
+    domain: Customer
+    definition: A legal entity or individual maintaining relationship with the bank
+
+  - id: TERM_KYC_STATUS
+    name: KYC Status
+    domain: Customer
+    definition: Verification status of customer identity
+
+  - id: TERM_ACCOUNT
+    name: Account
+    domain: Account
+    definition: Financial ledger relationship between bank and customer
+
+  - id: TERM_BALANCE
+    name: Account Balance
+    domain: Account
+    definition: Current monetary value in an account
+
+  - id: TERM_TRANSACTION
+    name: Transaction
+    domain: Payments
+    definition: Movement of funds between accounts
+
+  - id: TERM_LOAN
+    name: Loan
+    domain: Lending
+    definition: Amount lent with obligation to repay

@@ -1,0 +1,407 @@
+# Seed Glossary — Bootstrap Knowledge Graph
+# This file seeds the initial business terms, domains, reference sets.
+# The graph grows as stewards approve new discoveries.
+
+business_applications:
+  - id: credit_risk
+    name: "Credit Risk & Lending"
+    description: "Credit scoring, loan origination, bureau data"
+    keywords: [credit, cibil, loan, bureau, score, lending, risk, default]
+
+  - id: customer_management
+    name: "Customer Management"
+    description: "Customer master, identity, KYC, onboarding"
+    keywords: [customer, client, subscriber, account, kyc, identity, onboard]
+
+  - id: marketing_campaigns
+    name: "Marketing & Campaigns"
+    description: "Campaign targeting, segmentation, engagement"
+    keywords: [campaign, segment, target, engagement, offer, promotion, marketing]
+
+  - id: billing_finance
+    name: "Billing & Finance"
+    description: "Billing, invoicing, payments, revenue"
+    keywords: [bill, invoice, payment, revenue, charge, amount, price, fee]
+
+  - id: order_management
+    name: "Order Management"
+    description: "Orders, fulfilment, delivery, returns"
+    keywords: [order, fulfilment, delivery, return, shipment, cart, checkout]
+
+  - id: product_catalog
+    name: "Product Catalog"
+    description: "Products, services, pricing, inventory"
+    keywords: [product, service, sku, catalog, inventory, stock, price]
+
+data_domains:
+  - id: customer
+    name: "Customer"
+    description: "All customer-related data"
+
+  - id: finance
+    name: "Finance"
+    description: "Financial transactions, billing, payments"
+
+  - id: product
+    name: "Product"
+    description: "Product and service catalog"
+
+  - id: order
+    name: "Order"
+    description: "Order lifecycle data"
+
+  - id: bureau
+    name: "Bureau & External"
+    description: "Third-party bureau feeds (credit, identity)"
+
+  - id: digital
+    name: "Digital & Clickstream"
+    description: "Web/app interaction data"
+
+business_terms:
+  # --- Customer Domain ---
+  - id: customer_identifier
+    name: "Customer Identifier"
+    domain: customer
+    synonyms: [customer_id, cust_id, cust_no, client_id, subscriber_id, acct_id]
+    data_type: string
+    information_type: Identifier
+    is_pii: false
+    is_key_candidate: true
+    dq_rules:
+      not_null: true
+      unique: true
+
+  - id: customer_name
+    name: "Customer Name"
+    domain: customer
+    synonyms: [name, cust_name, cust_nm, full_name, customer_nm, client_name]
+    data_type: string
+    information_type: Dimension
+    is_pii: true
+    classification: PII
+    dq_rules:
+      not_null: true
+
+  - id: customer_email
+    name: "Customer Email"
+    domain: customer
+    synonyms: [email, email_addr, email_address, e_mail, mail]
+    data_type: string
+    information_type: Dimension
+    is_pii: true
+    classification: PII
+    pattern: "^[\\w.+-]+@[\\w.-]+\\.[a-zA-Z]{2,}$"
+    dq_rules:
+      not_null: false
+      format: email
+
+  - id: customer_phone
+    name: "Customer Phone"
+    domain: customer
+    synonyms: [phone, mobile, tel, telephone, phn_nbr, phone_number, mobile_no, contact_number]
+    data_type: string
+    information_type: Dimension
+    is_pii: true
+    classification: PII
+    dq_rules:
+      not_null: false
+
+  - id: date_of_birth
+    name: "Date of Birth"
+    domain: customer
+    synonyms: [dob, birth_date, birthdate, date_of_birth]
+    data_type: date
+    information_type: Temporal
+    is_pii: true
+    classification: PII
+    dq_rules:
+      not_null: false
+
+  - id: pan_number
+    name: "PAN Number"
+    domain: customer
+    synonyms: [pan, pan_no, pan_number, pan_card]
+    data_type: string
+    information_type: Identifier
+    is_pii: true
+    classification: PII
+    pattern: "^[A-Z]{5}[0-9]{4}[A-Z]$"
+    dq_rules:
+      not_null: false
+      format: pan
+
+  - id: aadhaar_number
+    name: "Aadhaar Number"
+    domain: customer
+    synonyms: [aadhaar, aadhar, aadhaar_no, uid]
+    data_type: string
+    information_type: Identifier
+    is_pii: true
+    classification: PII
+    pattern: "^[0-9]{12}$"
+    dq_rules:
+      not_null: false
+
+  - id: address
+    name: "Address"
+    domain: customer
+    synonyms: [address, addr, street, address_line, postal_address, mailing_address]
+    data_type: string
+    information_type: Dimension
+    is_pii: true
+    classification: PII
+    dq_rules:
+      not_null: false
+
+  - id: loyalty_tier
+    name: "Loyalty Tier"
+    domain: customer
+    synonyms: [tier, loyalty_level, membership_tier, loyalty_tier]
+    data_type: string
+    information_type: Reference
+    is_pii: false
+    reference_code_set: loyalty_tiers
+    dq_rules:
+      not_null: false
+
+  - id: region
+    name: "Region"
+    domain: customer
+    synonyms: [region, area, zone, territory, geo]
+    data_type: string
+    information_type: Reference
+    is_pii: false
+    reference_code_set: bt_regions
+    dq_rules:
+      not_null: false
+
+  # --- Finance Domain ---
+  - id: transaction_amount
+    name: "Transaction Amount"
+    domain: finance
+    synonyms: [amount, amt, total_amount, bill_amt, payment_amount, txn_amount, transaction_amt]
+    data_type: double
+    information_type: Measure
+    is_pii: false
+    dq_rules:
+      not_null: true
+      positive: true
+
+  - id: currency_code
+    name: "Currency Code"
+    domain: finance
+    synonyms: [currency, ccy, currency_code, curr_cd]
+    data_type: string
+    information_type: Reference
+    is_pii: false
+    reference_code_set: currency_codes
+    dq_rules:
+      not_null: false
+
+  - id: payment_method
+    name: "Payment Method"
+    domain: finance
+    synonyms: [payment_method, pay_method, payment_type, pay_type]
+    data_type: string
+    information_type: Reference
+    is_pii: false
+    reference_code_set: payment_methods
+    dq_rules:
+      not_null: false
+
+  # --- Order Domain ---
+  - id: order_identifier
+    name: "Order Identifier"
+    domain: order
+    synonyms: [order_id, order_no, order_number, ord_id]
+    data_type: string
+    information_type: Identifier
+    is_pii: false
+    is_key_candidate: true
+    dq_rules:
+      not_null: true
+      unique: true
+
+  - id: order_status
+    name: "Order Status"
+    domain: order
+    synonyms: [status, order_status, ord_status]
+    data_type: string
+    information_type: Reference
+    is_pii: false
+    reference_code_set: order_statuses
+    dq_rules:
+      not_null: true
+
+  - id: order_date
+    name: "Order Date"
+    domain: order
+    synonyms: [order_date, order_dt, ord_date, placed_date]
+    data_type: date
+    information_type: Temporal
+    is_pii: false
+    dq_rules:
+      not_null: true
+
+  - id: order_channel
+    name: "Order Channel"
+    domain: order
+    synonyms: [channel, order_channel, sales_channel]
+    data_type: string
+    information_type: Reference
+    is_pii: false
+    reference_code_set: order_channels
+    dq_rules:
+      not_null: false
+
+  # --- Product Domain ---
+  - id: product_identifier
+    name: "Product Identifier"
+    domain: product
+    synonyms: [product_id, prod_id, sku, item_id, product_code]
+    data_type: string
+    information_type: Identifier
+    is_pii: false
+    is_key_candidate: true
+    dq_rules:
+      not_null: true
+      unique: true
+
+  - id: product_name
+    name: "Product Name"
+    domain: product
+    synonyms: [product_name, prod_name, item_name, product_title]
+    data_type: string
+    information_type: Dimension
+    is_pii: false
+    dq_rules:
+      not_null: true
+
+  - id: product_price
+    name: "Product Price"
+    domain: product
+    synonyms: [price, unit_price, product_price, item_price, msrp]
+    data_type: double
+    information_type: Measure
+    is_pii: false
+    dq_rules:
+      not_null: true
+      positive: true
+
+  # --- Bureau Domain ---
+  - id: credit_score
+    name: "Credit Score"
+    domain: bureau
+    synonyms: [cibil_score, credit_score, fico_score, bureau_score, risk_score]
+    data_type: integer
+    information_type: Measure
+    is_pii: false
+    classification: Sensitive
+    dq_rules:
+      not_null: true
+      range: [300, 900]
+
+  - id: bureau_reference
+    name: "Bureau Reference"
+    domain: bureau
+    synonyms: [bureau_ref, bureau_id, enquiry_id, bureau_reference]
+    data_type: string
+    information_type: Identifier
+    is_pii: false
+    dq_rules:
+      not_null: true
+
+  # --- Digital Domain ---
+  - id: session_id
+    name: "Session Identifier"
+    domain: digital
+    synonyms: [session_id, sess_id, session_key, visit_id]
+    data_type: string
+    information_type: Identifier
+    is_pii: false
+    is_key_candidate: true
+    dq_rules:
+      not_null: true
+
+  - id: page_url
+    name: "Page URL"
+    domain: digital
+    synonyms: [url, page_url, page_path, uri, page]
+    data_type: string
+    information_type: Dimension
+    is_pii: false
+    dq_rules:
+      not_null: true
+
+  - id: event_timestamp
+    name: "Event Timestamp"
+    domain: digital
+    synonyms: [event_ts, timestamp, ts, event_time, created_at, updated_at]
+    data_type: timestamp
+    information_type: Temporal
+    is_pii: false
+    dq_rules:
+      not_null: true
+
+  # --- Common / Cross-domain ---
+  - id: country_code
+    name: "Country Code"
+    domain: customer
+    synonyms: [country, country_code, cntry_cd, country_cd, nation]
+    data_type: string
+    information_type: Reference
+    is_pii: false
+    reference_code_set: iso_country_codes
+    dq_rules:
+      not_null: false
+
+  - id: created_date
+    name: "Created Date"
+    domain: customer
+    synonyms: [created_at, created_date, create_dt, registration_date, signup_date]
+    data_type: timestamp
+    information_type: Temporal
+    is_pii: false
+    dq_rules:
+      not_null: false
+
+reference_code_sets:
+  loyalty_tiers: [Bronze, Silver, Gold, Platinum, Diamond]
+  bt_regions: [North, South, Midlands, London, Scotland, Wales, East, West]
+  order_statuses: [delivered, shipped, processing, cancelled, returned]
+  order_channels: [web, mobile, store, phone, marketplace]
+  payment_methods: [credit_card, debit_card, upi, net_banking, wallet, cod]
+  currency_codes: [GBP, USD, EUR, INR, AUD, CAD, JPY]
+  iso_country_codes: [GB, US, DE, FR, IN, AU, CA, JP, SG, AE]
+
+data_classifications:
+  - id: pii
+    name: "PII"
+    description: "Personally Identifiable Information"
+    masking_required: true
+    retention_policy: "7 years"
+
+  - id: phi
+    name: "PHI"
+    description: "Protected Health Information"
+    masking_required: true
+    retention_policy: "10 years"
+
+  - id: sensitive
+    name: "Sensitive"
+    description: "Business sensitive data"
+    masking_required: false
+    retention_policy: "5 years"
+
+  - id: internal
+    name: "Internal"
+    description: "Internal use only"
+    masking_required: false
+    retention_policy: "3 years"
+
+  - id: public
+    name: "Public"
+    description: "No restrictions"
+    masking_required: false
+    retention_policy: "indefinite"

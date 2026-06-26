@@ -1,0 +1,12 @@
+governance_rules:
+  - id: RULE_TXN_AMOUNT_POSITIVE
+    applies_to: txn_amount
+    rule_type: validation
+    condition: "txn_amount > 0"
+    severity: high
+
+  - id: RULE_NO_NULL_CUSTOMER
+    applies_to: customer_id
+    rule_type: completeness
+    condition: "customer_id IS NOT NULL"
+    severity: critical

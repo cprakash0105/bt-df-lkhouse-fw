@@ -1,0 +1,134 @@
+# Deterministic Rules — Pattern-based matching
+# These run BEFORE embeddings and catch obvious patterns fast.
+
+naming_rules:
+  identifiers:
+    patterns: ["*_id", "*_key", "*_no", "*_num", "*_code", "*_ref", "*_identifier"]
+    suffixes: [id, key, no, num, code, ref]
+    information_type: Identifier
+    is_key_candidate: true
+    dq_suggest:
+      not_null: true
+      unique: true
+
+  temporal:
+    patterns: ["*_dt", "*_date", "*_ts", "*_timestamp", "*_time", "*_at"]
+    suffixes: [dt, date, ts, timestamp, time, at]
+    information_type: Temporal
+    dq_suggest:
+      not_null: false
+
+  measures:
+    patterns: ["*_amt", "*_amount", "*_qty", "*_count", "*_total", "*_price", "*_cost", "*_fee", "*_rate", "*_score"]
+    suffixes: [amt, amount, qty, count, total, price, cost, fee, rate, score]
+    information_type: Measure
+    dq_suggest:
+      not_null: true
+      positive: true
+
+  flags:
+    patterns: ["is_*", "has_*", "*_flag", "*_ind", "*_yn"]
+    prefixes: [is_, has_]
+    suffixes: [flag, ind, yn]
+    information_type: Dimension
+    data_type_hint: boolean
+    dq_suggest:
+      not_null: false
+      accepted_values: [true, false, "Y", "N", 0, 1]
+
+  references:
+    patterns: ["*_type", "*_status", "*_category", "*_tier", "*_level", "*_channel", "*_method"]
+    suffixes: [type, status, category, tier, level, channel, method]
+    information_type: Reference
+    dq_suggest:
+      not_null: false
+
+pii_rules:
+  high_confidence:
+    # Field name contains these → almost certainly PII
+    patterns: [
+      "*email*", "*phone*", "*mobile*", "*name*",
+      "*addr*", "*address*", "*ssn*", "*dob*",
+      "*birth*", "*pan*", "*aadhaar*", "*aadhar*",
+      "*passport*", "*license*", "*licence*",
+      "*national_id*", "*nin*", "*nino*"
+    ]
+    classification: PII
+    confidence: 0.9
+
+  medium_confidence:
+    # Might be PII depending on context
+    patterns: ["*contact*", "*person*", "*first*", "*last*", "*surname*", "*postcode*", "*zip*", "*city*"]
+    classification: PII
+    confidence: 0.7
+
+  low_confidence:
+    # Could be PII if combined with other fields
+    patterns: ["*ip_addr*", "*device_id*", "*user_agent*", "*location*", "*lat*", "*lon*"]
+    classification: Sensitive
+    confidence: 0.5
+
+type_rules:
+  # Infer information type from data type
+  - data_types: [decimal, double, float, numeric]
+    information_type: Measure
+    dq_suggest: {positive: true}
+
+  - data_types: [date, timestamp, datetime]
+    information_type: Temporal
+
+  - data_types: [boolean, bool]
+    information_type: Dimension
+
+foreign_key_rules:
+  # If a field name matches another table's primary key pattern
+  patterns:
+    - field_pattern: "customer_id"
+      likely_references: "customers.customer_id"
+    - field_pattern: "order_id"
+      likely_references: "orders.order_id"
+    - field_pattern: "product_id"
+      likely_references: "products.product_id"
+    - field_pattern: "*_id"
+      # Generic: strip suffix, check if a table with that name exists
+      heuristic: "strip_suffix_match"
+
+business_application_rules:
+  # Keywords in field names or dataset name that hint at business application
+  - keywords: [credit, cibil, score, bureau, loan, lending, risk, default, delinquent]
+    application: credit_risk
+    confidence: 0.85
+
+  - keywords: [customer, client, subscriber, account, kyc, identity, onboard, profile]
+    application: customer_management
+    confidence: 0.80
+
+  - keywords: [campaign, segment, target, engagement, offer, promotion, marketing, lead]
+    application: marketing_campaigns
+    confidence: 0.80
+
+  - keywords: [bill, invoice, payment, revenue, charge, amount, price, fee, remittance]
+    application: billing_finance
+    confidence: 0.80
+
+  - keywords: [order, fulfilment, delivery, return, shipment, cart, checkout, dispatch]
+    application: order_management
+    confidence: 0.80
+
+  - keywords: [product, service, sku, catalog, inventory, stock, item]
+    application: product_catalog
+    confidence: 0.80
+
+schema_evolution_defaults:
+  # Default governance based on classification
+  pii_fields:
+    allowed: [add_column]
+    blocked: [drop_column, type_widen, type_narrow]
+
+  sensitive_fields:
+    allowed: [add_column, type_widen]
+    blocked: [drop_column, type_narrow]
+
+  standard_fields:
+    allowed: [add_column, type_widen]
+    blocked: [drop_column, type_narrow]

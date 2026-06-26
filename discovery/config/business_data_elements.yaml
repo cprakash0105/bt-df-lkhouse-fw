@@ -1,0 +1,20 @@
+business_data_elements:
+  - name: customer_id
+    data_type: string
+    description: Unique identifier for customer
+    maps_to: TERM_CUSTOMER
+
+  - name: account_id
+    data_type: string
+    description: Account number
+    maps_to: TERM_ACCOUNT
+
+  - name: txn_amount
+    data_type: decimal
+    description: Transaction amount
+    maps_to: TERM_TRANSACTION
+
+  - name: loan_id
+    data_type: string
+    description: Loan identifier
+    maps_to: TERM_LOAN

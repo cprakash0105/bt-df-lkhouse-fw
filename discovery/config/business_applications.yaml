@@ -1,0 +1,40 @@
+business_applications:
+  - id: APP_CBS
+    name: Core Banking System
+    domain: Core Banking
+    description: Manages accounts, balances, and transactions
+
+  - id: APP_PAYMENTS
+    name: Payments Hub
+    domain: Payments
+    description: Handles NEFT, RTGS, IMPS, SWIFT flows
+
+  - id: APP_CARDS
+    name: Card Management System
+    domain: Cards
+    description: Manages credit/debit card lifecycle
+
+  - id: APP_LOS
+    name: Loan Origination System
+    domain: Lending
+    description: Processes loan applications
+
+  - id: APP_LMS
+    name: Loan Management System
+    domain: Lending
+    description: Manages loan repayment and servicing
+
+  - id: APP_CRM
+    name: Customer Relationship Management
+    domain: Customer
+    description: Maintains customer profiles
+
+  - id: APP_AML
+    name: AML System
+    domain: Compliance
+    description: Monitors suspicious transactions
+
+  - id: APP_RISK
+    name: Risk Engine
+    domain: Risk
+    description: Credit scoring and exposure analysis

@@ -1,0 +1,19 @@
+# Semantic Discovery — Dependencies
+# Core
+pyyaml>=6.0
+numpy>=1.24.0
+
+# UI
+chainlit>=1.1.0
+
+# Embeddings (local fallback)
+sentence-transformers>=2.2.0
+
+# GCP (optional — for Vertex AI embeddings + Firestore)
+google-cloud-aiplatform>=1.38.0
+google-cloud-firestore>=2.13.0
+vertexai>=1.38.0
+
+# API (optional — for Cloud Run deployment)
+fastapi>=0.104.0
+uvicorn>=0.24.0

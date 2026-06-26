@@ -1,0 +1,20 @@
+datasets:
+  - name: customers
+    source_application: APP_CRM
+    data_elements:
+      - customer_id
+
+  - name: accounts
+    source_application: APP_CBS
+    data_elements:
+      - account_id
+
+  - name: transactions
+    source_application: APP_PAYMENTS
+    data_elements:
+      - txn_amount
+
+  - name: loans
+    source_application: APP_LMS
+    data_elements:
+      - loan_id

@@ -8,4 +8,15 @@ terraform.tfvars
 *.zip
 .env
 venv/
+.venv/
 confluent/kafka.yaml
+
+# Chainlit runtime
+.chainlit/
+chainlit.md
+
+# Screenshots
+*.png
+
+# Discovery local
+discovery/.venv/
