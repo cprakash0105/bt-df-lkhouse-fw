@@ -62,10 +62,11 @@ class GovernanceRule:
 
 
 class KnowledgeGraph:
-    """In-memory knowledge graph loaded from seed glossary + banking catalog.
-    Production: swap with Firestore backend."""
+    """In-memory knowledge graph loaded from seed glossary + banking catalog + Dataplex Catalog.
+    Priority: Dataplex (if available) > local YAML (fallback)."""
 
-    def __init__(self, seed_path: Optional[str] = None, catalog_dir: Optional[str] = None):
+    def __init__(self, seed_path: Optional[str] = None, catalog_dir: Optional[str] = None,
+                 use_dataplex: bool = True):
         self.terms: dict[str, BusinessTerm] = {}
         self.applications: dict[str, BusinessApplication] = {}
         self.domains: dict[str, DataDomain] = {}
@@ -77,14 +78,18 @@ class KnowledgeGraph:
 
         config_dir = Path(__file__).parent.parent / "config"
 
+        # Always load local YAML as baseline
         if seed_path is None:
             seed_path = str(config_dir / "seed_glossary.yaml")
         self._load_from_yaml(seed_path)
 
-        # Load banking catalog files if present
         if catalog_dir is None:
             catalog_dir = str(config_dir)
         self._load_banking_catalog(catalog_dir)
+
+        # Overlay with Dataplex Catalog (adds/overrides terms from cloud)
+        if use_dataplex:
+            self._load_from_dataplex()
 
     def _load_from_yaml(self, path: str):
         with open(path, "r", encoding="utf-8") as f:
@@ -268,3 +273,54 @@ class KnowledgeGraph:
 
     def get_application_by_id(self, app_id: str) -> Optional[BusinessApplication]:
         return self.applications.get(app_id.lower())
+
+    def _load_from_dataplex(self):
+        """Load terms from Dataplex Catalog. Merges with local YAML."""
+        try:
+            from discovery.engine.catalog_reader import CatalogReader
+            reader = CatalogReader()
+            dataplex_terms = reader.read_all_terms()
+
+            if dataplex_terms:
+                print(f"[KnowledgeGraph] Loaded {len(dataplex_terms)} terms from Dataplex Catalog")
+                for ct in dataplex_terms:
+                    # Dataplex terms override local if same ID
+                    self.terms[ct.id] = BusinessTerm(
+                        id=ct.id, name=ct.name, domain=ct.domain,
+                        synonyms=ct.synonyms, data_type=ct.data_type,
+                        information_type=ct.information_type,
+                        is_pii=ct.is_pii, is_key_candidate=ct.is_key_candidate,
+                        classification=ct.classification, pattern=ct.pattern,
+                        reference_code_set=ct.reference_code_set,
+                        dq_rules=ct.dq_rules,
+                    )
+
+                # Also load categories as domains
+                categories = reader.read_categories()
+                for cat in categories:
+                    if not cat["id"].startswith("app_"):
+                        self.domains[cat["id"]] = DataDomain(
+                            id=cat["id"], name=cat["name"],
+                            description=cat.get("description", "")
+                        )
+        except Exception as e:
+            print(f"[KnowledgeGraph] Dataplex unavailable, using local YAML only: {e}")
+
+    def write_term_to_catalog(self, term: BusinessTerm) -> bool:
+        """Write an approved term back to Dataplex Catalog."""
+        try:
+            from discovery.engine.catalog_reader import CatalogReader, CatalogTerm
+            reader = CatalogReader()
+            ct = CatalogTerm(
+                id=term.id, name=term.name, domain=term.domain,
+                synonyms=term.synonyms, data_type=term.data_type,
+                information_type=term.information_type,
+                is_pii=term.is_pii, is_key_candidate=term.is_key_candidate,
+                classification=term.classification, pattern=term.pattern,
+                reference_code_set=term.reference_code_set,
+                dq_rules=term.dq_rules,
+            )
+            return reader.write_term(ct)
+        except Exception as e:
+            print(f"[KnowledgeGraph] Failed to write to Dataplex: {e}")
+            return False
