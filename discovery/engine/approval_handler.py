@@ -215,8 +215,19 @@ class ApprovalHandler:
             if "ALREADY_EXISTS" in str(e):
                 print(f"[ApprovalHandler] Dataset already registered: {suggestion.asset_name}")
                 return True
-            print(f"[ApprovalHandler] Failed to register dataset: {e}")
-            return False
+            # Try without the entry_id suffix collision
+            try:
+                import time
+                entry_id_retry = f"{entry_id}-{int(time.time()) % 10000}"
+                req2 = dataplex_v1.CreateEntryRequest(
+                    parent=self.entry_group, entry=entry, entry_id=entry_id_retry
+                )
+                client.create_entry(request=req2)
+                print(f"[ApprovalHandler] Registered dataset (retry): {suggestion.asset_name}")
+                return True
+            except Exception as e2:
+                print(f"[ApprovalHandler] Failed to register dataset: {e2}")
+                return False
 
     def _push_config_to_gcs(self, asset_name: str, config_yaml: str) -> Optional[str]:
         """Push pipeline config YAML to GCS for the pipeline to pick up."""
