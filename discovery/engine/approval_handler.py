@@ -142,36 +142,32 @@ class ApprovalHandler:
         """Register the dataset as linked to a Business Application in the hierarchy."""
         client = self._get_catalog_client()
         if not client:
+            print("[ApprovalHandler] Catalog client not available")
             return False
 
-        # Create a dataset entry that references the BA
         entry_id = f"dataset-{suggestion.asset_name.replace('_', '-')}"
-
-        # Use a generic entry type for datasets
-        # We'll create a 'dataset' entry type if needed
-        try:
-            # First ensure 'dataset' entry type exists
-            fq_type = f"{self.parent}/entryTypes/dataset"
-            try:
-                client.get_entry_type(name=fq_type)
-            except Exception:
-                # Create it
-                entry_type = dataplex_v1.EntryType(
-                    description="A data asset/dataset registered through Semantic Discovery",
-                    display_name="Dataset",
-                )
-                req = dataplex_v1.CreateEntryTypeRequest(
-                    parent=self.parent,
-                    entry_type=entry_type,
-                    entry_type_id="dataset",
-                )
-                op = client.create_entry_type(request=req)
-                if hasattr(op, 'result'):
-                    op.result()
-        except Exception:
-            pass  # Entry type might already exist
-
         fq_type = f"{self.parent}/entryTypes/dataset"
+
+        # Ensure 'dataset' entry type exists
+        try:
+            entry_type = dataplex_v1.EntryType(
+                description="A data asset/dataset registered through Semantic Discovery",
+                display_name="Dataset",
+            )
+            req = dataplex_v1.CreateEntryTypeRequest(
+                parent=self.parent,
+                entry_type=entry_type,
+                entry_type_id="dataset",
+            )
+            op = client.create_entry_type(request=req)
+            if hasattr(op, 'result'):
+                op.result()
+            print("[ApprovalHandler] Created 'dataset' entry type")
+        except Exception as e:
+            if "ALREADY_EXISTS" not in str(e):
+                print(f"[ApprovalHandler] Entry type creation note: {e}")
+
+        # Create dataset entry
         pii_fields = [f.field_name for f in suggestion.fields if f.is_pii]
 
         entry = dataplex_v1.Entry(
