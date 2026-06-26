@@ -80,8 +80,8 @@ def create_category(client, glossary_name, category_id, name, description):
 
     request = dataplex_v1.CreateGlossaryCategoryRequest(
         parent=glossary_name,
-        glossary_category=category,
-        glossary_category_id=category_id,
+        category=category,
+        category_id=category_id,
     )
 
     try:
@@ -130,8 +130,8 @@ def create_term(client, glossary_name, term_id, term_data, category_name=None):
 
     request = dataplex_v1.CreateGlossaryTermRequest(
         parent=glossary_name,
-        glossary_term=term,
-        glossary_term_id=term_id,
+        term=term,
+        term_id=term_id,
     )
 
     try:
