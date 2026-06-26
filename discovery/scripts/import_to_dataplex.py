@@ -119,8 +119,8 @@ def create_term(client, glossary_name, term_id, term_data, category_name=None):
 
     description = " | ".join(description_parts) if description_parts else term_data.get("name", "")
 
-    # Parent is category if available, otherwise glossary
-    parent_name = category_name if category_name else glossary_name
+    # Terms are always created under the glossary directly
+    parent_name = glossary_name
 
     term = dataplex_v1.GlossaryTerm(
         description=description,
