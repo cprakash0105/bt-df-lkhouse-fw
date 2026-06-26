@@ -76,6 +76,7 @@ def create_category(client, glossary_name, category_id, name, description):
     category = dataplex_v1.GlossaryCategory(
         description=description,
         display_name=name,
+        parent=glossary_name,
     )
 
     request = dataplex_v1.CreateGlossaryCategoryRequest(
@@ -122,14 +123,11 @@ def create_term(client, glossary_name, term_id, term_data, category_name=None):
     term = dataplex_v1.GlossaryTerm(
         description=description,
         display_name=term_data.get("name", term_id),
+        parent=parent,
     )
 
-    # Link to parent category if provided
-    if category_name:
-        term.parent = category_name
-
     request = dataplex_v1.CreateGlossaryTermRequest(
-        parent=glossary_name,
+        parent=parent,
         term=term,
         term_id=term_id,
     )
