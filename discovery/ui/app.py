@@ -16,6 +16,7 @@ from discovery.engine.suggester import Suggester, DiscoverySuggestion
 from discovery.engine.config_generator import ConfigGenerator
 from discovery.engine.nl_parser import NLParser
 from discovery.engine.approval_handler import ApprovalHandler
+from discovery.engine.profiler import Profiler, format_profile_report
 
 # Initialize engine components
 kg = KnowledgeGraph()
@@ -25,6 +26,7 @@ suggester = Suggester(knowledge_graph=kg, rules_engine=rules, embedder=embedder)
 config_gen = ConfigGenerator()
 nl_parser = NLParser()
 approval_handler = ApprovalHandler()
+profiler = Profiler()
 
 
 WELCOME_MESSAGE = """
@@ -87,10 +89,15 @@ async def handle_message(message: cl.Message):
     # Check for file uploads
     if message.elements:
         for element in message.elements:
-            if element.path and (element.path.endswith(".yaml") or element.path.endswith(".yml") or element.path.endswith(".json")):
-                content = Path(element.path).read_text(encoding="utf-8")
-                await _run_discovery(content)
-                return
+            if element.path:
+                if element.path.endswith(".yaml") or element.path.endswith(".yml") or element.path.endswith(".json"):
+                    content = Path(element.path).read_text(encoding="utf-8")
+                    await _run_discovery(content)
+                    return
+                elif element.path.endswith(".csv"):
+                    content = Path(element.path).read_text(encoding="utf-8")
+                    await _profile_and_discover(content, "csv")
+                    return
 
     # Command routing
     lower = text.lower()
@@ -99,6 +106,8 @@ async def handle_message(message: cl.Message):
     elif lower.startswith("search "):
         query = text[7:].strip()
         await _search_glossary(query)
+    elif lower.startswith("profile "):
+        await _handle_profile(text[8:].strip())
     elif lower.startswith("discover "):
         asset_name = text[9:].strip()
         await _ask_for_fields(asset_name)
@@ -508,4 +517,124 @@ Running discovery...""").send()
 
 - **Describe naturally:** "I have a new CIBIL feed with customer_id, pan_number, cibil_score, enquiry_date and loan_amount"
 - **Paste YAML/JSON** with field definitions
+- **Paste CSV data** or upload a .csv file for profiling
 - Type `help` for all commands""").send()
+
+
+async def _profile_and_discover(content: str, format: str = "csv"):
+    """Profile sample data then run discovery with profile evidence."""
+    await cl.Message(content="Profiling sample data...").send()
+
+    if format == "csv":
+        profile = profiler.profile_csv(content)
+    else:
+        profile = profiler.profile_pasted(content)
+
+    if not profile.columns:
+        await cl.Message(content="Could not parse the data. Ensure it has headers and at least a few rows.").send()
+        return
+
+    # Show profile report
+    report = format_profile_report(profile)
+    await cl.Message(content=report).send()
+
+    # Convert profile to asset definition for SD
+    asset_def = _profile_to_asset_def(profile)
+    cl.user_session.set("current_profile", profile)
+
+    # Run discovery with profile enhancement
+    await cl.Message(content=f"Running Semantic Discovery on `{asset_def['name']}` ({len(asset_def['fields'])} fields) with profile evidence...").send()
+
+    suggestion = suggester.full_discovery(asset_def)
+
+    # Enhance suggestions with profile evidence
+    _enhance_with_profile(suggestion, profile)
+
+    cl.user_session.set("current_suggestion", suggestion)
+    result = _format_suggestion(suggestion)
+    await cl.Message(content=result).send()
+    await cl.Message(content="""## What would you like to do?
+
+- `approve all` - Accept all suggestions and write to catalog
+- `generate` - Generate pipeline YAML config
+- Ask me about specific fields""").send()
+
+
+async def _handle_profile(text: str):
+    """Handle pasted data for profiling."""
+    if text.startswith("gs://"):
+        await cl.Message(content="GCS profiling not yet supported in this POC. Please paste CSV data directly or upload a .csv file.").send()
+        return
+
+    # Try to profile pasted data
+    profile = profiler.profile_pasted(text)
+    if profile.columns:
+        report = format_profile_report(profile)
+        await cl.Message(content=report).send()
+
+        asset_def = _profile_to_asset_def(profile)
+        await cl.Message(content=f"""Profile complete. Run discovery on this?
+
+Paste `discover` to run SD on the profiled data, or paste a YAML definition to override.""").send()
+        cl.user_session.set("current_profile", profile)
+    else:
+        await cl.Message(content="""Could not parse the data. Try:
+- Pasting CSV with headers
+- Uploading a .csv file
+- Using comma, tab, or pipe as delimiter""").send()
+
+
+def _profile_to_asset_def(profile) -> dict:
+    """Convert a DataProfile into an asset definition dict."""
+    fields = []
+    for col in profile.columns:
+        fields.append({
+            "name": col.name,
+            "type": col.inferred_type,
+        })
+
+    # Try to infer dataset name from columns
+    name = "profiled_dataset"
+    return {"name": name, "fields": fields}
+
+
+def _enhance_with_profile(suggestion, profile):
+    """Enhance SD suggestions with profiling evidence."""
+    profile_map = {col.name: col for col in profile.columns}
+
+    for field_sug in suggestion.fields:
+        col_profile = profile_map.get(field_sug.field_name)
+        if not col_profile:
+            continue
+
+        # Override PII detection with profile evidence
+        if col_profile.is_likely_pii and not field_sug.is_pii:
+            field_sug.is_pii = True
+            field_sug.classification = "PII"
+            field_sug.reasoning.append(
+                f"PROFILE: PII detected from values (pattern: {', '.join(col_profile.detected_patterns)})"
+            )
+
+        # Override key candidate with profile evidence
+        if col_profile.is_likely_identifier:
+            field_sug.is_key_candidate = True
+            field_sug.reasoning.append(
+                f"PROFILE: Likely PK (cardinality: {col_profile.cardinality_ratio:.0%}, nulls: {col_profile.null_pct:.0%})"
+            )
+
+        # Add reference set from profile
+        if col_profile.is_likely_reference and col_profile.distinct_values:
+            field_sug.accepted_values = col_profile.distinct_values
+            field_sug.reasoning.append(
+                f"PROFILE: Low cardinality ({col_profile.distinct_count} values) -> reference set"
+            )
+
+        # Merge DQ rules from profile
+        for k, v in col_profile.suggested_dq.items():
+            if k not in field_sug.dq_rules:
+                field_sug.dq_rules[k] = v
+
+        # Boost confidence if profile confirms the match
+        if col_profile.detected_patterns:
+            if field_sug.confidence > 0:
+                field_sug.confidence = min(field_sug.confidence + 0.1, 0.99)
