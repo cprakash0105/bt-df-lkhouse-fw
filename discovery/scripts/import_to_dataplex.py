@@ -12,6 +12,7 @@ from pathlib import Path
 
 try:
     from google.cloud import dataplex_v1
+    from google.cloud.dataplex_v1 import BusinessGlossaryServiceClient
 except ImportError:
     print("ERROR: google-cloud-dataplex not installed.")
     print("Run: pip install google-cloud-dataplex")
@@ -46,16 +47,19 @@ def load_config():
 def create_glossary(client, project_id, location):
     """Create the enterprise glossary."""
     parent = f"projects/{project_id}/locations/{location}"
+
     glossary = dataplex_v1.Glossary(
         description="Enterprise Data Glossary - Business terms, classifications, and data elements"
     )
 
+    request = dataplex_v1.CreateGlossaryRequest(
+        parent=parent,
+        glossary=glossary,
+        glossary_id=GLOSSARY_ID,
+    )
+
     try:
-        operation = client.create_glossary(
-            parent=parent,
-            glossary=glossary,
-            glossary_id=GLOSSARY_ID,
-        )
+        operation = client.create_glossary(request=request)
         result = operation.result()
         print(f"[OK] Created glossary: {result.name}")
         return result.name
@@ -74,12 +78,14 @@ def create_category(client, glossary_name, category_id, name, description):
         display_name=name,
     )
 
+    request = dataplex_v1.CreateGlossaryCategoryRequest(
+        parent=glossary_name,
+        glossary_category=category,
+        glossary_category_id=category_id,
+    )
+
     try:
-        operation = client.create_glossary_category(
-            parent=glossary_name,
-            glossary_category=category,
-            glossary_category_id=category_id,
-        )
+        operation = client.create_glossary_category(request=request)
         result = operation.result()
         print(f"  [OK] Category: {name}")
         return result.name
@@ -118,16 +124,18 @@ def create_term(client, glossary_name, term_id, term_data, category_name=None):
         display_name=term_data.get("name", term_id),
     )
 
-    # Link to category if provided
+    # Link to parent category if provided
     if category_name:
         term.parent = category_name
 
+    request = dataplex_v1.CreateGlossaryTermRequest(
+        parent=glossary_name,
+        glossary_term=term,
+        glossary_term_id=term_id,
+    )
+
     try:
-        operation = client.create_glossary_term(
-            parent=glossary_name,
-            glossary_term=term,
-            glossary_term_id=term_id,
-        )
+        operation = client.create_glossary_term(request=request)
         result = operation.result()
         print(f"    [OK] Term: {term_data.get('name', term_id)}")
         return result.name
@@ -187,7 +195,7 @@ def main():
         return
 
     # Initialize client
-    client = dataplex_v1.CatalogServiceClient()
+    client = BusinessGlossaryServiceClient()
 
     # Create glossary
     print("\n[1/3] Creating glossary...")
