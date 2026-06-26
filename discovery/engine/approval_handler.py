@@ -3,24 +3,29 @@ On approval:
   1. Creates new BDE terms in the Glossary (if proposed)
   2. Links dataset to Business Application (Custom Entry)
   3. Sets DQ rules and classification metadata
-  4. Generates pipeline config YAML
+  4. Writes pipeline config YAML to GCS
+  5. Generates pipeline config YAML
 """
 import os
 from typing import Optional
 from discovery.engine.suggester import DiscoverySuggestion, FieldSuggestion
 
 try:
-    from google.cloud import dataplex_v1
+    from google.cloud import dataplex_v1, storage
     from google.cloud.dataplex_v1 import BusinessGlossaryServiceClient, CatalogServiceClient
     DATAPLEX_AVAILABLE = True
+    GCS_AVAILABLE = True
 except ImportError:
     DATAPLEX_AVAILABLE = False
+    GCS_AVAILABLE = False
 
 
 PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "bt-df-lkhouse")
 LOCATION = os.environ.get("GCP_REGION", "europe-west2")
 GLOSSARY_ID = "enterprise-data-glossary"
 ENTRY_GROUP_ID = "enterprise-hierarchy"
+CONFIG_BUCKET = os.environ.get("CONFIG_BUCKET", f"{PROJECT_ID}-lakehouse")
+CONFIG_PREFIX = "framework/config/tables"
 
 
 class ApprovalHandler:
@@ -47,13 +52,14 @@ class ApprovalHandler:
             self._catalog_client = CatalogServiceClient()
         return self._catalog_client
 
-    def process_approval(self, suggestion: DiscoverySuggestion) -> dict:
-        """Process a full approval — create terms, link BA, set policies.
+    def process_approval(self, suggestion: DiscoverySuggestion, config_yaml: str = None) -> dict:
+        """Process a full approval — create terms, link BA, set policies, push config.
         Returns a summary of what was done."""
         results = {
             "new_terms_created": [],
             "ba_linked": None,
             "policies_set": [],
+            "config_gcs_path": None,
             "errors": [],
         }
 
@@ -82,6 +88,14 @@ class ApprovalHandler:
                     "classification": field.classification,
                     "dq_rules": field.dq_rules,
                 })
+
+        # 4. Push pipeline config to GCS
+        if config_yaml:
+            gcs_path = self._push_config_to_gcs(suggestion.asset_name, config_yaml)
+            if gcs_path:
+                results["config_gcs_path"] = gcs_path
+            else:
+                results["errors"].append("Failed to push config to GCS")
 
         return results
 
@@ -203,3 +217,23 @@ class ApprovalHandler:
                 return True
             print(f"[ApprovalHandler] Failed to register dataset: {e}")
             return False
+
+    def _push_config_to_gcs(self, asset_name: str, config_yaml: str) -> Optional[str]:
+        """Push pipeline config YAML to GCS for the pipeline to pick up."""
+        if not GCS_AVAILABLE:
+            print("[ApprovalHandler] GCS not available")
+            return None
+
+        gcs_path = f"gs://{CONFIG_BUCKET}/{CONFIG_PREFIX}/{asset_name}.yaml"
+        blob_name = f"{CONFIG_PREFIX}/{asset_name}.yaml"
+
+        try:
+            client = storage.Client(project=PROJECT_ID)
+            bucket = client.bucket(CONFIG_BUCKET)
+            blob = bucket.blob(blob_name)
+            blob.upload_from_string(config_yaml, content_type="application/x-yaml")
+            print(f"[ApprovalHandler] Config pushed to: {gcs_path}")
+            return gcs_path
+        except Exception as e:
+            print(f"[ApprovalHandler] Failed to push config to GCS: {e}")
+            return None

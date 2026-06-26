@@ -252,16 +252,19 @@ def _format_suggestion(s: DiscoverySuggestion) -> str:
 
 
 async def _approve_all():
-    """Approve all suggestions — write to Dataplex + generate config."""
+    """Approve all suggestions — write to Dataplex + push config to GCS."""
     suggestion = cl.user_session.get("current_suggestion")
     if not suggestion:
         await cl.Message(content="No active discovery to approve. Run a discovery first.").send()
         return
 
-    # Process approval — write to Dataplex
-    await cl.Message(content="Processing approval — writing to Knowledge Catalog...").send()
+    # Generate config YAML
+    config_yaml = config_gen.generate(suggestion)
 
-    results = approval_handler.process_approval(suggestion)
+    # Process approval — write to Dataplex + GCS
+    await cl.Message(content="Processing approval — writing to Knowledge Catalog and pushing config to GCS...").send()
+
+    results = approval_handler.process_approval(suggestion, config_yaml=config_yaml)
 
     # Report what was done
     lines = ["## Approval Processed\n"]
@@ -275,6 +278,12 @@ async def _approve_all():
     if results["ba_linked"]:
         lines.append(f"### Dataset Linked to Business Application")
         lines.append(f"- {suggestion.asset_name} -> {results['ba_linked']}")
+        lines.append("")
+
+    if results["config_gcs_path"]:
+        lines.append(f"### Pipeline Config Pushed to GCS")
+        lines.append(f"- `{results['config_gcs_path']}`")
+        lines.append(f"- Pipeline can now pick this up automatically")
         lines.append("")
 
     if results["policies_set"]:
@@ -293,7 +302,7 @@ async def _approve_all():
 
     await cl.Message(content="\n".join(lines)).send()
 
-    # Generate config
+    # Also show the config
     await _generate_config()
 
 
