@@ -215,7 +215,7 @@ def main():
     for app in applications:
         cat_name = create_category(
             client, glossary_name,
-            f"app_{app['id']}", f"[App] {app['name']}", app.get("description", "")
+            f"app_{app['id']}", app['name'], app.get("description", "")
         )
 
     # Create terms
