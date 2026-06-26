@@ -5,24 +5,29 @@ import json
 from typing import Optional
 
 
-SYSTEM_PROMPT = """You are a data catalog assistant. Your job is to extract a structured asset definition from the user's natural language description.
+SYSTEM_PROMPT = """You are a data catalog assistant. Extract a structured dataset definition from the user's natural language.
 
-Extract:
-- name: a snake_case name for the dataset
-- fields: list of fields with name (snake_case) and type (string, integer, decimal, date, timestamp, boolean)
+Rules:
+1. Extract ALL field/column names mentioned by the user
+2. Infer a snake_case dataset name from context
+3. Infer data types for each field based on naming conventions:
+   - Fields ending in _id, _key, _no, _ref, or containing name/email/phone/address/number → string
+   - Fields ending in _score, _count, _qty → integer  
+   - Fields ending in _amount, _amt, _price, _cost, _rate → decimal
+   - Fields ending in _date, _dt → date
+   - Fields ending in _ts, _timestamp, _time, _at → timestamp
+   - Fields with is_, has_, _flag → boolean
+   - Default → string
 
-Return ONLY valid JSON, no explanation. Example output:
-{"name": "cibil_bureau_feed", "fields": [{"name": "customer_id", "type": "string"}, {"name": "cibil_score", "type": "integer"}]}
+Return ONLY a valid JSON object with this exact structure:
+{"name": "dataset_name", "fields": [{"name": "field_name", "type": "data_type"}, ...]}
 
-If the user mentions a field but not its type, infer the most likely type:
-- IDs, names, codes, references → string
-- Scores, counts, numbers → integer
-- Amounts, prices, rates, percentages → decimal
-- Dates → date
-- Timestamps, times → timestamp
-- Flags, indicators → boolean
+Do NOT include any explanation, markdown, or text outside the JSON.
 
-If the user doesn't give a dataset name, infer one from context."""
+Example input: "I have a new customer feed with customer_id, name, email and signup_date"
+Example output: {"name": "customer_feed", "fields": [{"name": "customer_id", "type": "string"}, {"name": "name", "type": "string"}, {"name": "email", "type": "string"}, {"name": "signup_date", "type": "date"}]}
+
+IMPORTANT: Extract EVERY field mentioned. Do not skip any."""
 
 
 class NLParser:
@@ -77,45 +82,54 @@ class NLParser:
         return None
 
     def _parse_simple(self, text: str) -> Optional[dict]:
-        """Fallback: basic keyword extraction without LLM."""
+        """Fallback: extract field names from text without LLM."""
         text_lower = text.lower()
 
         # Try to extract dataset name
         name = None
-        name_indicators = ["new feed", "new dataset", "new source", "onboard", "table called", "dataset called"]
+        # Look for patterns like "new CIBIL bureau feed" or "cibil_bureau_feed"
+        name_indicators = ["new ", "onboard ", "feed ", "dataset ", "table ", "source "]
         for indicator in name_indicators:
             if indicator in text_lower:
-                # Try to find the name after the indicator
                 idx = text_lower.index(indicator) + len(indicator)
-                remaining = text[idx:].strip().split()[0] if idx < len(text) else None
-                if remaining:
-                    name = remaining.strip(".,;:'\"").replace(" ", "_").lower()
+                # Grab the next few words until "with", "from", "containing" etc
+                remaining = text[idx:]
+                stop_words = [" with ", " from ", " containing ", " has ", " fields "]
+                for sw in stop_words:
+                    if sw in remaining.lower():
+                        remaining = remaining[:remaining.lower().index(sw)]
+                        break
+                name_candidate = remaining.strip().split("\n")[0].strip()
+                if name_candidate and len(name_candidate) > 2:
+                    name = name_candidate.replace(" ", "_").replace("-", "_").lower()
+                    name = name.strip(".,;:'\"")
                     break
 
         if not name:
-            # Try to find something that looks like a dataset name
-            words = text.replace(",", " ").replace(".", " ").split()
+            # Look for snake_case words as dataset name
+            words = text.replace(",", " ").split()
             for w in words:
-                if "_" in w and len(w) > 3:
-                    name = w.lower()
+                if "_" in w and len(w) > 5 and "feed" in w.lower() or "table" in w.lower():
+                    name = w.lower().strip(".,;:'\"")
                     break
 
         if not name:
             name = "unnamed_dataset"
 
-        # Extract field names (look for things that look like column names)
+        # Extract field names - look for snake_case words or words with underscores
         fields = []
-        # Common patterns: "with fields X, Y, Z" or "columns: X, Y, Z"
-        field_indicators = ["fields", "columns", "with", "containing", "has"]
+        # Split on common separators
+        text_cleaned = text.replace(" and ", ", ").replace(" & ", ", ")
+        words = text_cleaned.replace(";", ",").split(",")
 
-        # Simple approach: find words that look like field names (snake_case or technical)
-        words = text.replace(",", " ").replace(".", " ").replace(";", " ").split()
-        for word in words:
-            w = word.strip().lower()
-            if "_" in w and len(w) > 2 and w != name:
-                # Looks like a field name
-                field_type = self._infer_type(w)
-                fields.append({"name": w, "type": field_type})
+        for chunk in words:
+            # Find snake_case tokens in each chunk
+            tokens = chunk.strip().split()
+            for token in tokens:
+                t = token.strip().lower().strip(".,;:'\"")
+                if "_" in t and len(t) > 2 and t != name:
+                    field_type = self._infer_type(t)
+                    fields.append({"name": t, "type": field_type})
 
         if fields:
             return {"name": name, "fields": fields}
