@@ -1,0 +1,116 @@
+# SCD Consumption Configurations
+# Drop this file in config/consumption/ alongside SQL files.
+# The consume engine detects .yaml files and applies SCD logic instead of raw SQL.
+
+# ============================================================
+# SCD Type 1: Overwrite (no history)
+# Use case: Reference data, correction of errors
+# ============================================================
+dim_product:
+  table: dim_product
+  scd_type: 1
+  primary_key: product_id
+  source_query: |
+    SELECT
+      product_id,
+      name,
+      category,
+      brand,
+      price,
+      stock_quantity
+    FROM `${PROJECT_ID}.lakehouse_ccn.products`
+  tracked_columns:
+    - name
+    - category
+    - brand
+    - price
+    - stock_quantity
+
+# ============================================================
+# SCD Type 2: Full history (new row per change)
+# Use case: Customer attributes that need audit trail
+# ============================================================
+dim_customer:
+  table: dim_customer
+  scd_type: 2
+  primary_key: customer_id
+  source_query: |
+    SELECT
+      customer_id,
+      name,
+      email,
+      region,
+      loyalty_tier,
+      is_active
+    FROM `${PROJECT_ID}.lakehouse_ccn.customers`
+  tracked_columns:
+    - name
+    - email
+    - region
+    - loyalty_tier
+    - is_active
+
+# ============================================================
+# SCD Type 3: Previous value (one level of history)
+# Use case: Track previous loyalty tier for upgrade/downgrade analysis
+# ============================================================
+dim_customer_tier:
+  table: dim_customer_tier
+  scd_type: 3
+  primary_key: customer_id
+  source_query: |
+    SELECT
+      customer_id,
+      loyalty_tier,
+      region
+    FROM `${PROJECT_ID}.lakehouse_ccn.customers`
+  tracked_columns:
+    - loyalty_tier
+    - region
+
+# ============================================================
+# SCD Type 4: History table (current + separate history)
+# Use case: Fast lookup on current + archival of all changes
+# ============================================================
+dim_customer_current:
+  table: dim_customer_current
+  history_table: dim_customer_history
+  scd_type: 4
+  primary_key: customer_id
+  source_query: |
+    SELECT
+      customer_id,
+      name,
+      email,
+      region,
+      loyalty_tier
+    FROM `${PROJECT_ID}.lakehouse_ccn.customers`
+  tracked_columns:
+    - name
+    - email
+    - region
+    - loyalty_tier
+
+# ============================================================
+# SCD Type 6: Hybrid (1+2+3)
+# Use case: Full history + current values on all rows + previous values
+# Columns: effective_from, effective_to, is_current, version,
+#           current_{col} (always latest), prev_{col} (previous value)
+# ============================================================
+dim_customer_full:
+  table: dim_customer_full
+  scd_type: 6
+  primary_key: customer_id
+  source_query: |
+    SELECT
+      customer_id,
+      name,
+      email,
+      region,
+      loyalty_tier
+    FROM `${PROJECT_ID}.lakehouse_ccn.customers`
+  tracked_columns:
+    - name
+    - email
+    - region
+    - loyalty_tier

@@ -1,12 +1,17 @@
 """bt-df-lkhouse-fw — Consume Engine (CCN Iceberg → Data Product BigQuery).
-Auto-discovers SQL files from config/consumption/*.sql and executes them in BigQuery.
-Add a new view: drop a .sql file into config/consumption/ → engine deploys it."""
+Auto-discovers SQL files and SCD YAML configs from config/consumption/.
+- .sql files: executed as CREATE OR REPLACE TABLE (full refresh)
+- .yaml files: processed via SCD Engine (Type 1/2/3/4/6)
+Add a new view: drop a .sql or .yaml file into config/consumption/ → engine deploys it."""
 import sys
+import yaml as yaml_lib
+from pathlib import Path
 from bt_df_lkhouse_fw.engine.base import (
     load_config, get_all_consumption_views,
     parse_args, resolve_pipeline_vars, log, log_header,
     log_error, log_summary, flush_logs_to_gcs, BANNER, LogLevel,
 )
+from bt_df_lkhouse_fw.engine.scd import SCDEngine
 
 
 def execute_bq_sql(sql: str, view_name: str, project_id: str) -> bool:
@@ -91,17 +96,30 @@ def main():
 
     log("consume", f"Views to deploy: {targets}")
 
+    # Load SCD configs if present
+    scd_configs = _load_scd_configs(config)
+    if scd_configs:
+        log("consume", f"SCD dimensions found: {list(scd_configs.keys())}")
+
     results = {}
     for target in targets:
-        if target not in views:
-            log("consume", f"View '{target}' not found. Available: {list(views.keys())}", LogLevel.WARN)
+        if target in scd_configs:
+            # SCD-based dimension
+            log("consume", f"Deploying SCD: {target} (Type {scd_configs[target].get('scd_type', '?')})")
+            scd = SCDEngine(project_id, dataset)
+            scd_conf = scd_configs[target]
+            scd.ensure_table_schema(scd_conf)
+            success = scd.apply_scd(scd_conf)
+            results[target] = "SUCCESS" if success else "FAILED"
+        elif target in views:
+            # SQL-based view (full refresh)
+            sql = views[target]
+            log("consume", f"Deploying SQL: {target}")
+            success = execute_bq_sql(sql, target, project_id)
+            results[target] = "SUCCESS" if success else "FAILED"
+        else:
+            log("consume", f"Target '{target}' not found. Available: {list(views.keys()) + list(scd_configs.keys())}", LogLevel.WARN)
             results[target] = "SKIPPED"
-            continue
-
-        sql = views[target]
-        log("consume", f"Deploying: {target}")
-        success = execute_bq_sql(sql, target, project_id)
-        results[target] = "SUCCESS" if success else "FAILED"
 
     log_summary("consume", results)
     log_header("CONSUME COMPLETE")
@@ -109,6 +127,35 @@ def main():
 
     if "FAILED" in results.values():
         sys.exit(1)
+
+
+def _load_scd_configs(config: dict) -> dict:
+    """Load SCD YAML configs from config/consumption/*.yaml"""
+    scd_configs = {}
+    config_path = config.get("_config_dir", "")
+    if not config_path:
+        # Try standard location
+        possible = Path("bt_df_lkhouse_fw/config/consumption")
+        if not possible.exists():
+            possible = Path("config/consumption")
+        config_path = str(possible)
+
+    consumption_dir = Path(config_path) if Path(config_path).exists() else None
+    if not consumption_dir:
+        return scd_configs
+
+    for yaml_file in consumption_dir.glob("*.yaml"):
+        try:
+            with open(yaml_file, "r", encoding="utf-8") as f:
+                data = yaml_lib.safe_load(f)
+            if isinstance(data, dict):
+                for name, conf in data.items():
+                    if isinstance(conf, dict) and "scd_type" in conf:
+                        scd_configs[name] = conf
+        except Exception as e:
+            log("consume", f"Failed to load SCD config {yaml_file}: {e}", LogLevel.WARN)
+
+    return scd_configs
 
 
 if __name__ == "__main__":
