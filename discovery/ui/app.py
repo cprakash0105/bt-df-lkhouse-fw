@@ -107,12 +107,39 @@ async def handle_message(message: cl.Message):
         query = text[7:].strip()
         await _search_glossary(query)
     elif lower.startswith("profile"):
-        # Strip 'profile' prefix and any whitespace/newline
-        data = text[7:].strip() if len(text) > 7 else ""
+        # Format: "profile <dataset_name>\n<csv_data>" or just "profile\n<csv_data>"
+        remainder = text[7:].strip()
+        lines = remainder.split("\n", 1)
+        dataset_name = None
+        data = ""
+
+        if len(lines) >= 2:
+            first_line = lines[0].strip()
+            # If first line doesn't contain commas, it's the dataset name
+            if "," not in first_line and first_line:
+                dataset_name = first_line.replace(" ", "_").lower()
+                data = lines[1].strip()
+            else:
+                # First line IS the CSV header
+                data = remainder
+        elif len(lines) == 1 and "," in lines[0]:
+            data = remainder
+
         if data:
-            await _profile_and_discover(data, "csv")
+            await _profile_and_discover(data, "csv", dataset_name=dataset_name)
         else:
-            await cl.Message(content="Paste CSV data after the `profile` command, or upload a .csv file.").send()
+            await cl.Message(content="""Usage:
+```
+profile <dataset_name>
+<csv data with headers>
+```
+
+Example:
+```
+profile cibil_bureau_feed
+customer_id,pan_number,cibil_score,enquiry_date
+CUST001,ABCPD1234F,750,2024-01-15
+```""").send()
     elif lower.startswith("discover "):
         asset_name = text[9:].strip()
         await _ask_for_fields(asset_name)
@@ -140,6 +167,7 @@ async def handle_message(message: cl.Message):
             # Check if it looks like CSV data (has commas, multiple lines, header-like first line)
             lines = text.strip().split("\n")
             if len(lines) >= 3 and "," in lines[0] and all("," in l for l in lines[:3]):
+                await cl.Message(content="Detected CSV data. Profiling...").send()
                 await _profile_and_discover(text, "csv")
             else:
                 # Try natural language parsing
@@ -537,9 +565,10 @@ Running discovery...""").send()
 - Type `help` for all commands""").send()
 
 
-async def _profile_and_discover(content: str, format: str = "csv"):
+async def _profile_and_discover(content: str, format: str = "csv", dataset_name: str = None):
     """Profile sample data then run discovery with profile evidence."""
-    await cl.Message(content="Profiling sample data...").send()
+    name_display = f" for `{dataset_name}`" if dataset_name else ""
+    await cl.Message(content=f"Profiling sample data{name_display}...").send()
 
     if format == "csv":
         profile = profiler.profile_csv(content)
@@ -555,7 +584,7 @@ async def _profile_and_discover(content: str, format: str = "csv"):
     await cl.Message(content=report).send()
 
     # Convert profile to asset definition for SD
-    asset_def = _profile_to_asset_def(profile)
+    asset_def = _profile_to_asset_def(profile, dataset_name)
     cl.user_session.set("current_profile", profile)
 
     # Run discovery with profile enhancement
@@ -600,7 +629,7 @@ Paste `discover` to run SD on the profiled data, or paste a YAML definition to o
 - Using comma, tab, or pipe as delimiter""").send()
 
 
-def _profile_to_asset_def(profile) -> dict:
+def _profile_to_asset_def(profile, dataset_name: str = None) -> dict:
     """Convert a DataProfile into an asset definition dict."""
     fields = []
     for col in profile.columns:
@@ -609,8 +638,7 @@ def _profile_to_asset_def(profile) -> dict:
             "type": col.inferred_type,
         })
 
-    # Try to infer dataset name from columns
-    name = "profiled_dataset"
+    name = dataset_name or "profiled_dataset"
     return {"name": name, "fields": fields}
 
 
