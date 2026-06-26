@@ -144,11 +144,36 @@ class ApprovalHandler:
         if not client:
             return False
 
-        # Create a dataset entry linked to the BA
-        entry_id = f"dataset_{suggestion.asset_name}"
-        fq_type = f"{self.parent}/entryTypes/business-application"
+        # Create a dataset entry that references the BA
+        entry_id = f"dataset-{suggestion.asset_name.replace('_', '-')}"
 
-        # We create a lightweight entry that represents the dataset's registration
+        # Use a generic entry type for datasets
+        # We'll create a 'dataset' entry type if needed
+        try:
+            # First ensure 'dataset' entry type exists
+            fq_type = f"{self.parent}/entryTypes/dataset"
+            try:
+                client.get_entry_type(name=fq_type)
+            except Exception:
+                # Create it
+                entry_type = dataplex_v1.EntryType(
+                    description="A data asset/dataset registered through Semantic Discovery",
+                    display_name="Dataset",
+                )
+                req = dataplex_v1.CreateEntryTypeRequest(
+                    parent=self.parent,
+                    entry_type=entry_type,
+                    entry_type_id="dataset",
+                )
+                op = client.create_entry_type(request=req)
+                if hasattr(op, 'result'):
+                    op.result()
+        except Exception:
+            pass  # Entry type might already exist
+
+        fq_type = f"{self.parent}/entryTypes/dataset"
+        pii_fields = [f.field_name for f in suggestion.fields if f.is_pii]
+
         entry = dataplex_v1.Entry(
             entry_type=fq_type,
             fully_qualified_name=f"custom:dataset/{suggestion.asset_name}",
@@ -157,8 +182,9 @@ class ApprovalHandler:
                     f"Dataset: {suggestion.asset_name}\n"
                     f"Business Application: {suggestion.business_application_name}\n"
                     f"Domain: {suggestion.data_domain}\n"
-                    f"Classification: {'PII' if any(f.is_pii for f in suggestion.fields) else 'Internal'}\n"
+                    f"Classification: {'PII' if pii_fields else 'Internal'}\n"
                     f"Primary Key: {suggestion.primary_key}\n"
+                    f"PII Fields: {', '.join(pii_fields) if pii_fields else 'None'}\n"
                     f"Fields: {len(suggestion.fields)}\n"
                     f"Discovered: {suggestion.discovered_at}"
                 ),
@@ -173,7 +199,7 @@ class ApprovalHandler:
 
         try:
             client.create_entry(request=req)
-            print(f"[ApprovalHandler] Registered dataset under BA: {suggestion.business_application_name}")
+            print(f"[ApprovalHandler] Registered dataset: {suggestion.asset_name}")
             return True
         except Exception as e:
             if "ALREADY_EXISTS" in str(e):
