@@ -4,7 +4,7 @@ steps:
     args:
       - 'build'
       - '-t'
-      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/semantic-discovery/ui:${SHORT_SHA}'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/semantic-discovery/ui:${_TAG}'
       - '-t'
       - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/semantic-discovery/ui:latest'
       - '-f'
@@ -15,8 +15,11 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - '--all-tags'
-      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/semantic-discovery/ui'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/semantic-discovery/ui:${_TAG}'
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/semantic-discovery/ui:latest'
 
   # Deploy to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -26,7 +29,7 @@ steps:
       - 'deploy'
       - 'semantic-discovery'
       - '--image'
-      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/semantic-discovery/ui:${SHORT_SHA}'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/semantic-discovery/ui:${_TAG}'
       - '--region'
       - '${_REGION}'
       - '--platform'
@@ -47,6 +50,7 @@ steps:
 
 substitutions:
   _REGION: europe-west2
+  _TAG: v1
 
 options:
   logging: CLOUD_LOGGING_ONLY
