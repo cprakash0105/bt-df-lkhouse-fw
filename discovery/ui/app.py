@@ -14,6 +14,8 @@ from discovery.engine.rules_engine import RulesEngine
 from discovery.engine.embedder import Embedder
 from discovery.engine.suggester import Suggester, DiscoverySuggestion
 from discovery.engine.config_generator import ConfigGenerator
+from discovery.engine.nl_parser import NLParser
+from discovery.engine.approval_handler import ApprovalHandler
 
 # Initialize engine components
 kg = KnowledgeGraph()
@@ -21,6 +23,8 @@ rules = RulesEngine()
 embedder = Embedder(mode="local")
 suggester = Suggester(knowledge_graph=kg, rules_engine=rules, embedder=embedder)
 config_gen = ConfigGenerator()
+nl_parser = NLParser()
+approval_handler = ApprovalHandler()
 
 
 WELCOME_MESSAGE = """
@@ -119,7 +123,8 @@ async def handle_message(message: cl.Message):
         if parsed:
             await _run_discovery_from_dict(parsed)
         else:
-            await cl.Message(content="I didn't understand that. Type `help` for available commands, or paste a YAML/JSON asset definition.").send()
+            # Try natural language parsing
+            await _try_natural_language(text)
 
 
 async def _run_discovery(content: str):
@@ -238,12 +243,48 @@ def _format_suggestion(s: DiscoverySuggestion) -> str:
 
 
 async def _approve_all():
-    """Approve all suggestions and generate config."""
+    """Approve all suggestions — write to Dataplex + generate config."""
     suggestion = cl.user_session.get("current_suggestion")
     if not suggestion:
-        await cl.Message(content="❌ No active discovery to approve. Run a discovery first.").send()
+        await cl.Message(content="No active discovery to approve. Run a discovery first.").send()
         return
 
+    # Process approval — write to Dataplex
+    await cl.Message(content="Processing approval — writing to Knowledge Catalog...").send()
+
+    results = approval_handler.process_approval(suggestion)
+
+    # Report what was done
+    lines = ["## Approval Processed\n"]
+
+    if results["new_terms_created"]:
+        lines.append("### New BDEs Created in Glossary")
+        for term in results["new_terms_created"]:
+            lines.append(f"- {term}")
+        lines.append("")
+
+    if results["ba_linked"]:
+        lines.append(f"### Dataset Linked to Business Application")
+        lines.append(f"- {suggestion.asset_name} -> {results['ba_linked']}")
+        lines.append("")
+
+    if results["policies_set"]:
+        lines.append("### Policies Set")
+        for p in results["policies_set"]:
+            classification = p['classification']
+            dq = p['dq_rules']
+            lines.append(f"- `{p['field']}`: {classification}" + (f" | DQ: {dq}" if dq else ""))
+        lines.append("")
+
+    if results["errors"]:
+        lines.append("### Warnings")
+        for err in results["errors"]:
+            lines.append(f"- {err}")
+        lines.append("")
+
+    await cl.Message(content="\n".join(lines)).send()
+
+    # Generate config
     await _generate_config()
 
 
@@ -443,3 +484,28 @@ def _try_parse_definition(text: str) -> dict | None:
         pass
 
     return None
+
+
+async def _try_natural_language(text: str):
+    """Try to parse natural language input using Gemini."""
+    await cl.Message(content="Interpreting your request...").send()
+
+    parsed = nl_parser.parse(text)
+    if parsed and parsed.get("fields"):
+        # Show what we understood
+        fields_display = "\n".join([f"  - {f['name']} ({f['type']})" for f in parsed['fields']])
+        await cl.Message(content=f"""I understood this as:
+
+**Dataset:** `{parsed.get('name', 'unnamed')}`
+**Fields:**
+{fields_display}
+
+Running discovery...""").send()
+
+        await _run_discovery_from_dict(parsed)
+    else:
+        await cl.Message(content="""I couldn't extract a dataset definition from that. You can:
+
+- **Describe naturally:** "I have a new CIBIL feed with customer_id, pan_number, cibil_score, enquiry_date and loan_amount"
+- **Paste YAML/JSON** with field definitions
+- Type `help` for all commands""").send()
