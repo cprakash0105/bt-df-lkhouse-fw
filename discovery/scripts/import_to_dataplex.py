@@ -86,8 +86,7 @@ def create_category(client, glossary_name, category_id, name, description):
     )
 
     try:
-        operation = client.create_glossary_category(request=request)
-        result = operation.result()
+        result = client.create_glossary_category(request=request)
         print(f"  [OK] Category: {name}")
         return result.name
     except Exception as e:
@@ -120,27 +119,29 @@ def create_term(client, glossary_name, term_id, term_data, category_name=None):
 
     description = " | ".join(description_parts) if description_parts else term_data.get("name", "")
 
+    # Parent is category if available, otherwise glossary
+    parent_name = category_name if category_name else glossary_name
+
     term = dataplex_v1.GlossaryTerm(
         description=description,
         display_name=term_data.get("name", term_id),
-        parent=parent,
+        parent=parent_name,
     )
 
     request = dataplex_v1.CreateGlossaryTermRequest(
-        parent=parent,
+        parent=parent_name,
         term=term,
         term_id=term_id,
     )
 
     try:
-        operation = client.create_glossary_term(request=request)
-        result = operation.result()
+        result = client.create_glossary_term(request=request)
         print(f"    [OK] Term: {term_data.get('name', term_id)}")
         return result.name
     except Exception as e:
         if "already exists" in str(e).lower() or "ALREADY_EXISTS" in str(e):
             print(f"    [OK] Term exists: {term_data.get('name', term_id)}")
-            return f"{glossary_name}/terms/{term_id}"
+            return f"{parent_name}/terms/{term_id}"
         print(f"    [WARN] Term '{term_data.get('name', term_id)}': {e}")
         return None
 
