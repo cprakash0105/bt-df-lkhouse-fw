@@ -3,14 +3,16 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # Install dependencies
-COPY discovery/requirements.txt .
-RUN pip install --no-cache-dir pyyaml numpy chainlit fastapi uvicorn aiofiles
+RUN pip install --no-cache-dir \
+    pyyaml>=6.0 \
+    numpy>=1.24.0 \
+    chainlit>=1.1.0 \
+    google-cloud-aiplatform>=1.38.0 \
+    google-cloud-firestore>=2.13.0 \
+    vertexai>=1.38.0
 
 # Copy discovery module
 COPY discovery/ /app/discovery/
-
-# Chainlit needs to run from a directory with the app
-WORKDIR /app
 
 EXPOSE 8000
 
