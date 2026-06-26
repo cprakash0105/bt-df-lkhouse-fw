@@ -97,8 +97,8 @@ def create_category(client, glossary_name, category_id, name, description):
         return None
 
 
-def create_term(client, glossary_name, term_id, term_data, category_name=None):
-    """Create a business term in the glossary."""
+def create_term(client, parent_name, term_id, term_data):
+    """Create a business term under a parent (glossary or category)."""
     description_parts = []
     if term_data.get("information_type"):
         description_parts.append(f"Information Type: {term_data['information_type']}")
@@ -118,9 +118,6 @@ def create_term(client, glossary_name, term_id, term_data, category_name=None):
         description_parts.append(f"Pattern: {term_data['pattern']}")
 
     description = " | ".join(description_parts) if description_parts else term_data.get("name", "")
-
-    # Terms are always created under the glossary directly
-    parent_name = glossary_name
 
     term = dataplex_v1.GlossaryTerm(
         description=description,
@@ -223,7 +220,9 @@ def main():
     for term in terms:
         domain_id = term.get("domain", "")
         category_name = category_map.get(domain_id)
-        create_term(client, glossary_name, term["id"], term, category_name)
+        # Terms go under their category if it exists, otherwise under glossary
+        parent_for_term = category_name if category_name else glossary_name
+        create_term(client, parent_for_term, term["id"], term)
 
     print("\n" + "=" * 60)
     print("  Import Complete!")
