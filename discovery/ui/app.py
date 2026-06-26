@@ -302,9 +302,6 @@ async def _approve_all():
 
     await cl.Message(content="\n".join(lines)).send()
 
-    # Also show the config
-    await _generate_config()
-
 
 async def _approve_fields(field_names: list[str]):
     """Approve specific fields only."""
