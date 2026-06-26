@@ -170,7 +170,10 @@ def main():
     pipeline = config["pipeline"]
     catalog = pipeline["catalog"]
     ns_ccn = pipeline["ccn_namespace"]
-    spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {catalog}.{ns_ccn}")
+
+    # Set catalog context and create namespace
+    spark.sql(f"USE {catalog}")
+    spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {ns_ccn}")
 
     if args.all:
         tables = [t for t in get_all_tables(config)
