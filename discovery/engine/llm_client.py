@@ -39,7 +39,7 @@ class LLMClient:
 
         try:
             req = urllib.request.Request(url, data=payload.encode(), headers=headers)
-            with urllib.request.urlopen(req, timeout=120) as resp:
+            with urllib.request.urlopen(req, timeout=300) as resp:
                 result = json.loads(resp.read().decode())
 
             text = result["choices"][0]["message"]["content"].strip()
