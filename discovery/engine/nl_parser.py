@@ -49,36 +49,19 @@ class NLParser:
         return self._parse_simple(text)
 
     def _parse_with_gemini(self, text: str) -> Optional[dict]:
-        """Use Gemini REST API to parse NL."""
-        import urllib.request
+        """Use LLM to parse NL."""
+        from discovery.engine.llm_client import get_llm
 
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if not api_key:
+        response_text = get_llm().generate(system=SYSTEM_PROMPT, user=text, max_tokens=1024)
+        if not response_text:
             return None
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
-        payload = json.dumps({
-            "contents": [{"parts": [{"text": f"{SYSTEM_PROMPT}\n\nUser input: {text}"}]}],
-            "generationConfig": {"temperature": 0.1, "maxOutputTokens": 2048}
-        })
-
         try:
-            req = urllib.request.Request(url, data=payload.encode(), headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req) as resp:
-                result = json.loads(resp.read().decode())
-
-            response_text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
-            if response_text.startswith("```"):
-                lines = response_text.split("\n")
-                lines = [l for l in lines if not l.strip().startswith("```")]
-                response_text = "\n".join(lines)
-
             parsed = json.loads(response_text)
             if isinstance(parsed, dict) and "fields" in parsed:
                 return parsed
-
         except Exception as e:
-            print(f"[NLParser] Gemini REST failed: {e}")
+            print(f"[NLParser] Failed to parse LLM response: {e}")
 
         return None
 

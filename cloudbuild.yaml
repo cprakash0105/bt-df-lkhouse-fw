@@ -46,12 +46,12 @@ steps:
       - '--max-instances'
       - '2'
       - '--set-env-vars'
-      - 'GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${_REGION},EMBEDDER_MODE=vertex,GEMINI_API_KEY=${_GEMINI_API_KEY}'
+      - 'GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${_REGION},EMBEDDER_MODE=vertex,LLM_API_KEY=${_LLM_API_KEY},LLM_BASE_URL=https://api.perplexity.ai,LLM_MODEL=sonar'
 
 substitutions:
   _REGION: europe-west2
   _TAG: v1
-  _GEMINI_API_KEY: ''
+  _LLM_API_KEY: ''
 
 options:
   logging: CLOUD_LOGGING_ONLY

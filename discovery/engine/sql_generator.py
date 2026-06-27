@@ -17,34 +17,17 @@ LOCATION = os.environ.get("GCP_REGION", "europe-west2")
 CONFIG_BUCKET = os.environ.get("CONFIG_BUCKET", f"{PROJECT_ID}-lakehouse")
 
 
-SYSTEM_PROMPT = """You are a SQL engineer for a BigQuery lakehouse. Generate a CREATE OR REPLACE TABLE statement for a Data Product.
-
-Context:
-- Project ID: {project_id}
-- Source dataset (CCN layer): `{project_id}.lakehouse_ccn`
-- Target dataset (Data Product): `{project_id}.lakehouse_dataproduct`
-- All source tables are Iceberg tables exposed via BigQuery
-
-Available source tables in lakehouse_ccn:
-{available_tables}
+SYSTEM_PROMPT = """Generate BigQuery SQL. Output ONLY the SQL, no explanation.
 
 Rules:
-1. Output ONLY the SQL statement, no explanation
-2. Always use `${{PROJECT_ID}}` placeholder for the project ID (not the actual ID)
-3. Target table goes in `${{PROJECT_ID}}.lakehouse_dataproduct.<table_name>`
-4. Source tables from `${{PROJECT_ID}}.lakehouse_ccn.<table_name>`
-5. Use explicit column lists (no SELECT *)
-6. Add appropriate JOINs based on common keys (customer_id, order_id, etc.)
-7. Add a header comment with: table name, description, source tables
-8. If business logic is described (CASE statements, aggregations), implement it exactly
+- Target: `${{PROJECT_ID}}.lakehouse_dataproduct.<name>`
+- Source: `${{PROJECT_ID}}.lakehouse_ccn.<table>`
+- Use ${{PROJECT_ID}} placeholder (not actual project ID)
+- Include header comment with table name and sources
+- Explicit column lists, proper JOINs
 
-Example output:
--- loan_eligibility_360.sql
--- Data Product: Loan Eligibility 360 view
--- Sources: customers, cibil_bureau_feed
-CREATE OR REPLACE TABLE `${{PROJECT_ID}}.lakehouse_dataproduct.loan_eligibility_360` AS
-SELECT ...
-"""
+Available source tables:
+{available_tables}"""
 
 
 class SQLGenerator:
@@ -58,11 +41,8 @@ class SQLGenerator:
         if available_tables is None:
             available_tables = self._get_available_tables()
 
-        tables_desc = "\n".join([f"  - {t}" for t in available_tables])
-        prompt = SYSTEM_PROMPT.format(
-            project_id=self.project_id,
-            available_tables=tables_desc,
-        )
+        tables_desc = ", ".join(available_tables)
+        prompt = SYSTEM_PROMPT.format(available_tables=tables_desc)
 
         sql = self._generate_with_gemini(prompt, requirement)
         if sql:
@@ -86,35 +66,9 @@ class SQLGenerator:
         return gcs_path
 
     def _generate_with_gemini(self, system_prompt: str, requirement: str) -> Optional[str]:
-        """Use Gemini REST API directly."""
-        import urllib.request
-
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if not api_key:
-            print("[SQLGenerator] GEMINI_API_KEY not set")
-            return None
-
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
-        payload = json.dumps({
-            "contents": [{"parts": [{"text": f"{system_prompt}\n\nRequirement: {requirement}"}]}],
-            "generationConfig": {"temperature": 0.1, "maxOutputTokens": 4096}
-        })
-
-        try:
-            req = urllib.request.Request(url, data=payload.encode(), headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req) as resp:
-                result = json.loads(resp.read().decode())
-
-            sql = result["candidates"][0]["content"]["parts"][0]["text"].strip()
-            if sql.startswith("```"):
-                lines = sql.split("\n")
-                lines = [l for l in lines if not l.strip().startswith("```")]
-                sql = "\n".join(lines)
-            return sql
-
-        except Exception as e:
-            print(f"[SQLGenerator] Gemini REST failed: {e}")
-            return None
+        """Use LLM to generate SQL."""
+        from discovery.engine.llm_client import get_llm
+        return get_llm().generate(system=system_prompt, user=requirement, max_tokens=4096)
 
     def _get_available_tables(self) -> list[str]:
         """Get list of tables available in CCN layer."""
