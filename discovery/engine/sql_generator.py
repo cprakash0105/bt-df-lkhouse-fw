@@ -17,17 +17,11 @@ LOCATION = os.environ.get("GCP_REGION", "europe-west2")
 CONFIG_BUCKET = os.environ.get("CONFIG_BUCKET", f"{PROJECT_ID}-lakehouse")
 
 
-SYSTEM_PROMPT = """Generate BigQuery SQL. Output ONLY the SQL, no explanation.
-
-Rules:
-- Target: `${{PROJECT_ID}}.lakehouse_dataproduct.<name>`
-- Source: `${{PROJECT_ID}}.lakehouse_ccn.<table>`
-- Use ${{PROJECT_ID}} placeholder (not actual project ID)
-- Include header comment with table name and sources
-- Explicit column lists, proper JOINs
-
-Available source tables:
-{available_tables}"""
+SYSTEM_PROMPT = """Generate BigQuery CREATE OR REPLACE TABLE SQL. Output ONLY SQL, no explanation.
+Target: `${{PROJECT_ID}}.lakehouse_dataproduct.<name>`
+Source: `${{PROJECT_ID}}.lakehouse_ccn.<table>`
+Use ${{PROJECT_ID}} placeholder. Add comment header. Explicit columns.
+Tables: {available_tables}"""
 
 
 class SQLGenerator:
@@ -68,7 +62,7 @@ class SQLGenerator:
     def _generate_with_gemini(self, system_prompt: str, requirement: str) -> Optional[str]:
         """Use LLM to generate SQL."""
         from discovery.engine.llm_client import get_llm
-        return get_llm().generate(system=system_prompt, user=requirement, max_tokens=4096)
+        return get_llm().generate(system=system_prompt, user=requirement, max_tokens=1024)
 
     def _get_available_tables(self) -> list[str]:
         """Get list of tables available in CCN layer."""

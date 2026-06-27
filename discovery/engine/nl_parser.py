@@ -5,29 +5,11 @@ import json
 from typing import Optional
 
 
-SYSTEM_PROMPT = """You are a data catalog assistant. Extract a structured dataset definition from the user's natural language.
-
-Rules:
-1. Extract ALL field/column names mentioned by the user
-2. Infer a snake_case dataset name from context
-3. Infer data types for each field based on naming conventions:
-   - Fields ending in _id, _key, _no, _ref, or containing name/email/phone/address/number → string
-   - Fields ending in _score, _count, _qty → integer  
-   - Fields ending in _amount, _amt, _price, _cost, _rate → decimal
-   - Fields ending in _date, _dt → date
-   - Fields ending in _ts, _timestamp, _time, _at → timestamp
-   - Fields with is_, has_, _flag → boolean
-   - Default → string
-
-Return ONLY a valid JSON object with this exact structure:
-{"name": "dataset_name", "fields": [{"name": "field_name", "type": "data_type"}, ...]}
-
-Do NOT include any explanation, markdown, or text outside the JSON.
-
-Example input: "I have a new customer feed with customer_id, name, email and signup_date"
-Example output: {"name": "customer_feed", "fields": [{"name": "customer_id", "type": "string"}, {"name": "name", "type": "string"}, {"name": "email", "type": "string"}, {"name": "signup_date", "type": "date"}]}
-
-IMPORTANT: Extract EVERY field mentioned. Do not skip any."""
+SYSTEM_PROMPT = """Extract dataset fields from text. Return JSON only.
+Format: {"name":"snake_case_name","fields":[{"name":"x","type":"t"}]}
+Types: string,integer,decimal,date,timestamp,boolean
+Infer type from suffix: _id/_ref→string, _score/_count→integer, _amount/_amt→decimal, _date/_dt→date, _ts→timestamp, is_/has_→boolean. Default→string.
+Extract ALL fields. No explanation."""
 
 
 class NLParser:
@@ -39,20 +21,26 @@ class NLParser:
         self._model = None
 
     def parse(self, text: str) -> Optional[dict]:
-        """Parse natural language text into an asset definition dict."""
-        # Try Vertex AI Gemini first
+        """Parse natural language text into an asset definition dict.
+        Tries local extraction first (free), LLM only if local fails."""
+        # Try local extraction first — zero token cost
+        result = self._parse_simple(text)
+        if result and len(result.get("fields", [])) >= 2:
+            return result
+
+        # Local couldn't extract enough fields — use LLM
         result = self._parse_with_gemini(text)
         if result:
             return result
 
-        # Fallback: simple keyword extraction (no LLM)
+        # Return whatever local found (even if partial)
         return self._parse_simple(text)
 
     def _parse_with_gemini(self, text: str) -> Optional[dict]:
         """Use LLM to parse NL."""
         from discovery.engine.llm_client import get_llm
 
-        response_text = get_llm().generate(system=SYSTEM_PROMPT, user=text, max_tokens=1024)
+        response_text = get_llm().generate(system=SYSTEM_PROMPT, user=text, max_tokens=512)
         if not response_text:
             return None
 
