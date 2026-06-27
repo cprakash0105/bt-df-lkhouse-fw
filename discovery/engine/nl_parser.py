@@ -33,7 +33,7 @@ IMPORTANT: Extract EVERY field mentioned. Do not skip any."""
 class NLParser:
     """Parses natural language into structured asset definitions using Vertex AI Gemini."""
 
-    def __init__(self, project_id: Optional[str] = None, region: str = "europe-west2"):
+    def __init__(self, project_id: Optional[str] = None, region: str = "us-central1"):
         self.project_id = project_id or os.environ.get("GCP_PROJECT_ID", "bt-df-lkhouse")
         self.region = region
         self._model = None

@@ -91,7 +91,7 @@ class SQLGenerator:
             import vertexai
             from vertexai.generative_models import GenerativeModel
 
-            vertexai.init(project=self.project_id, location=LOCATION)
+            vertexai.init(project=self.project_id, location="us-central1")
             model = GenerativeModel("gemini-2.0-flash")
 
             response = model.generate_content(
