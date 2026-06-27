@@ -17,6 +17,7 @@ from discovery.engine.config_generator import ConfigGenerator
 from discovery.engine.nl_parser import NLParser
 from discovery.engine.approval_handler import ApprovalHandler
 from discovery.engine.profiler import Profiler, format_profile_report
+from discovery.engine.sql_generator import SQLGenerator
 
 # Initialize engine components
 kg = KnowledgeGraph()
@@ -27,6 +28,7 @@ config_gen = ConfigGenerator()
 nl_parser = NLParser()
 approval_handler = ApprovalHandler()
 profiler = Profiler()
+sql_gen = SQLGenerator()
 
 
 WELCOME_MESSAGE = """
@@ -145,6 +147,8 @@ CUST001,ABCPD1234F,750,2024-01-15
         await _ask_for_fields(asset_name)
     elif lower == "approve" or lower == "approve all":
         await _approve_all()
+    elif lower == "deploy sql":
+        await _deploy_sql()
     elif lower.startswith("approve "):
         fields = [f.strip() for f in text[8:].split(",")]
         await _approve_fields(fields)
@@ -158,6 +162,8 @@ CUST001,ABCPD1234F,750,2024-01-15
         await _show_domains()
     elif lower == "applications" or lower == "show applications":
         await _show_applications()
+    elif lower.startswith("data product ") or lower.startswith("create data product") or lower.startswith("generate sql"):
+        await _generate_data_product_sql(text)
     else:
         # Try to parse as YAML/JSON asset definition
         parsed = _try_parse_definition(text)
@@ -642,6 +648,44 @@ def _profile_to_asset_def(profile, dataset_name: str = None) -> dict:
     return {"name": name, "fields": fields}
 
 
+async def _generate_data_product_sql(text: str):
+    """Generate consumption SQL from natural language requirement."""
+    # Strip command prefix
+    requirement = text
+    for prefix in ["data product ", "create data product ", "generate sql "]:
+        if requirement.lower().startswith(prefix):
+            requirement = requirement[len(prefix):]
+            break
+
+    await cl.Message(content=f"Generating Data Product SQL from your requirement...\n\nLooking up available tables in CCN layer...").send()
+
+    sql = sql_gen.generate(requirement)
+
+    if not sql:
+        await cl.Message(content="Failed to generate SQL. Please try rephrasing your requirement.").send()
+        return
+
+    # Extract table name
+    table_name = sql_gen._extract_table_name(sql)
+
+    # Show the generated SQL
+    await cl.Message(content=f"""## Generated Data Product SQL: `{table_name}`
+
+```sql
+{sql}
+```
+
+## What would you like to do?
+
+- Type `deploy sql` to push this to GCS and make it available for the pipeline
+- Type `edit` to modify the requirement
+- Paste a revised version if you want to change anything""").send()
+
+    # Store for deployment
+    cl.user_session.set("pending_sql", sql)
+    cl.user_session.set("pending_sql_table", table_name)
+
+
 def _enhance_with_profile(suggestion, profile):
     """Enhance SD suggestions with profiling evidence."""
     profile_map = {col.name: col for col in profile.columns}
@@ -682,3 +726,32 @@ def _enhance_with_profile(suggestion, profile):
         if col_profile.detected_patterns:
             if field_sug.confidence > 0:
                 field_sug.confidence = min(field_sug.confidence + 0.1, 0.99)
+
+
+async def _deploy_sql():
+    """Deploy pending SQL to GCS."""
+    sql = cl.user_session.get("pending_sql")
+    table_name = cl.user_session.get("pending_sql_table")
+
+    if not sql:
+        await cl.Message(content="No pending SQL to deploy. Use `data product <requirement>` first.").send()
+        return
+
+    gcs_path = sql_gen._push_to_gcs(table_name, sql)
+
+    if gcs_path:
+        await cl.Message(content=f"""## SQL Deployed
+
+- **Table:** `{table_name}`
+- **GCS Path:** `{gcs_path}`
+- **Status:** Ready for pipeline
+
+**Next:** Run the consume step:
+```bash
+python3 -m bt_df_lkhouse_fw.engine.consume --config gs://bt-df-lkhouse-lakehouse/framework/config/pipeline.yaml --target {table_name} --project bt-df-lkhouse
+```""").send()
+    else:
+        await cl.Message(content="Failed to deploy SQL to GCS.").send()
+
+    cl.user_session.set("pending_sql", None)
+    cl.user_session.set("pending_sql_table", None)
