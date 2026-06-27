@@ -52,6 +52,13 @@ class LLMClient:
 
             return text
 
+        except urllib.error.HTTPError as e:
+            body = e.read().decode() if e.readable() else ""
+            if e.code == 429 or "quota" in body.lower() or "rate" in body.lower():
+                print(f"[LLM] Rate limit / quota exceeded. Please wait and try again.")
+                return "__QUOTA_EXCEEDED__"
+            print(f"[LLM] HTTP {e.code}: {body[:200]}")
+            return None
         except Exception as e:
             print(f"[LLM] Failed: {e}")
             return None

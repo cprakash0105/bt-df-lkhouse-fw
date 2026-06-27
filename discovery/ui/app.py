@@ -546,10 +546,15 @@ def _try_parse_definition(text: str) -> dict | None:
 
 
 async def _try_natural_language(text: str):
-    """Try to parse natural language input using Gemini."""
+    """Try to parse natural language input using LLM."""
     await cl.Message(content="Interpreting your request...").send()
 
     parsed = nl_parser.parse(text)
+
+    if isinstance(parsed, str) and parsed == "__QUOTA_EXCEEDED__":
+        await cl.Message(content="LLM quota exceeded. Please paste YAML/JSON instead, or wait for quota to reset.").send()
+        return
+
     if parsed and parsed.get("fields"):
         # Show what we understood
         fields_display = "\n".join([f"  - {f['name']} ({f['type']})" for f in parsed['fields']])
@@ -660,6 +665,19 @@ async def _generate_data_product_sql(text: str):
     await cl.Message(content=f"Generating Data Product SQL from your requirement...\n\nLooking up available tables in CCN layer...").send()
 
     sql = sql_gen.generate(requirement)
+
+    if sql == "__QUOTA_EXCEEDED__":
+        await cl.Message(content="""## LLM Quota Exceeded
+
+The AI token quota has been exhausted. Options:
+
+1. **Wait 1 minute** and try again (per-minute quota resets)
+2. **Wait until tomorrow** if daily quota is exceeded
+3. **Write the SQL manually** and use `deploy sql` to push it
+
+You can also create the SQL file directly and upload it to:
+`gs://bt-df-lkhouse-lakehouse/framework/config/consumption/<name>.sql`""").send()
+        return
 
     if not sql:
         await cl.Message(content="Failed to generate SQL. Please try rephrasing your requirement.").send()
