@@ -17,8 +17,8 @@ class LLMClient:
 
     def generate(self, system: str, user: str, max_tokens: int = 2048, temperature: float = 0.1) -> Optional[str]:
         """Send a request to the LLM. Returns text response or None."""
-        if not self.api_key:
-            print("[LLM] No API key set (LLM_API_KEY)")
+        if not self.api_key and not self.base_url:
+            print("[LLM] No LLM_BASE_URL or LLM_API_KEY set")
             return None
 
         url = f"{self.base_url}/chat/completions"
@@ -34,8 +34,9 @@ class LLMClient:
 
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}",
         }
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
 
         try:
             req = urllib.request.Request(url, data=payload.encode(), headers=headers)
