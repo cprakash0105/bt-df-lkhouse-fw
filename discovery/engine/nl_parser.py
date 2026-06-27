@@ -49,16 +49,19 @@ class NLParser:
         return self._parse_simple(text)
 
     def _parse_with_gemini(self, text: str) -> Optional[dict]:
-        """Use Vertex AI Gemini to parse NL."""
+        """Use Gemini to parse NL."""
         try:
-            import vertexai
-            from vertexai.generative_models import GenerativeModel
+            import google.generativeai as genai
 
-            vertexai.init(project=self.project_id, location=self.region)
-            model = GenerativeModel("gemini-2.0-flash")
+            api_key = os.environ.get("GEMINI_API_KEY")
+            if not api_key:
+                return None
+
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel("gemini-2.0-flash")
 
             response = model.generate_content(
-                [SYSTEM_PROMPT, f"User input: {text}"],
+                f"{SYSTEM_PROMPT}\n\nUser input: {text}",
                 generation_config={"temperature": 0.1, "max_output_tokens": 2048},
             )
 

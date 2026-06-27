@@ -86,16 +86,20 @@ class SQLGenerator:
         return gcs_path
 
     def _generate_with_gemini(self, system_prompt: str, requirement: str) -> Optional[str]:
-        """Use Vertex AI Gemini to generate SQL."""
+        """Use Gemini to generate SQL."""
         try:
-            import vertexai
-            from vertexai.generative_models import GenerativeModel
+            import google.generativeai as genai
 
-            vertexai.init(project=self.project_id, location="us-central1")
-            model = GenerativeModel("gemini-2.0-flash")
+            api_key = os.environ.get("GEMINI_API_KEY")
+            if not api_key:
+                print("[SQLGenerator] GEMINI_API_KEY not set")
+                return None
+
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel("gemini-2.0-flash")
 
             response = model.generate_content(
-                [system_prompt, f"Requirement: {requirement}"],
+                f"{system_prompt}\n\nRequirement: {requirement}",
                 generation_config={"temperature": 0.1, "max_output_tokens": 4096},
             )
 
