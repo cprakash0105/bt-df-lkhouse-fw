@@ -86,34 +86,34 @@ class SQLGenerator:
         return gcs_path
 
     def _generate_with_gemini(self, system_prompt: str, requirement: str) -> Optional[str]:
-        """Use Gemini to generate SQL."""
+        """Use Gemini REST API directly."""
+        import urllib.request
+
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            print("[SQLGenerator] GEMINI_API_KEY not set")
+            return None
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+        payload = json.dumps({
+            "contents": [{"parts": [{"text": f"{system_prompt}\n\nRequirement: {requirement}"}]}],
+            "generationConfig": {"temperature": 0.1, "maxOutputTokens": 4096}
+        })
+
         try:
-            import google.generativeai as genai
+            req = urllib.request.Request(url, data=payload.encode(), headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req) as resp:
+                result = json.loads(resp.read().decode())
 
-            api_key = os.environ.get("GEMINI_API_KEY")
-            if not api_key:
-                print("[SQLGenerator] GEMINI_API_KEY not set")
-                return None
-
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel("gemini-2.0-flash")
-
-            response = model.generate_content(
-                f"{system_prompt}\n\nRequirement: {requirement}",
-                generation_config={"temperature": 0.1, "max_output_tokens": 4096},
-            )
-
-            sql = response.text.strip()
-            # Remove markdown code fences
+            sql = result["candidates"][0]["content"]["parts"][0]["text"].strip()
             if sql.startswith("```"):
                 lines = sql.split("\n")
                 lines = [l for l in lines if not l.strip().startswith("```")]
                 sql = "\n".join(lines)
-
             return sql
 
         except Exception as e:
-            print(f"[SQLGenerator] Gemini failed: {e}")
+            print(f"[SQLGenerator] Gemini REST failed: {e}")
             return None
 
     def _get_available_tables(self) -> list[str]:

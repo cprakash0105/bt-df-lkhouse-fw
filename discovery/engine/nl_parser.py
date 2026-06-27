@@ -49,25 +49,25 @@ class NLParser:
         return self._parse_simple(text)
 
     def _parse_with_gemini(self, text: str) -> Optional[dict]:
-        """Use Gemini to parse NL."""
+        """Use Gemini REST API to parse NL."""
+        import urllib.request
+
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            return None
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+        payload = json.dumps({
+            "contents": [{"parts": [{"text": f"{SYSTEM_PROMPT}\n\nUser input: {text}"}]}],
+            "generationConfig": {"temperature": 0.1, "maxOutputTokens": 2048}
+        })
+
         try:
-            import google.generativeai as genai
+            req = urllib.request.Request(url, data=payload.encode(), headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req) as resp:
+                result = json.loads(resp.read().decode())
 
-            api_key = os.environ.get("GEMINI_API_KEY")
-            if not api_key:
-                return None
-
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel("gemini-2.0-flash")
-
-            response = model.generate_content(
-                f"{SYSTEM_PROMPT}\n\nUser input: {text}",
-                generation_config={"temperature": 0.1, "max_output_tokens": 2048},
-            )
-
-            # Extract JSON from response
-            response_text = response.text.strip()
-            # Remove markdown code fences if present
+            response_text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
             if response_text.startswith("```"):
                 lines = response_text.split("\n")
                 lines = [l for l in lines if not l.strip().startswith("```")]
@@ -77,10 +77,8 @@ class NLParser:
             if isinstance(parsed, dict) and "fields" in parsed:
                 return parsed
 
-        except ImportError:
-            pass
         except Exception as e:
-            print(f"[NLParser] Gemini failed: {e}")
+            print(f"[NLParser] Gemini REST failed: {e}")
 
         return None
 
