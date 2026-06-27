@@ -45,6 +45,8 @@ steps:
       - '0'
       - '--max-instances'
       - '2'
+      - '--timeout'
+      - '600'
       - '--set-env-vars'
       - 'GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${_REGION},EMBEDDER_MODE=vertex,LLM_API_KEY=${_LLM_API_KEY},LLM_BASE_URL=https://api.perplexity.ai,LLM_MODEL=sonar'
 

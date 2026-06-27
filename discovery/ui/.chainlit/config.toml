@@ -1,0 +1,15 @@
+[project]
+name = "Semantic Discovery"
+description = "Discover, classify, and onboard data assets into the Data Fabric"
+
+[UI]
+name = "Semantic Discovery"
+default_theme = "dark"
+show_readme_as_default = false
+
+[features]
+multi_modal = true
+speech_to_text.enabled = false
+
+[server]
+timeout = 600

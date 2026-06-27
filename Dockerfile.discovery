@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir \
 
 # Copy discovery module
 COPY discovery/ /app/discovery/
+COPY discovery/ui/.chainlit /app/.chainlit
 
 EXPOSE 8000
 
