@@ -18,6 +18,7 @@ from discovery.engine.nl_parser import NLParser
 from discovery.engine.approval_handler import ApprovalHandler
 from discovery.engine.profiler import Profiler, format_profile_report
 from discovery.engine.sql_generator import SQLGenerator
+from discovery.engine.contract_generator import ContractGenerator
 
 # Initialize engine components
 kg = KnowledgeGraph()
@@ -29,6 +30,7 @@ nl_parser = NLParser()
 approval_handler = ApprovalHandler()
 profiler = Profiler()
 sql_gen = SQLGenerator()
+contract_gen = ContractGenerator()
 
 
 WELCOME_MESSAGE = """
@@ -306,9 +308,13 @@ async def _approve_all():
     config_yaml = config_gen.generate(suggestion)
 
     # Process approval — write to Dataplex + GCS
-    await cl.Message(content="Processing approval — writing to Knowledge Catalog and pushing config to GCS...").send()
+    await cl.Message(content="Processing approval — writing to Knowledge Catalog, generating contract, pushing config to GCS...").send()
 
     results = approval_handler.process_approval(suggestion, config_yaml=config_yaml)
+
+    # Generate and push data contract
+    contract_path = contract_gen.generate_and_push(suggestion)
+    contract_yaml = contract_gen.generate(suggestion)
 
     # Report what was done
     lines = ["## Approval Processed\n"]
@@ -327,7 +333,13 @@ async def _approve_all():
     if results["config_gcs_path"]:
         lines.append(f"### Pipeline Config Pushed to GCS")
         lines.append(f"- `{results['config_gcs_path']}`")
-        lines.append(f"- Pipeline can now pick this up automatically")
+        lines.append("")
+
+    if contract_path:
+        lines.append(f"### Data Contract Generated")
+        lines.append(f"- `{contract_path}`")
+        lines.append(f"- Version: 1.0.0 (draft)")
+        lines.append(f"- Pipeline will enforce DQ SLAs from this contract")
         lines.append("")
 
     if results["policies_set"]:
