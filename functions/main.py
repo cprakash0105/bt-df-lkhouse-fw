@@ -144,8 +144,8 @@ def submit_dataproc_batch(job_name: str, main_py: str, args: list,
     )
 
     parent = f"projects/{PROJECT_ID}/locations/{REGION}"
-    # Generate a unique batch ID
-    batch_id = f"{job_name}-{int(time.time()) % 100000}"
+    # Generate a unique batch ID (only lowercase, numbers, hyphens allowed)
+    batch_id = f"{job_name}-{int(time.time()) % 100000}".replace("_", "-")
 
     operation = client.create_batch(
         parent=parent,
