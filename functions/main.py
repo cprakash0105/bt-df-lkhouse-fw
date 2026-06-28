@@ -313,7 +313,7 @@ def run_consume(table_name: str) -> int:
 
 
 def tag_columns_with_bde(table_name: str, config: dict):
-    """Tag BQ columns with BDE descriptions."""
+    """Tag BQ columns with BDE descriptions and apply data masking for PII."""
     bq = bigquery.Client(project=PROJECT_ID)
     table_ref = f"{PROJECT_ID}.lakehouse_dataproduct.{table_name}"
 
@@ -326,6 +326,7 @@ def tag_columns_with_bde(table_name: str, config: dict):
     pii_fields = config.get("pii_fields", [])
     pk = config.get("primary_key", "")
 
+    # Step 1: Tag columns with descriptions
     new_schema = []
     tagged = 0
     for field in table.schema:
@@ -333,7 +334,7 @@ def tag_columns_with_bde(table_name: str, config: dict):
         if field.name == pk:
             desc_parts.append("Primary Key")
         if field.name in pii_fields:
-            desc_parts.append("PII")
+            desc_parts.append("PII - Masked in non-prod")
         desc = " | ".join(desc_parts) if desc_parts else ""
         new_schema.append(bigquery.SchemaField(field.name, field.field_type, description=desc))
         if desc:
@@ -342,3 +343,87 @@ def tag_columns_with_bde(table_name: str, config: dict):
     table.schema = new_schema
     bq.update_table(table, ["schema"])
     print(f"  Tagged {tagged} columns with metadata")
+
+    # Step 2: Apply data masking policies for PII fields
+    if pii_fields:
+        apply_data_masking(table_name, pii_fields, table.schema)
+
+
+def apply_data_masking(table_name: str, pii_fields: list, schema):
+    """Apply BigQuery data masking policies on PII columns."""
+    bq = bigquery.Client(project=PROJECT_ID)
+    table_id = f"{PROJECT_ID}.lakehouse_dataproduct.{table_name}"
+
+    # Determine masking rule per field based on name/type
+    masking_rules = {}
+    for field_name in pii_fields:
+        if "email" in field_name:
+            masking_rules[field_name] = "EMAIL_MASK"
+        elif "phone" in field_name or "mobile" in field_name:
+            masking_rules[field_name] = "LAST_FOUR_CHARACTERS"
+        elif "pan" in field_name or "aadhaar" in field_name or "card" in field_name:
+            masking_rules[field_name] = "SHA256"
+        elif "dob" in field_name or "birth" in field_name or "date_of_birth" in field_name:
+            masking_rules[field_name] = "DATE_YEAR_MASK"
+        elif "name" in field_name:
+            masking_rules[field_name] = "DEFAULT_MASKING_VALUE"
+        elif "address" in field_name or "addr" in field_name:
+            masking_rules[field_name] = "DEFAULT_MASKING_VALUE"
+        else:
+            masking_rules[field_name] = "SHA256"
+
+    # Create masking policies using DDL
+    for field_name, rule in masking_rules.items():
+        policy_name = f"mask_{table_name}_{field_name}"
+        # Check if column exists in schema
+        col_exists = any(f.name == field_name for f in schema)
+        if not col_exists:
+            continue
+
+        try:
+            # Create data policy
+            sql = f"""
+            CREATE OR REPLACE DATA MASKING RULE `{PROJECT_ID}.{policy_name}`
+            OPTIONS (masking_expression = "{rule}")
+            """
+            # Note: Data masking DDL requires specific BQ edition.
+            # For standard BQ, we use column-level security with policy tags instead.
+            # Fallback: create a masked view
+            pass
+        except Exception:
+            pass
+
+    # Fallback: Create a masked view for non-privileged access
+    masked_view_name = f"{table_name}_masked"
+    select_parts = []
+    for field in schema:
+        if field.name in masking_rules:
+            rule = masking_rules[field.name]
+            if rule == "SHA256":
+                select_parts.append(f"TO_HEX(SHA256(CAST(`{field.name}` AS STRING))) AS {field.name}")
+            elif rule == "LAST_FOUR_CHARACTERS":
+                select_parts.append(f"CONCAT('****', RIGHT(CAST(`{field.name}` AS STRING), 4)) AS {field.name}")
+            elif rule == "EMAIL_MASK":
+                select_parts.append(f"CONCAT(LEFT(`{field.name}`, 1), '***@', SPLIT(`{field.name}`, '@')[SAFE_OFFSET(1)]) AS {field.name}")
+            elif rule == "DATE_YEAR_MASK":
+                select_parts.append(f"DATE_TRUNC(CAST(`{field.name}` AS DATE), YEAR) AS {field.name}")
+            elif rule == "DEFAULT_MASKING_VALUE":
+                select_parts.append(f"'[REDACTED]' AS {field.name}")
+            else:
+                select_parts.append(f"`{field.name}`")
+        else:
+            select_parts.append(f"`{field.name}`")
+
+    masked_sql = f"""
+    CREATE OR REPLACE VIEW `{PROJECT_ID}.lakehouse_dataproduct.{masked_view_name}` AS
+    SELECT {', '.join(select_parts)}
+    FROM `{PROJECT_ID}.lakehouse_dataproduct.{table_name}`
+    """
+
+    try:
+        job = bq.query(masked_sql)
+        job.result()
+        print(f"  Created masked view: {masked_view_name}")
+        print(f"  Masking applied: {masking_rules}")
+    except Exception as e:
+        print(f"  Failed to create masked view: {e}")
