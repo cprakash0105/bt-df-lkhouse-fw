@@ -120,64 +120,59 @@ def pipeline_trigger(cloud_event):
 
 def submit_dataproc_batch(job_name: str, main_py: str, args: list,
                           jars: list, properties: dict) -> str:
-    """Submit a Dataproc Serverless batch job."""
-    client = dataproc_v1.BatchControllerClient(
+    """Submit a job to the dedicated Dataproc cluster."""
+    client = dataproc_v1.JobControllerClient(
         client_options={"api_endpoint": f"{REGION}-dataproc.googleapis.com:443"}
     )
 
-    batch = dataproc_v1.Batch(
-        pyspark_batch=dataproc_v1.PySparkBatch(
-            main_python_file_uri=f"gs://{BUCKET}/framework/engine/{main_py.split('/')[-1]}",
-            python_file_uris=[PY_FILES],
-            jar_file_uris=jars,
-            args=args,
-        ),
-        runtime_config=dataproc_v1.RuntimeConfig(
-            properties=properties,
-        ),
-        environment_config=dataproc_v1.EnvironmentConfig(
-            execution_config=dataproc_v1.ExecutionConfig(
-                service_account=SA_EMAIL,
-                subnetwork_uri=SUBNET,
-            ),
-        ),
+    job_id = f"{job_name}-{int(time.time()) % 100000}".replace("_", "-")
+
+    py_file_uris = [PY_FILES]
+    jar_uris = jars if jars else []
+
+    job = {
+        "placement": {"cluster_name": "lakehouse-cluster"},
+        "reference": {"job_id": job_id},
+        "pyspark_job": {
+            "main_python_file_uri": f"gs://{BUCKET}/framework/engine/{main_py.split('/')[-1]}",
+            "python_file_uris": py_file_uris,
+            "jar_file_uris": jar_uris,
+            "args": args,
+        },
+    }
+
+    result = client.submit_job(
+        project_id=PROJECT_ID,
+        region=REGION,
+        job=job,
     )
 
-    parent = f"projects/{PROJECT_ID}/locations/{REGION}"
-    # Generate a unique batch ID (only lowercase, numbers, hyphens allowed)
-    batch_id = f"{job_name}-{int(time.time()) % 100000}".replace("_", "-")
-
-    operation = client.create_batch(
-        parent=parent,
-        batch=batch,
-        batch_id=batch_id,
-    )
-
-    print(f"  Submitted batch: {batch_id}")
-    return batch_id
+    print(f"  Submitted job: {job_id}")
+    return job_id
 
 
-def wait_for_batch(batch_id: str, timeout: int = 600):
-    """Wait for a Dataproc batch to complete."""
-    client = dataproc_v1.BatchControllerClient(
+def wait_for_batch(job_id: str, timeout: int = 540):
+    """Wait for a Dataproc job to complete."""
+    client = dataproc_v1.JobControllerClient(
         client_options={"api_endpoint": f"{REGION}-dataproc.googleapis.com:443"}
     )
-    batch_name = f"projects/{PROJECT_ID}/locations/{REGION}/batches/{batch_id}"
 
     start = time.time()
     while time.time() - start < timeout:
-        batch = client.get_batch(name=batch_name)
-        state = batch.state.name
+        job = client.get_job(project_id=PROJECT_ID, region=REGION, job_id=job_id)
+        state = job.status.state.name
 
-        if state == "SUCCEEDED":
-            print(f"  Batch {batch_id}: SUCCEEDED")
+        if state == "DONE":
+            print(f"  Job {job_id}: SUCCEEDED")
             return
-        elif state in ("FAILED", "CANCELLED"):
-            raise RuntimeError(f"Batch {batch_id} {state}: {batch.state_message}")
+        elif state == "ERROR":
+            raise RuntimeError(f"Job {job_id} FAILED: {job.status.details}")
+        elif state == "CANCELLED":
+            raise RuntimeError(f"Job {job_id} CANCELLED")
 
-        time.sleep(15)
+        time.sleep(10)
 
-    raise RuntimeError(f"Batch {batch_id} timed out after {timeout}s")
+    raise RuntimeError(f"Job {job_id} timed out after {timeout}s")
 
 
 def create_bq_external_table(table_name: str):
