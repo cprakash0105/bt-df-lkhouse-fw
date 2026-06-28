@@ -1,9 +1,10 @@
 """Pipeline Orchestrator — Cloud Function (Gen2).
 Triggers when a new table config YAML lands in GCS.
-Runs the full pipeline: ingest → curate → create BQ table → consume → tag → notify.
+Runs the full pipeline: ingest -> curate -> create BQ table -> consume -> tag.
+Logs all events to BigQuery pipeline_monitor table.
 
 Trigger: GCS object finalize on gs://{BUCKET}/framework/config/tables/*.yaml
-Runtime: Python 3.12, 60 min timeout, 1GB memory
+Runtime: Python 3.12, 540s timeout, 1GB memory
 """
 import os
 import re
@@ -11,6 +12,7 @@ import time
 import yaml
 import functions_framework
 from google.cloud import storage, bigquery, dataproc_v1
+from monitor import PipelineMonitor
 
 
 PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "bt-df-lkhouse")
@@ -22,6 +24,7 @@ CONFIG_PATH = f"gs://{BUCKET}/framework/config/pipeline.yaml"
 PY_FILES = f"gs://{BUCKET}/framework/bt_df_lkhouse_fw.zip"
 ICEBERG_JAR = f"gs://{BUCKET}/spark/iceberg-spark-runtime.jar"
 BIGLAKE_JAR = f"gs://{BUCKET}/spark/biglake-catalog.jar"
+CLUSTER_NAME = "lakehouse-cluster"
 
 SPARK_PROPERTIES = {
     "spark.sql.catalog.lakehouse": "org.apache.iceberg.spark.SparkCatalog",
@@ -66,31 +69,37 @@ def pipeline_trigger(cloud_event):
     landing_blobs = list(gcs.bucket(bucket_name).list_blobs(prefix=landing_prefix, max_results=1))
     if not landing_blobs:
         print(f"No landing data found at gs://{bucket_name}/{landing_prefix}")
-        print("Skipping pipeline — waiting for data to arrive.")
+        print("Skipping pipeline - waiting for data to arrive.")
         return
+
+    monitor = PipelineMonitor()
 
     try:
         # Step 1: Ingest
-        print(f"\n[1/6] INGEST: Landing → Reservoir")
-        ingest_batch = submit_dataproc_batch(
+        print(f"\n[1/6] INGEST: Landing -> Reservoir")
+        monitor.log_ingest(table_name, "started")
+        t0 = time.time()
+        ingest_job = submit_job(
             job_name=f"ingest-{table_name}",
-            main_py="bt_df_lkhouse_fw/engine/ingest.py",
+            main_py="ingest.py",
             args=["--config", CONFIG_PATH, "--table", table_name, "--version", "v1", "--project", PROJECT_ID],
             jars=[],
-            properties={},
         )
-        wait_for_batch(ingest_batch)
+        wait_for_job(ingest_job)
+        monitor.log_ingest(table_name, "succeeded", job_id=ingest_job, duration=time.time() - t0)
 
         # Step 2: Curate
-        print(f"\n[2/6] CURATE: Reservoir → CCN (Iceberg)")
-        curate_batch = submit_dataproc_batch(
+        print(f"\n[2/6] CURATE: Reservoir -> CCN (Iceberg)")
+        monitor.log_curate(table_name, "started")
+        t0 = time.time()
+        curate_job = submit_job(
             job_name=f"curate-{table_name}",
-            main_py="bt_df_lkhouse_fw/engine/curate.py",
+            main_py="curate.py",
             args=["--config", CONFIG_PATH, "--table", table_name, "--project", PROJECT_ID],
             jars=[ICEBERG_JAR, BIGLAKE_JAR],
-            properties=SPARK_PROPERTIES,
         )
-        wait_for_batch(curate_batch)
+        wait_for_job(curate_job)
+        monitor.log_curate(table_name, "succeeded", job_id=curate_job, duration=time.time() - t0)
 
         # Step 3: Create BQ external table
         print(f"\n[3/6] CREATE BQ EXTERNAL TABLE")
@@ -101,8 +110,11 @@ def pipeline_trigger(cloud_event):
         ensure_consumption_sql(table_name)
 
         # Step 5: Run consume
-        print(f"\n[5/6] CONSUME: CCN → Data Product (BigQuery)")
-        run_consume(table_name)
+        print(f"\n[5/6] CONSUME: CCN -> Data Product (BigQuery)")
+        monitor.log_consume(table_name, "started")
+        t0 = time.time()
+        row_count = run_consume(table_name)
+        monitor.log_consume(table_name, "succeeded", records_out=row_count, duration=time.time() - t0)
 
         # Step 6: Tag columns
         print(f"\n[6/6] TAG COLUMNS")
@@ -114,44 +126,36 @@ def pipeline_trigger(cloud_event):
         print(f"{'=' * 60}")
 
     except Exception as e:
+        monitor.log_error(table_name, "pipeline", str(e))
         print(f"\nPIPELINE FAILED for {table_name}: {e}")
         raise
 
 
-def submit_dataproc_batch(job_name: str, main_py: str, args: list,
-                          jars: list, properties: dict) -> str:
-    """Submit a job to the dedicated Dataproc cluster."""
+def submit_job(job_name: str, main_py: str, args: list, jars: list) -> str:
+    """Submit a PySpark job to the dedicated Dataproc cluster."""
     client = dataproc_v1.JobControllerClient(
         client_options={"api_endpoint": f"{REGION}-dataproc.googleapis.com:443"}
     )
 
     job_id = f"{job_name}-{int(time.time()) % 100000}".replace("_", "-")
 
-    py_file_uris = [PY_FILES]
-    jar_uris = jars if jars else []
-
     job = {
-        "placement": {"cluster_name": "lakehouse-cluster"},
+        "placement": {"cluster_name": CLUSTER_NAME},
         "reference": {"job_id": job_id},
         "pyspark_job": {
-            "main_python_file_uri": f"gs://{BUCKET}/framework/engine/{main_py.split('/')[-1]}",
-            "python_file_uris": py_file_uris,
-            "jar_file_uris": jar_uris,
+            "main_python_file_uri": f"gs://{BUCKET}/framework/engine/{main_py}",
+            "python_file_uris": [PY_FILES],
+            "jar_file_uris": jars if jars else [],
             "args": args,
         },
     }
 
-    result = client.submit_job(
-        project_id=PROJECT_ID,
-        region=REGION,
-        job=job,
-    )
-
+    client.submit_job(project_id=PROJECT_ID, region=REGION, job=job)
     print(f"  Submitted job: {job_id}")
     return job_id
 
 
-def wait_for_batch(job_id: str, timeout: int = 540):
+def wait_for_job(job_id: str, timeout: int = 480):
     """Wait for a Dataproc job to complete."""
     client = dataproc_v1.JobControllerClient(
         client_options={"api_endpoint": f"{REGION}-dataproc.googleapis.com:443"}
@@ -180,7 +184,6 @@ def create_bq_external_table(table_name: str):
     bq = bigquery.Client(project=PROJECT_ID)
     table_id = f"{PROJECT_ID}.lakehouse_ccn.{table_name}"
 
-    # Check if already exists
     try:
         bq.get_table(table_id)
         print(f"  Table already exists: {table_id}")
@@ -216,7 +219,6 @@ def ensure_consumption_sql(table_name: str):
         print(f"  Consumption SQL exists: {sql_blob_name}")
         return
 
-    # Generate a simple pass-through SQL
     sql = f"""-- {table_name}.sql
 -- Auto-generated Data Product (pass-through from CCN)
 CREATE OR REPLACE TABLE `${{PROJECT_ID}}.lakehouse_dataproduct.{table_name}` AS
@@ -226,15 +228,15 @@ SELECT * FROM `${{PROJECT_ID}}.lakehouse_ccn.{table_name}`
     print(f"  Created: {sql_blob_name}")
 
 
-def run_consume(table_name: str):
-    """Run the consumption SQL in BigQuery."""
+def run_consume(table_name: str) -> int:
+    """Run the consumption SQL in BigQuery. Returns row count."""
     gcs = storage.Client(project=PROJECT_ID)
     bucket = gcs.bucket(BUCKET)
     sql_blob = bucket.blob(f"framework/config/consumption/{table_name}.sql")
 
     if not sql_blob.exists():
         print(f"  No consumption SQL found for {table_name}")
-        return
+        return 0
 
     sql = sql_blob.download_as_text()
     sql = sql.replace("${PROJECT_ID}", PROJECT_ID)
@@ -252,8 +254,10 @@ def run_consume(table_name: str):
         table_ref = f"{PROJECT_ID}.lakehouse_dataproduct.{table_name}"
         table = bq.get_table(table_ref)
         print(f"  Data Product: {table_ref} ({table.num_rows} rows)")
+        return table.num_rows
     except Exception:
         print(f"  Consume SQL executed")
+        return 0
 
 
 def tag_columns_with_bde(table_name: str, config: dict):
