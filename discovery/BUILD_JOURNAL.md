@@ -274,22 +274,39 @@ Remaining credits: ~₹28,540. Enough for months of operation.
 
 | Issue | Severity | Status |
 |-------|----------|--------|
-| Gemini free tier quota limit | Medium | Shows friendly message; resets per-minute/daily |
-| Data Catalog SDK install issues in Cloud Shell | Low | Using BQ column descriptions as alternative |
+| Gemini free tier quota limit | Resolved | Using self-hosted Ollama (Gemma2 9B) on Azure VM |
+| Data Catalog SDK install issues | Low | Using BQ column descriptions as alternative |
 | `enquiry_date` sometimes flagged as PII | Low | Rules engine *date* pattern too broad |
 | Profiler with 5 rows generates bad DQ rules | Medium | Need minimum row threshold; sample should come from actual data |
-| Cloud Function not yet deployed | Medium | Code ready, needs `bash functions/deploy.sh` |
-| Linked dataset approach broken | Low | Using individual external tables with `blms://` URI instead |
-| LLM (Perplexity) needs payment | Low | Sticking with Gemini free tier for now |
+| BQ connection permission for Cloud Function | Resolved | Granted bigquery.connectionAdmin to appspot SA |
+| Dataproc Serverless quota issues | Resolved | Using dedicated single-node cluster |
+| LLM response time (~90s) | Acceptable | Chainlit/Cloud Run timeout set to 600s |
 
 ---
 
 ## How to Resume
 
+### Start Azure LLM VM
+```bash
+az vm start --resource-group llm-server-rg --name llm-server
+# IP: 4.242.19.167 (may change after restart)
+```
+
+### Start Dataproc cluster
+```bash
+gcloud dataproc clusters start lakehouse-cluster --region=europe-west2 --project=bt-df-lkhouse
+```
+
+### Stop when done
+```bash
+az vm deallocate --resource-group llm-server-rg --name llm-server
+gcloud dataproc clusters stop lakehouse-cluster --region=europe-west2 --project=bt-df-lkhouse
+```
+
 ### Deploy changes
 ```bash
 cd ~/bt-df-lkhouse-fw && git pull
-gcloud builds submit --config=cloudbuild.yaml --project=bt-df-lkhouse --substitutions=_LLM_API_KEY=$GEMINI_API_KEY
+gcloud builds submit --config=cloudbuild.yaml --project=bt-df-lkhouse
 ```
 
 ### Deploy Cloud Function
@@ -298,30 +315,31 @@ cd ~/bt-df-lkhouse-fw && git pull
 bash functions/deploy.sh
 ```
 
-### Run pipeline manually
+### Generate test data
 ```bash
-# Generate data
-python datagen/generate_cibil.py --project=bt-df-lkhouse --records=1000
-
-# Upload framework
-zip -r bt_df_lkhouse_fw.zip bt_df_lkhouse_fw/
-gsutil cp bt_df_lkhouse_fw.zip gs://bt-df-lkhouse-lakehouse/framework/
-gsutil -m cp -r bt_df_lkhouse_fw/config/* gs://bt-df-lkhouse-lakehouse/framework/config/
-
-# Run ingest → curate → create table → consume (see commands above)
+python datagen/generate_all.py --project=bt-df-lkhouse
 ```
 
-### Test SD
+### Monitor pipeline
+```bash
+bq query --use_legacy_sql=false "SELECT dataset_name, stage, status, records_out, duration_seconds, event_time FROM \`bt-df-lkhouse.lakehouse_dataproduct.pipeline_monitor\` ORDER BY event_time DESC LIMIT 20"
+```
+
+### Onboard via SD
 Open: https://semantic-discovery-978009776592.europe-west2.run.app
+
+Example:
+```
+I have a new ekyc provider feed with customer_id, aadhaar_number, kyc_status, kyc_verified_date, verification_mode, full_name, address, photo_url, consent_timestamp and provider_reference_id
+```
+Then: `approve all`
 
 ---
 
 ## Next Steps (Prioritised)
 
-1. **Deploy Cloud Function** — enables fully automated pipeline on SD approval
-2. **Onboard e-KYC feed** — completes the loan eligibility use case
-3. **Onboard UPI transactions** — high volume, spend analytics
-4. **Fix profiler** — minimum row threshold, better type detection
-5. **Column-level tagging** — resolve Data Catalog SDK or use BQ descriptions
-6. **LLM upgrade** — when Gemini quota stabilises or move to paid Perplexity
-7. **React UI** — replace Chainlit for multi-persona production use
+1. **Onboard remaining use cases** — UPI transactions, loan repayment, customer complaints
+2. **Fix profiler** — minimum row threshold, better type detection
+3. **Column-level tagging** — resolve Data Catalog SDK or use BQ descriptions
+4. **React UI** — replace Chainlit for multi-persona production use
+5. **SCD implementation test** — run Type 2 on customer dimension with schema changes
