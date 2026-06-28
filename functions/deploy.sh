@@ -19,7 +19,7 @@ gcloud functions deploy ${FUNCTION_NAME} \
   --entry-point=pipeline_trigger \
   --trigger-event-filters="type=google.cloud.storage.object.v1.finalized" \
   --trigger-event-filters="bucket=${BUCKET}" \
-  --timeout=3600 \
+  --timeout=540 \
   --memory=1Gi \
   --set-env-vars="GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${REGION},CONFIG_BUCKET=${BUCKET}" \
   --service-account=${PROJECT_ID}@appspot.gserviceaccount.com
