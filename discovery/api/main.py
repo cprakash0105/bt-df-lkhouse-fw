@@ -21,8 +21,19 @@ from discovery.engine.config_generator import ConfigGenerator
 from discovery.engine.nl_parser import NLParser
 from discovery.engine.approval_handler import ApprovalHandler
 from discovery.engine.profiler import Profiler
-from discovery.engine.contract_generator import ContractGenerator
-from discovery.engine.scd_config_generator import SCDConfigGenerator
+
+# Optional imports (may fail if deps not installed)
+try:
+    from discovery.engine.contract_generator import ContractGenerator
+    contract_gen = ContractGenerator()
+except Exception:
+    contract_gen = None
+
+try:
+    from discovery.engine.scd_config_generator import SCDConfigGenerator
+    scd_gen = SCDConfigGenerator()
+except Exception:
+    scd_gen = None
 
 # Initialize engine
 kg = KnowledgeGraph()
@@ -31,10 +42,13 @@ embedder = Embedder(mode="local")
 suggester = Suggester(knowledge_graph=kg, rules_engine=rules, embedder=embedder)
 config_gen = ConfigGenerator()
 nl_parser = NLParser()
-approval_handler = ApprovalHandler()
 profiler = Profiler()
-contract_gen = ContractGenerator()
-scd_gen = SCDConfigGenerator()
+
+# Approval handler (needs GCP deps)
+try:
+    approval_handler = ApprovalHandler()
+except Exception:
+    approval_handler = None
 
 app = FastAPI(title="Semantic Discovery API", version="1.0.0")
 
@@ -244,15 +258,22 @@ def approve(req: ApproveRequest):
         raise HTTPException(400, "No active discovery to approve")
 
     config_yaml = config_gen.generate(suggestion, approved_fields=req.fields)
+
+    if not approval_handler:
+        return {"status": "approved", "config_yaml": config_yaml, "errors": ["Approval handler not available (GCP deps missing)"]}
+
     results = approval_handler.process_approval(suggestion, config_yaml=config_yaml)
 
     # Contract
-    contract_yaml = contract_gen.generate(suggestion)
-    contract_path = contract_gen.generate_and_push(suggestion)
+    contract_path = None
+    if contract_gen:
+        contract_path = contract_gen.generate_and_push(suggestion)
 
     # SCD
-    scd_type = scd_gen.infer_scd_type("", suggestion.data_domain)
-    scd_path = scd_gen.generate_and_push(suggestion, scd_type=scd_type)
+    scd_path = None
+    if scd_gen:
+        scd_type = scd_gen.infer_scd_type("", suggestion.data_domain)
+        scd_path = scd_gen.generate_and_push(suggestion, scd_type=scd_type)
 
     return {
         "status": "approved",

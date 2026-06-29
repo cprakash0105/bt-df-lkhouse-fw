@@ -10,9 +10,9 @@ RUN npm run build
 FROM python:3.12-slim
 WORKDIR /app
 
-# Install Python deps
-COPY discovery/requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt fastapi uvicorn
+# Install Python deps (minimal for API)
+COPY discovery/requirements-web.txt ./
+RUN pip install --no-cache-dir -r requirements-web.txt
 
 # Copy engine, config, API
 COPY discovery/__init__.py ./discovery/
