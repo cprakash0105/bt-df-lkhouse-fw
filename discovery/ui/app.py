@@ -208,6 +208,18 @@ async def _run_discovery_from_dict(asset_def: dict):
 
     # Run discovery
     suggestion = suggester.full_discovery(asset_def)
+
+    # LLM review — validate and correct suggestions
+    try:
+        from discovery.engine.llm_reviewer import LLMReviewer
+        reviewer = LLMReviewer()
+        await cl.Message(content="Validating suggestions with AI reviewer...").send()
+        corrections = reviewer.review(suggestion)
+        if corrections and (corrections.get("corrections") or corrections.get("accepted_values_override") or corrections.get("remove_pii") or corrections.get("remove_not_null")):
+            suggestion = reviewer.apply_corrections(suggestion, corrections)
+    except Exception as e:
+        print(f"[LLMReviewer] Review skipped: {e}")
+
     cl.user_session.set("current_suggestion", suggestion)
 
     # Format results
