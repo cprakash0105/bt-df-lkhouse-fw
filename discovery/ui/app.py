@@ -2,9 +2,11 @@
 Data stewards interact conversationally to discover, classify, and onboard data assets."""
 import sys
 import json
+import re
 import yaml
 import chainlit as cl
 from pathlib import Path
+from typing import Optional
 
 # Ensure discovery package is importable
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -146,6 +148,8 @@ profile cibil_bureau_feed
 customer_id,pan_number,cibil_score,enquiry_date
 CUST001,ABCPD1234F,750,2024-01-15
 ```""").send()
+    elif lower.startswith("discover domain ") or lower.startswith("onboard domain "):
+        await _multi_feed_discovery(text)
     elif lower.startswith("discover "):
         asset_name = text[9:].strip()
         await _ask_for_fields(asset_name)
@@ -174,13 +178,19 @@ CUST001,ABCPD1234F,750,2024-01-15
         if parsed:
             await _run_discovery_from_dict(parsed)
         else:
-            # Check if it looks like CSV data (has commas, multiple lines, header-like first line)
-            lines = text.strip().split("\n")
-            if len(lines) >= 3 and "," in lines[0] and all("," in l for l in lines[:3]):
-                await cl.Message(content="Detected CSV data. Profiling...").send()
-                await _profile_and_discover(text, "csv")
+            # Check if it's a correction ("X is not PII", "remove X from not_null")
+            correction = _try_parse_correction(text)
+            if correction:
+                await _apply_correction(correction)
+            # Check if it looks like CSV data
+            elif len(text.strip().split("\n")) >= 3 and "," in text.split("\n")[0]:
+                lines_check = text.strip().split("\n")
+                if all("," in l for l in lines_check[:3]):
+                    await cl.Message(content="Detected CSV data. Profiling...").send()
+                    await _profile_and_discover(text, "csv")
+                else:
+                    await _try_natural_language(text)
             else:
-                # Try natural language parsing
                 await _try_natural_language(text)
 
 
@@ -554,6 +564,106 @@ async def _show_help():
 """).send()
 
 
+def _try_parse_correction(text: str) -> Optional[dict]:
+    """Parse conversational corrections like 'due_date is not PII' or 'remove status from accepted_values'."""
+    lower = text.lower().strip()
+
+    # Pattern: "X is not PII"
+    m = re.match(r'[`]?([\w]+)[`]?\s+is\s+not\s+pii', lower)
+    if m:
+        return {"action": "remove_pii", "field": m.group(1)}
+
+    # Pattern: "X is PII"
+    m = re.match(r'[`]?([\w]+)[`]?\s+is\s+pii', lower)
+    if m:
+        return {"action": "add_pii", "field": m.group(1)}
+
+    # Pattern: "remove X from not_null" / "X should be nullable"
+    m = re.match(r'(?:remove\s+)?[`]?([\w]+)[`]?\s+(?:should be|is)\s+nullable', lower)
+    if m:
+        return {"action": "remove_not_null", "field": m.group(1)}
+    m = re.match(r'remove\s+[`]?([\w]+)[`]?\s+from\s+not_null', lower)
+    if m:
+        return {"action": "remove_not_null", "field": m.group(1)}
+
+    # Pattern: "X accepted values should be [a, b, c]" / "X values are a, b, c"
+    m = re.match(r'[`]?([\w]+)[`]?\s+(?:accepted\s+)?values?\s+(?:should be|are)\s+(.+)', lower)
+    if m:
+        vals = [v.strip().strip("[]'\"") for v in m.group(2).split(",")]
+        return {"action": "set_accepted_values", "field": m.group(1), "values": vals}
+
+    # Pattern: "X is not unique" / "X is unique"
+    m = re.match(r'[`]?([\w]+)[`]?\s+is\s+not\s+unique', lower)
+    if m:
+        return {"action": "remove_unique", "field": m.group(1)}
+    m = re.match(r'[`]?([\w]+)[`]?\s+is\s+unique', lower)
+    if m:
+        return {"action": "add_unique", "field": m.group(1)}
+
+    # Pattern: "X should map to BDE_NAME"
+    m = re.match(r'[`]?([\w]+)[`]?\s+(?:should map to|maps to|is)\s+[`]?([\w_]+)[`]?', lower)
+    if m:
+        field, bde = m.group(1), m.group(2)
+        # Only treat as BDE mapping if it's not one of the above patterns
+        if bde not in ("pii", "nullable", "unique", "not"):
+            return {"action": "set_bde", "field": field, "bde": bde}
+
+    return None
+
+
+async def _apply_correction(correction: dict):
+    """Apply a conversational correction to current suggestion."""
+    suggestion = cl.user_session.get("current_suggestion")
+    if not suggestion:
+        await cl.Message(content="No active discovery to correct. Run a discovery first.").send()
+        return
+
+    field_name = correction["field"]
+    action = correction["action"]
+
+    # Find the field
+    target = None
+    for f in suggestion.fields:
+        if f.field_name == field_name:
+            target = f
+            break
+
+    if not target:
+        await cl.Message(content=f"Field `{field_name}` not found in current suggestion.").send()
+        return
+
+    # Apply correction
+    if action == "remove_pii":
+        target.is_pii = False
+        target.classification = "Internal"
+        msg = f"`{field_name}` marked as **not PII**."
+    elif action == "add_pii":
+        target.is_pii = True
+        target.classification = "PII"
+        msg = f"`{field_name}` marked as **PII**."
+    elif action == "remove_not_null":
+        target.dq_rules.pop("not_null", None)
+        msg = f"`{field_name}` removed from not_null rules."
+    elif action == "remove_unique":
+        target.dq_rules.pop("unique", None)
+        msg = f"`{field_name}` removed from unique rules."
+    elif action == "add_unique":
+        target.dq_rules["unique"] = True
+        msg = f"`{field_name}` marked as unique."
+    elif action == "set_accepted_values":
+        target.dq_rules["accepted_values"] = correction["values"]
+        msg = f"`{field_name}` accepted values set to: {correction['values']}"
+    elif action == "set_bde":
+        target.linked_term = correction["bde"]
+        target.linked_term_name = correction["bde"].replace("_", " ").title()
+        msg = f"`{field_name}` mapped to BDE `{correction['bde']}`."
+    else:
+        msg = f"Unknown correction action: {action}"
+
+    cl.user_session.set("current_suggestion", suggestion)
+    await cl.Message(content=f"✅ Correction applied: {msg}").send()
+
+
 def _try_parse_definition(text: str) -> dict | None:
     """Try to parse text as YAML or JSON."""
     # Strip markdown code fences if present
@@ -783,6 +893,71 @@ def _enhance_with_profile(suggestion, profile):
         if col_profile.detected_patterns:
             if field_sug.confidence > 0:
                 field_sug.confidence = min(field_sug.confidence + 0.1, 0.99)
+
+
+async def _multi_feed_discovery(text: str):
+    """Handle multi-feed onboarding — one prompt for entire domain."""
+    await cl.Message(content="Parsing multi-dataset description...").send()
+
+    datasets = nl_parser.parse_multi(text)
+
+    if not datasets or len(datasets) < 2:
+        # Fall back to single parse
+        parsed = nl_parser.parse(text)
+        if parsed and parsed.get("fields"):
+            await _run_discovery_from_dict(parsed)
+        else:
+            await cl.Message(content="""I couldn't extract multiple datasets. Try this format:
+
+```
+discover domain Insurance:
+1. motor_policy: policy_id, customer_id, vehicle_reg, premium_amount, start_date, end_date, status, coverage_type
+2. motor_claims: claim_id, policy_id, claim_date, claim_amount, status, description, settlement_date
+3. vehicle_master: vehicle_id, make, model, year, registration_number, engine_type, owner_id
+4. premium_payments: payment_id, policy_id, amount, payment_date, payment_method, status
+```""").send()
+        return
+
+    # Show what we parsed
+    lines = [f"## Parsed {len(datasets)} Datasets\n"]
+    for ds in datasets:
+        field_names = [f['name'] for f in ds['fields']]
+        truncated = ', '.join(field_names[:8]) + ('...' if len(field_names) > 8 else '')
+        lines.append(f"**`{ds['name']}`** — {len(ds['fields'])} fields: {truncated}")
+    lines.append(f"\nRunning discovery on all {len(datasets)} datasets...")
+    await cl.Message(content="\n".join(lines)).send()
+
+    # Run discovery on each
+    all_suggestions = []
+    for ds in datasets:
+        suggestion = suggester.full_discovery(ds)
+        all_suggestions.append(suggestion)
+
+    # Store all suggestions
+    cl.user_session.set("multi_suggestions", all_suggestions)
+    cl.user_session.set("current_suggestion", all_suggestions[0])  # first one active
+
+    # Display combined results
+    combined_lines = [f"# Domain Onboarding — {len(all_suggestions)} Datasets\n"]
+    for i, s in enumerate(all_suggestions):
+        combined_lines.append(f"## {i+1}. `{s.asset_name}` ({len(s.fields)} fields)")
+        combined_lines.append(f"- **Business Application:** {s.business_application_name or '?'}")
+        combined_lines.append(f"- **Domain:** {s.data_domain or '?'}")
+        combined_lines.append(f"- **Primary Key:** `{s.primary_key or '?'}`")
+        combined_lines.append("")
+        combined_lines.append("| Field | BDE Match | PII | Confidence |")
+        combined_lines.append("|-------|-----------|-----|------------|")
+        for f in s.fields:
+            term = f.linked_term_name or "NEW"
+            pii = "🔴" if f.is_pii else "🟢"
+            conf = f"{f.confidence:.0%}" if f.confidence > 0 else "-"
+            combined_lines.append(f"| `{f.field_name}` | {term} | {pii} | {conf} |")
+        combined_lines.append("")
+
+    combined_lines.append("---")
+    combined_lines.append("Type `approve all` to approve all datasets, or `approve 1` / `approve 2` for individual ones.")
+
+    await cl.Message(content="\n".join(combined_lines)).send()
 
 
 async def _deploy_sql():
