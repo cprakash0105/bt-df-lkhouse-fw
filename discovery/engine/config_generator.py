@@ -1,8 +1,13 @@
 """Config Generator — Converts approved discovery suggestions into pipeline-ready YAML.
-Output: config/tables/{asset}.yaml compatible with bt_df_lkhouse_fw."""
+Output: config/tables/{asset}.yaml compatible with bt_df_lkhouse_fw.
+DQ rules are inherited from BDE definitions (define once, apply everywhere)."""
 import yaml
 from typing import Optional
 from discovery.engine.suggester import DiscoverySuggestion
+from discovery.engine.dq_inheritance import DQInheritanceEngine
+
+# Global DQ inheritance engine
+_dq_engine = DQInheritanceEngine()
 
 
 class ConfigGenerator:
@@ -24,10 +29,13 @@ class ConfigGenerator:
             "dedup_order_by": "ingestion_ts DESC",
         }
 
-        # DQ Rules
+        # DQ Rules (from field suggestions + inherited from BDEs)
         dq_rules = self._build_dq_rules(fields)
         if dq_rules:
             config["dq_rules"] = dq_rules
+
+        # Enrich with BDE-level DQ inheritance
+        config = _dq_engine.enrich_from_suggestion(config, suggestion)
 
         # PII fields
         pii_fields = [f.field_name for f in fields if f.is_pii]
