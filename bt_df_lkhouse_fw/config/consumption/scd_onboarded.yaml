@@ -1,0 +1,118 @@
+# SCD Configurations for Onboarded Datasets
+# Demonstrates Types 1, 2, 3, 4, 6 using real data
+
+# ============================================================
+# SCD Type 1: Overwrite (UPI Transactions - status updates)
+# Use case: Transaction status changes (pending -> success/failed)
+# No history needed - just the latest status
+# ============================================================
+dim_upi_latest:
+  table: dim_upi_latest
+  scd_type: 1
+  primary_key: transaction_id
+  source_query: |
+    SELECT
+      transaction_id,
+      payer_vpa,
+      payee_vpa,
+      amount,
+      transaction_date,
+      status,
+      remitter_account,
+      mcc_code
+    FROM `${PROJECT_ID}.lakehouse_ccn.upi_transactions`
+  tracked_columns:
+    - status
+    - amount
+
+# ============================================================
+# SCD Type 2: Full history (e-KYC - status lifecycle)
+# Use case: Track every KYC status change with timestamps
+# verified -> expired -> re-verified (full audit trail)
+# ============================================================
+dim_kyc_history:
+  table: dim_kyc_history
+  scd_type: 2
+  primary_key: customer_id
+  source_query: |
+    SELECT
+      customer_id,
+      aadhaar_number,
+      kyc_status,
+      verification_mode,
+      kyc_verified_date
+    FROM `${PROJECT_ID}.lakehouse_ccn.ekyc_provider_feed`
+  tracked_columns:
+    - kyc_status
+    - verification_mode
+    - kyc_verified_date
+
+# ============================================================
+# SCD Type 3: Previous value (CIBIL - score tracking)
+# Use case: Track current score + previous score for trend analysis
+# Enables: "customer score improved/declined since last check"
+# ============================================================
+dim_cibil_score:
+  table: dim_cibil_score
+  scd_type: 3
+  primary_key: customer_id
+  source_query: |
+    SELECT
+      customer_id,
+      cibil_score,
+      credit_utilization_pct,
+      number_of_accounts,
+      overdue_amount
+    FROM `${PROJECT_ID}.lakehouse_ccn.cibil_bureau_feed`
+  tracked_columns:
+    - cibil_score
+    - credit_utilization_pct
+    - overdue_amount
+
+# ============================================================
+# SCD Type 4: Current + History table (e-KYC)
+# Use case: Fast current lookup + full history archive
+# Main table: always latest. History: every change snapshot.
+# ============================================================
+dim_kyc_current:
+  table: dim_kyc_current
+  history_table: dim_kyc_archive
+  scd_type: 4
+  primary_key: customer_id
+  source_query: |
+    SELECT
+      customer_id,
+      kyc_status,
+      verification_mode,
+      kyc_verified_date,
+      full_name
+    FROM `${PROJECT_ID}.lakehouse_ccn.ekyc_provider_feed`
+  tracked_columns:
+    - kyc_status
+    - verification_mode
+    - kyc_verified_date
+
+# ============================================================
+# SCD Type 6: Hybrid 1+2+3 (CIBIL - complete tracking)
+# Use case: Full history rows + current_ cols + prev_ cols
+# Most complete: any historical row shows what was current at that time
+# Columns: effective_from, effective_to, is_current, version,
+#           current_{col}, prev_{col}
+# ============================================================
+dim_cibil_full:
+  table: dim_cibil_full
+  scd_type: 6
+  primary_key: customer_id
+  source_query: |
+    SELECT
+      customer_id,
+      cibil_score,
+      credit_utilization_pct,
+      dpd_30_plus_count,
+      overdue_amount
+    FROM `${PROJECT_ID}.lakehouse_ccn.cibil_bureau_feed`
+  tracked_columns:
+    - cibil_score
+    - credit_utilization_pct
+    - dpd_30_plus_count
+    - overdue_amount
