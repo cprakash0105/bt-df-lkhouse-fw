@@ -302,6 +302,17 @@ business_terms:
       not_null: true
       range: [300, 900]
 
+  - id: csat_score
+    name: "CSAT Score"
+    domain: customer
+    synonyms: [csat_score, satisfaction_score, csat, customer_satisfaction]
+    data_type: integer
+    information_type: Measure
+    is_pii: false
+    dq_rules:
+      not_null: false
+      range: [1, 5]
+
   - id: bureau_reference
     name: "Bureau Reference"
     domain: bureau
@@ -366,6 +377,155 @@ business_terms:
     dq_rules:
       not_null: false
 
+  # --- Lending / Payments Domain ---
+  - id: kyc_status
+    name: "KYC Status"
+    domain: customer
+    synonyms: [kyc_status, verification_status, kyc_state]
+    data_type: string
+    information_type: Reference
+    is_pii: false
+    reference_code_set: kyc_statuses
+    dq_rules:
+      not_null: true
+
+  - id: payment_status
+    name: "Payment Status"
+    domain: finance
+    synonyms: [payment_status, pay_status, repayment_status, installment_status]
+    data_type: string
+    information_type: Reference
+    is_pii: false
+    reference_code_set: payment_statuses
+    dq_rules:
+      not_null: true
+
+  - id: loan_identifier
+    name: "Loan Identifier"
+    domain: finance
+    synonyms: [loan_id, loan_no, loan_number, loan_ref, loan_reference]
+    data_type: string
+    information_type: Identifier
+    is_pii: false
+    is_key_candidate: true
+    dq_rules:
+      not_null: true
+      unique: true
+
+  - id: emi_amount
+    name: "EMI Amount"
+    domain: finance
+    synonyms: [emi_amount, emi_amt, installment_amount, emi]
+    data_type: double
+    information_type: Measure
+    is_pii: false
+    dq_rules:
+      not_null: true
+      positive: true
+
+  - id: days_past_due
+    name: "Days Past Due"
+    domain: finance
+    synonyms: [dpd_days, dpd, days_past_due, overdue_days, days_overdue]
+    data_type: integer
+    information_type: Measure
+    is_pii: false
+    dq_rules:
+      not_null: false
+      range: [0, 365]
+
+  - id: complaint_identifier
+    name: "Complaint Identifier"
+    domain: customer
+    synonyms: [complaint_id, complaint_no, case_id, ticket_id, incident_id]
+    data_type: string
+    information_type: Identifier
+    is_pii: false
+    is_key_candidate: true
+    dq_rules:
+      not_null: true
+      unique: true
+
+  - id: priority_level
+    name: "Priority Level"
+    domain: customer
+    synonyms: [priority, priority_level, severity, urgency]
+    data_type: string
+    information_type: Reference
+    is_pii: false
+    reference_code_set: priority_levels
+    dq_rules:
+      not_null: false
+
+  - id: upi_transaction_id
+    name: "UPI Transaction ID"
+    domain: finance
+    synonyms: [transaction_id, txn_id, upi_txn_id, upi_ref]
+    data_type: string
+    information_type: Identifier
+    is_pii: false
+    is_key_candidate: true
+    dq_rules:
+      not_null: true
+      unique: true
+
+  - id: vpa
+    name: "Virtual Payment Address"
+    domain: finance
+    synonyms: [payer_vpa, payee_vpa, vpa, upi_id]
+    data_type: string
+    information_type: Dimension
+    is_pii: true
+    classification: PII
+    dq_rules:
+      not_null: true
+
+  # --- Insurance Domain ---
+  - id: policy_identifier
+    name: "Policy Identifier"
+    domain: finance
+    synonyms: [policy_id, policy_no, policy_number, policy_ref]
+    data_type: string
+    information_type: Identifier
+    is_pii: false
+    is_key_candidate: true
+    dq_rules:
+      not_null: true
+      unique: true
+
+  - id: claim_identifier
+    name: "Claim Identifier"
+    domain: finance
+    synonyms: [claim_id, claim_no, claim_number, claim_ref]
+    data_type: string
+    information_type: Identifier
+    is_pii: false
+    is_key_candidate: true
+    dq_rules:
+      not_null: true
+      unique: true
+
+  - id: premium_amount
+    name: "Premium Amount"
+    domain: finance
+    synonyms: [premium_amount, premium, premium_amt, premium_value]
+    data_type: double
+    information_type: Measure
+    is_pii: false
+    dq_rules:
+      not_null: true
+      positive: true
+
+  - id: vehicle_registration
+    name: "Vehicle Registration"
+    domain: product
+    synonyms: [vehicle_reg, registration_number, reg_number, number_plate, vrn]
+    data_type: string
+    information_type: Identifier
+    is_pii: false
+    dq_rules:
+      not_null: true
+
 reference_code_sets:
   loyalty_tiers: [Bronze, Silver, Gold, Platinum, Diamond]
   bt_regions: [North, South, Midlands, London, Scotland, Wales, East, West]
@@ -374,6 +534,13 @@ reference_code_sets:
   payment_methods: [credit_card, debit_card, upi, net_banking, wallet, cod]
   currency_codes: [GBP, USD, EUR, INR, AUD, CAD, JPY]
   iso_country_codes: [GB, US, DE, FR, IN, AU, CA, JP, SG, AE]
+  kyc_statuses: [verified, pending, rejected, expired]
+  payment_statuses: [paid, overdue, partial, waived]
+  priority_levels: [low, medium, high, critical]
+  complaint_statuses: [open, in_progress, resolved, escalated, closed]
+  upi_statuses: [success, failed, pending, declined]
+  policy_statuses: [active, expired, cancelled, lapsed, surrendered]
+  claim_statuses: [filed, under_review, approved, rejected, settled, closed]
 
 data_classifications:
   - id: pii

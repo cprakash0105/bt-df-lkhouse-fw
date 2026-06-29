@@ -148,10 +148,20 @@ class ApprovalHandler:
         try:
             client.create_glossary_term(request=req)
             print(f"[ApprovalHandler] Created BDE: {term_name}")
+
+            # Link newly created BDE to the dataset (definition link)
+            # This fixes the gap where new terms weren't linked on creation
+            if field:
+                field.linked_term = term_id
+                field.linked_term_name = term_name
+
             return True
         except Exception as e:
             if "ALREADY_EXISTS" in str(e):
                 print(f"[ApprovalHandler] BDE already exists: {term_name}")
+                if field:
+                    field.linked_term = term_id
+                    field.linked_term_name = term_name
                 return True
             print(f"[ApprovalHandler] Failed to create BDE '{term_name}': {e}")
             return False

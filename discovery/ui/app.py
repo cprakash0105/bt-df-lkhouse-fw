@@ -23,6 +23,14 @@ from discovery.engine.sql_generator import SQLGenerator
 from discovery.engine.contract_generator import ContractGenerator
 from discovery.engine.scd_config_generator import SCDConfigGenerator
 
+# Try to import GE profiler (optional — needs great_expectations + pandas)
+try:
+    from discovery.engine.ge_profiler import GEProfiler, format_ge_profile_report
+    from discovery.engine.llm_dq_generator import LLMDQGenerator
+    GE_AVAILABLE = True
+except ImportError:
+    GE_AVAILABLE = False
+
 # Initialize engine components
 kg = KnowledgeGraph()
 rules = RulesEngine()
@@ -114,6 +122,9 @@ async def handle_message(message: cl.Message):
     elif lower.startswith("search "):
         query = text[7:].strip()
         await _search_glossary(query)
+    elif lower.startswith("ge profile") or lower.startswith("ge_profile"):
+        remainder = text[10:].strip() if lower.startswith("ge profile") else text[11:].strip()
+        await _ge_profile(remainder)
     elif lower.startswith("profile"):
         # Format: "profile <dataset_name>\n<csv_data>" or just "profile\n<csv_data>"
         remainder = text[7:].strip()
@@ -958,6 +969,85 @@ discover domain Insurance:
     combined_lines.append("Type `approve all` to approve all datasets, or `approve 1` / `approve 2` for individual ones.")
 
     await cl.Message(content="\n".join(combined_lines)).send()
+
+
+async def _ge_profile(text: str):
+    """Run GE-based profiling with fingerprinting, confidence scoring, and LLM DQ generation."""
+    if not GE_AVAILABLE:
+        await cl.Message(content="Great Expectations not installed. Run `pip install great-expectations pandas` to enable.").send()
+        return
+
+    # Parse: "ge profile <dataset_name>\n<csv_data>" or just csv data
+    lines = text.split("\n", 1)
+    dataset_name = None
+    data = ""
+
+    if len(lines) >= 2:
+        first_line = lines[0].strip()
+        if "," not in first_line and first_line:
+            dataset_name = first_line.replace(" ", "_").lower()
+            data = lines[1].strip()
+        else:
+            data = text
+    elif len(lines) == 1 and "," in lines[0]:
+        data = text
+
+    if not data:
+        await cl.Message(content="""Usage:
+```
+ge profile <dataset_name>
+<csv data with headers>
+```""").send()
+        return
+
+    await cl.Message(content=f"Running **GE Profile** with fingerprinting and composite confidence scoring...").send()
+
+    ge = GEProfiler()
+    profile = ge.profile_csv(data, dataset_name=dataset_name or "dataset")
+
+    # Show GE profile report
+    report = format_ge_profile_report(profile)
+    await cl.Message(content=report).send()
+
+    # Generate GE expectations
+    expectations = ge.generate_ge_expectations(profile)
+    await cl.Message(content=f"Generated **{len(expectations)} GE expectations** for DQ validation.").send()
+
+    # Send to LLM for business DQ generation
+    await cl.Message(content="Sending statistical summary to LLM for business DQ rule generation (no raw data shared)...").send()
+
+    dq_gen = LLMDQGenerator()
+    llm_result = dq_gen.generate(profile.llm_summary)
+
+    if "error" in llm_result:
+        await cl.Message(content=f"LLM DQ generation skipped: {llm_result['error']}. Using GE profile signals only.").send()
+    else:
+        # Merge LLM + GE results
+        merged = dq_gen.merge_with_profile(profile, llm_result)
+
+        lines_out = ["## LLM-Generated Business DQ Rules\n"]
+        lines_out.append(f"**Business Application:** {merged.get('business_application', '?')}")
+        lines_out.append(f"**Domain:** {merged.get('domain', '?')}\n")
+        lines_out.append("| Field | BDE | Info Type | DQ Rules | Sources |")
+        lines_out.append("|-------|-----|-----------|----------|---------|")
+
+        for f in merged.get("fields", []):
+            dq_str = ", ".join(f"{k}={v}" for k, v in f.get("dq_rules", {}).items())
+            src_str = "; ".join(f.get("sources", [])[:3])
+            lines_out.append(
+                f"| `{f['name']}` | {f.get('bde_name', '-')} | {f.get('information_type', '-')} "
+                f"| {dq_str or '-'} | {src_str or '-'} |"
+            )
+
+        await cl.Message(content="\n".join(lines_out)).send()
+
+    # Now run SD on the profiled fields
+    asset_def = {
+        "name": dataset_name or "ge_profiled_dataset",
+        "fields": [{"name": col.name, "type": col.inferred_type} for col in profile.columns],
+    }
+    await cl.Message(content="Running Semantic Discovery with GE evidence...").send()
+    await _run_discovery_from_dict(asset_def)
 
 
 async def _deploy_sql():

@@ -165,6 +165,10 @@ class Suggester:
             fs.classification = best_term.classification if best_term.is_pii else "Internal"
             fs.is_key_candidate = best_term.is_key_candidate
             fs.dq_rules = dict(best_term.dq_rules)
+            # Only set unique if the BDE says so AND it's likely a PK for this table
+            # (customer_id is unique in customers table, but NOT in orders table)
+            if fs.dq_rules.get("unique") and not best_term.is_key_candidate:
+                del fs.dq_rules["unique"]
             if best_term.reference_code_set:
                 fs.reference_code_set = best_term.reference_code_set
                 fs.accepted_values = self.kg.get_reference_set(best_term.reference_code_set)

@@ -66,12 +66,13 @@ class DQInheritanceEngine:
 
         return rules
 
-    def enrich_table_config(self, table_config: dict, field_to_bde: dict) -> dict:
+    def enrich_table_config(self, table_config: dict, field_to_bde: dict, primary_key: str = "") -> dict:
         """Enrich a table config with inherited DQ rules from BDEs.
 
         Args:
             table_config: The pipeline config for a table
             field_to_bde: Mapping of field_name -> bde_term_id
+            primary_key: The table's primary key (only this field gets 'unique')
 
         Returns:
             Updated table config with inherited DQ rules merged in
@@ -96,7 +97,8 @@ class DQInheritanceEngine:
             if inherited.get("positive") and field_name not in positive:
                 positive.append(field_name)
 
-            if inherited.get("unique") and field_name not in unique:
+            # Only inherit 'unique' if this field IS the primary key
+            if inherited.get("unique") and field_name not in unique and field_name == primary_key:
                 unique.append(field_name)
 
             if "accepted_values" in inherited and field_name not in accepted_values:
@@ -129,12 +131,13 @@ class DQInheritanceEngine:
     def enrich_from_suggestion(self, table_config: dict, suggestion) -> dict:
         """Enrich table config using SD suggestion's field-to-BDE mappings."""
         field_to_bde = {}
+        pk = table_config.get("primary_key", "")
         for field in suggestion.fields:
             if field.linked_term and field.confidence >= 0.5:
                 field_to_bde[field.field_name] = field.linked_term
 
         if field_to_bde:
-            table_config = self.enrich_table_config(table_config, field_to_bde)
+            table_config = self.enrich_table_config(table_config, field_to_bde, primary_key=pk)
             print(f"[DQInheritance] Enriched {len(field_to_bde)} fields with BDE-level DQ rules")
 
         return table_config
