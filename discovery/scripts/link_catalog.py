@@ -135,9 +135,9 @@ def main():
     print("[1/3] Linking CFUs -> Domains...")
     link_count = 0
     for cfu_id, domain_ids in CFU_TO_DOMAIN.items():
-        cfu_entry = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/enterprise-hierarchy/entries/{cfu_id.replace('_', '-')}"
+        cfu_entry = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/enterprise-hierarchy/entries/{cfu_id}"
         for domain_id in domain_ids:
-            domain_entry = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/enterprise-hierarchy/entries/{domain_id.replace('_', '-')}"
+            domain_entry = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/enterprise-hierarchy/entries/{domain_id}"
             link_id = f"cfu-{cfu_id}-to-domain-{domain_id}".replace("_", "-")
             success = create_entry_link(token, link_id, related_link_type, cfu_entry, domain_entry, use_unspecified=True)
             if success:
