@@ -132,7 +132,7 @@ def main():
         domain_entry = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/enterprise-hierarchy/entries/{domain_id}"
         for ba_id in ba_ids:
             ba_entry = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/enterprise-hierarchy/entries/{ba_id}"
-            link_id = f"domain-{domain_id}-to-ba-{ba_id}"
+            link_id = f"domain-{domain_id}-to-ba-{ba_id}".replace("_", "-")
             success = create_entry_link(token, link_id, related_link_type, domain_entry, ba_entry, use_unspecified=True)
             if success:
                 link_count += 1
@@ -146,7 +146,7 @@ def main():
         ba_entry = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/enterprise-hierarchy/entries/{ba_id}"
         for bde_id in bde_ids:
             term_entry = f"{GLOSSARY_ENTRY_PREFIX}/{bde_id}"
-            link_id = f"ba-{ba_id}-to-bde-{bde_id}"
+            link_id = f"ba-{ba_id}-to-bde-{bde_id}".replace("_", "-")
             success = create_entry_link(token, link_id, definition_link_type, ba_entry, term_entry)
             if success:
                 link_count += 1
