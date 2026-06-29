@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from discovery.engine.knowledge_graph import KnowledgeGraph, BusinessTerm
 from discovery.engine.rules_engine import RulesEngine
 from discovery.engine.embedder import Embedder
+from discovery.engine.profiler import Profiler, ColumnProfile
 
 
 @dataclass
@@ -54,10 +55,12 @@ class Suggester:
 
     def __init__(self, knowledge_graph: Optional[KnowledgeGraph] = None,
                  rules_engine: Optional[RulesEngine] = None,
-                 embedder: Optional[Embedder] = None):
+                 embedder: Optional[Embedder] = None,
+                 profiler: Optional[Profiler] = None):
         self.kg = knowledge_graph or KnowledgeGraph()
         self.rules = rules_engine or RulesEngine()
         self.embedder = embedder or Embedder(mode="local")
+        self.profiler = profiler or Profiler()
 
         # Initialize embedder with knowledge graph terms
         term_dicts = [
@@ -82,6 +85,9 @@ class Suggester:
             mode="full",
         )
 
+        # Step 0: Try to auto-profile from GCS landing data
+        profile_map = self._auto_profile(asset_name)
+
         # Step 1: Suggest Business Application
         self._suggest_business_application(suggestion, asset_name, field_names)
 
@@ -95,16 +101,20 @@ class Suggester:
             )
             suggestion.fields.append(field_suggestion)
 
-        # Step 4: Identify primary key
+        # Step 4: Enhance with profile evidence (boost confidence, detect PII, fix types)
+        if profile_map:
+            self._enhance_with_profile(suggestion, profile_map)
+
+        # Step 5: Identify primary key
         self._suggest_primary_key(suggestion)
 
-        # Step 5: Identify foreign keys
+        # Step 6: Identify foreign keys
         self._suggest_foreign_keys(suggestion)
 
-        # Step 6: Collect new term proposals
+        # Step 7: Collect new term proposals
         self._collect_new_term_proposals(suggestion)
 
-        # Step 7: Default schema evolution governance
+        # Step 8: Default schema evolution governance
         self._suggest_schema_evolution(suggestion)
 
         return suggestion
@@ -345,3 +355,108 @@ class Suggester:
             classification = "Internal"
 
         suggestion.schema_evolution = self.rules.get_schema_evolution_defaults(classification)
+
+    def _auto_profile(self, asset_name: str) -> Optional[dict]:
+        """Try to fetch and profile landing data from GCS.
+        Returns dict of field_name -> ColumnProfile, or None."""
+        import os
+        bucket_name = os.environ.get("CONFIG_BUCKET", "bt-df-lkhouse-lakehouse")
+        prefix = f"landing/{asset_name}/"
+
+        try:
+            from google.cloud import storage
+            client = storage.Client()
+            bucket = client.bucket(bucket_name)
+            blobs = list(bucket.list_blobs(prefix=prefix, max_results=5))
+
+            if not blobs:
+                print(f"[Suggester] No landing data found at gs://{bucket_name}/{prefix}")
+                return None
+
+            # Read first file (sample)
+            blob = blobs[0]
+            content = blob.download_as_text()
+
+            if not content.strip():
+                return None
+
+            # Profile based on file type
+            if blob.name.endswith(".csv"):
+                profile = self.profiler.profile_csv(content)
+            else:
+                # Assume JSONL
+                profile = self.profiler.profile_jsonl(content)
+
+            if not profile.columns:
+                return None
+
+            print(f"[Suggester] Auto-profiled {asset_name}: {profile.row_count} rows, {profile.column_count} cols")
+            return {col.name: col for col in profile.columns}
+
+        except ImportError:
+            print("[Suggester] google-cloud-storage not available, skipping auto-profile")
+            return None
+        except Exception as e:
+            print(f"[Suggester] Auto-profile failed for {asset_name}: {e}")
+            return None
+
+    def _enhance_with_profile(self, suggestion: DiscoverySuggestion, profile_map: dict):
+        """Enhance field suggestions with profiling evidence from actual data."""
+        for fs in suggestion.fields:
+            col = profile_map.get(fs.field_name)
+            if not col:
+                continue
+
+            # PII detection from values (overrides name-based if profile finds patterns)
+            if col.is_likely_pii and not fs.is_pii:
+                fs.is_pii = True
+                fs.classification = "PII"
+                fs.reasoning.append(
+                    f"PROFILE: PII detected from values (pattern: {', '.join(col.detected_patterns)})"
+                )
+
+            # Key detection from cardinality
+            if col.is_likely_identifier and not fs.is_key_candidate:
+                fs.is_key_candidate = True
+                fs.reasoning.append(
+                    f"PROFILE: Likely key (cardinality: {col.cardinality_ratio:.0%}, nulls: {col.null_pct:.0%})"
+                )
+
+            # Reference set detection — override wrong accepted_values
+            if col.is_likely_reference and col.distinct_values:
+                # If current accepted_values are wrong (from BDE mismatch), replace with actual values
+                if fs.accepted_values and not self._values_overlap(fs.accepted_values, col.distinct_values):
+                    fs.reasoning.append(
+                        f"PROFILE: Overriding accepted_values — actual values: {col.distinct_values}"
+                    )
+                    fs.accepted_values = col.distinct_values
+                    fs.dq_rules["accepted_values"] = col.distinct_values
+                elif not fs.accepted_values:
+                    fs.accepted_values = col.distinct_values
+                    fs.dq_rules["accepted_values"] = col.distinct_values
+                    fs.reasoning.append(
+                        f"PROFILE: Reference field ({col.distinct_count} values): {col.distinct_values}"
+                    )
+
+            # Confidence boost if profile confirms the BDE match
+            if col.detected_patterns and fs.confidence > 0:
+                fs.confidence = min(fs.confidence + 0.1, 0.99)
+                fs.reasoning.append(f"PROFILE: +10% confidence (pattern confirmed)")
+
+            # Type correction from profile
+            if col.inferred_type != fs.field_type and col.inferred_type != "string":
+                fs.reasoning.append(
+                    f"PROFILE: Type inferred as {col.inferred_type} (declared: {fs.field_type})"
+                )
+
+            # Merge DQ from profile (profile evidence is high-trust)
+            for k, v in col.suggested_dq.items():
+                if k not in fs.dq_rules:
+                    fs.dq_rules[k] = v
+
+    def _values_overlap(self, expected: list, actual: list) -> bool:
+        """Check if expected values overlap with actual values (case-insensitive)."""
+        expected_lower = set(str(v).lower() for v in expected)
+        actual_lower = set(str(v).lower() for v in actual)
+        overlap = expected_lower & actual_lower
+        return len(overlap) / max(len(actual_lower), 1) >= 0.3
