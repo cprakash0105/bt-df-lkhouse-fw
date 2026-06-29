@@ -1,4 +1,6 @@
-const BASE = '/api'
+// In production, API is same origin (no /api prefix)
+// In dev, Vite proxies /api -> localhost:8000
+const BASE = import.meta.env.DEV ? '/api' : ''
 
 async function request(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, {

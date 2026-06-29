@@ -1,0 +1,61 @@
+steps:
+  # Build the container image (multi-stage: React + FastAPI)
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/semantic-discovery/web:${_TAG}'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/semantic-discovery/web:latest'
+      - '-f'
+      - 'Dockerfile.web'
+      - '.'
+
+  # Push to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/semantic-discovery/web:${_TAG}'
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/semantic-discovery/web:latest'
+
+  # Deploy to Cloud Run (separate service: sd-web)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'sd-web'
+      - '--image'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/semantic-discovery/web:${_TAG}'
+      - '--region'
+      - '${_REGION}'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--port'
+      - '8080'
+      - '--memory'
+      - '512Mi'
+      - '--cpu'
+      - '1'
+      - '--min-instances'
+      - '0'
+      - '--max-instances'
+      - '2'
+      - '--timeout'
+      - '300'
+      - '--set-env-vars'
+      - 'GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${_REGION},LLM_BASE_URL=${_LLM_BASE_URL},LLM_API_KEY=${_LLM_API_KEY},LLM_MODEL=${_LLM_MODEL}'
+
+substitutions:
+  _REGION: europe-west2
+  _TAG: v1
+  _LLM_BASE_URL: 'http://4.242.19.167:11434/v1'
+  _LLM_API_KEY: ''
+  _LLM_MODEL: 'gemma2:9b'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

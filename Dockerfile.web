@@ -14,13 +14,15 @@ WORKDIR /app
 COPY discovery/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt fastapi uvicorn
 
-# Copy engine + API
-COPY discovery/ ./discovery/
+# Copy engine, config, API
+COPY discovery/__init__.py ./discovery/
+COPY discovery/engine/ ./discovery/engine/
+COPY discovery/config/ ./discovery/config/
+COPY discovery/api/ ./discovery/api/
 
 # Copy built frontend into static
 COPY --from=frontend /app/web/dist ./static/
 
-# Serve static from FastAPI
 ENV PYTHONPATH=/app
 
 EXPOSE 8080

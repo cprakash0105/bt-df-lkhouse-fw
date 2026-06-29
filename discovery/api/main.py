@@ -57,7 +57,18 @@ if static_dir.exists():
     async def serve_index():
         return FileResponse(str(static_dir / "index.html"))
 
-    app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="static")
+    # Serve static assets (JS/CSS)
+    assets_dir = static_dir / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="static")
+
+    # SPA fallback — any unmatched GET returns index.html
+    @app.get("/{path:path}")
+    async def spa_fallback(path: str):
+        file_path = static_dir / path
+        if file_path.exists() and file_path.is_file():
+            return FileResponse(str(file_path))
+        return FileResponse(str(static_dir / "index.html"))
 
 # In-memory session store (single user POC)
 _session = {"suggestion": None, "profile": None}
