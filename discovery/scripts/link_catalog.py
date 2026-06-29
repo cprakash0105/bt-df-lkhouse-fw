@@ -18,6 +18,12 @@ LOCATION = "europe-west2"
 ENTRY_GROUP = f"projects/{PROJECT_NUMBER}/locations/{LOCATION}/entryGroups/enterprise-hierarchy"
 GLOSSARY_ENTRY_PREFIX = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/@dataplex/entries/projects/{PROJECT_NUMBER}/locations/{LOCATION}/glossaries/enterprise-data-glossary/terms"
 
+# Hierarchy: CFU → Domains
+CFU_TO_DOMAIN = {
+    "consumer_banking": ["credit", "customer_management", "payments", "digital_banking"],
+    "wholesale_banking": ["trade_finance"],
+}
+
 # Hierarchy: Domain → Business Applications
 DOMAIN_TO_BA = {
     "credit": ["loan_origination_system", "credit_bureau_integration"],
@@ -125,8 +131,21 @@ def main():
     # Link type for definition (BA uses this BDE)
     definition_link_type = "projects/dataplex-types/locations/global/entryLinkTypes/definition"
 
+    # Step 0: Link CFUs to Domains
+    print("[1/3] Linking CFUs -> Domains...")
+    link_count = 0
+    for cfu_id, domain_ids in CFU_TO_DOMAIN.items():
+        cfu_entry = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/enterprise-hierarchy/entries/{cfu_id.replace('_', '-')}"
+        for domain_id in domain_ids:
+            domain_entry = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/enterprise-hierarchy/entries/{domain_id.replace('_', '-')}"
+            link_id = f"cfu-{cfu_id}-to-domain-{domain_id}".replace("_", "-")
+            success = create_entry_link(token, link_id, related_link_type, cfu_entry, domain_entry, use_unspecified=True)
+            if success:
+                link_count += 1
+    print(f"\n  Created {link_count} CFU -> Domain links")
+
     # Step 1: Link Domains to Business Applications
-    print("[1/2] Linking Domains -> Business Applications...")
+    print("\n[2/3] Linking Domains -> Business Applications...")
     link_count = 0
     for domain_id, ba_ids in DOMAIN_TO_BA.items():
         domain_entry = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/enterprise-hierarchy/entries/{domain_id}"
@@ -140,7 +159,7 @@ def main():
     print(f"\n  Created {link_count} Domain -> BA links")
 
     # Step 2: Link Business Applications to BDEs (Glossary Terms)
-    print("\n[2/2] Linking Business Applications -> BDEs (Glossary Terms)...")
+    print("\n[3/3] Linking Business Applications -> BDEs (Glossary Terms)...")
     link_count = 0
     for ba_id, bde_ids in BA_TO_BDES.items():
         ba_entry = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/enterprise-hierarchy/entries/{ba_id}"
