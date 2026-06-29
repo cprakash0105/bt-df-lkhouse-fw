@@ -112,7 +112,7 @@ def main():
     print("=" * 60)
     print(f"  Project: {PROJECT_ID}")
     print(f"  Entry Group: {ENTRY_GROUP}")
-    print(f"  Glossary: {GLOSSARY}")
+    print(f"  Glossary Term Prefix: {GLOSSARY_ENTRY_PREFIX}")
     print()
 
     token = get_token()
