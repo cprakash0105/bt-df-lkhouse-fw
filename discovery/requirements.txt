@@ -2,6 +2,10 @@
 # Core
 pyyaml>=6.0
 numpy>=1.24.0
+pandas>=2.0.0
+
+# Profiling (GE)
+great-expectations>=0.18.0
 
 # UI
 chainlit>=1.1.0
