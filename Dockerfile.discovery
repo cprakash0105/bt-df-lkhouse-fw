@@ -11,14 +11,13 @@ RUN pip install --no-cache-dir \
     google-cloud-firestore>=2.13.0 \
     google-cloud-storage>=2.14.0 \
     google-cloud-dataplex>=2.0.0 \
-    google-generativeai>=0.5.0 \
     vertexai>=1.38.0
 
 # Copy discovery module
 COPY discovery/ /app/discovery/
 
 # Create chainlit config
-RUN mkdir -p /app/.chainlit && echo '[project]\nname = "Semantic Discovery"\n\n[UI]\nname = "Semantic Discovery"\ndefault_theme = "dark"\n\n[features]\nmulti_modal = true\n\n[server]\ntimeout = 600' > /app/.chainlit/config.toml
+RUN mkdir -p /app/.chainlit && printf '[project]\nname = "Semantic Discovery"\n\n[UI]\nname = "Semantic Discovery"\ndefault_theme = "dark"\n\n[features]\nmulti_modal = true\n\n[server]\ntimeout = 600\n' > /app/.chainlit/config.toml
 
 EXPOSE 8000
 
