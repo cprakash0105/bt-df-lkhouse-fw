@@ -16,9 +16,6 @@ RUN pip install --no-cache-dir \
 # Copy discovery module
 COPY discovery/ /app/discovery/
 
-# Create chainlit config
-RUN mkdir -p /app/.chainlit && printf '[project]\nname = "Semantic Discovery"\n\n[UI]\nname = "Semantic Discovery"\ndefault_theme = "dark"\n\n[features]\nmulti_modal = true\n\n[server]\ntimeout = 600\n' > /app/.chainlit/config.toml
-
 EXPOSE 8000
 
 CMD ["chainlit", "run", "discovery/ui/app.py", "--port", "8000", "--host", "0.0.0.0"]
