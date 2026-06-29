@@ -15,8 +15,8 @@ import subprocess
 PROJECT_ID = "bt-df-lkhouse"
 PROJECT_NUMBER = "978009776592"
 LOCATION = "europe-west2"
-ENTRY_GROUP = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/enterprise-hierarchy"
-GLOSSARY = f"projects/{PROJECT_ID}/locations/{LOCATION}/glossaries/enterprise-data-glossary"
+ENTRY_GROUP = f"projects/{PROJECT_NUMBER}/locations/{LOCATION}/entryGroups/enterprise-hierarchy"
+GLOSSARY_ENTRY_PREFIX = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/@dataplex/entries/projects/{PROJECT_NUMBER}/locations/{LOCATION}/glossaries/enterprise-data-glossary/terms"
 
 # Hierarchy: Domain → Business Applications
 DOMAIN_TO_BA = {
@@ -65,16 +65,24 @@ def get_token():
     return result.stdout.strip()
 
 
-def create_entry_link(token, link_id, link_type, source_entry, target_entry):
+def create_entry_link(token, link_id, link_type, source_entry, target_entry, use_unspecified=False):
     """Create an EntryLink between two entries or entry and term."""
     url = f"https://dataplex.googleapis.com/v1/{ENTRY_GROUP}/entryLinks?entry_link_id={link_id}"
 
-    payload = {
-        "entry_link_type": link_type,
-        "entry_references": [
+    if use_unspecified:
+        refs = [
+            {"name": source_entry, "type": "UNSPECIFIED"},
+            {"name": target_entry, "type": "UNSPECIFIED"},
+        ]
+    else:
+        refs = [
             {"name": source_entry, "type": "SOURCE"},
             {"name": target_entry, "type": "TARGET"},
-        ],
+        ]
+
+    payload = {
+        "entry_link_type": link_type,
+        "entry_references": refs,
     }
 
     headers = {
@@ -121,11 +129,11 @@ def main():
     print("[1/2] Linking Domains -> Business Applications...")
     link_count = 0
     for domain_id, ba_ids in DOMAIN_TO_BA.items():
-        domain_entry = f"{ENTRY_GROUP}/entries/{domain_id}"
+        domain_entry = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/enterprise-hierarchy/entries/{domain_id}"
         for ba_id in ba_ids:
-            ba_entry = f"{ENTRY_GROUP}/entries/{ba_id}"
+            ba_entry = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/enterprise-hierarchy/entries/{ba_id}"
             link_id = f"domain-{domain_id}-to-ba-{ba_id}"
-            success = create_entry_link(token, link_id, related_link_type, domain_entry, ba_entry)
+            success = create_entry_link(token, link_id, related_link_type, domain_entry, ba_entry, use_unspecified=True)
             if success:
                 link_count += 1
 
@@ -135,9 +143,9 @@ def main():
     print("\n[2/2] Linking Business Applications -> BDEs (Glossary Terms)...")
     link_count = 0
     for ba_id, bde_ids in BA_TO_BDES.items():
-        ba_entry = f"{ENTRY_GROUP}/entries/{ba_id}"
+        ba_entry = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/enterprise-hierarchy/entries/{ba_id}"
         for bde_id in bde_ids:
-            term_entry = f"{GLOSSARY}/terms/{bde_id}"
+            term_entry = f"{GLOSSARY_ENTRY_PREFIX}/{bde_id}"
             link_id = f"ba-{ba_id}-to-bde-{bde_id}"
             success = create_entry_link(token, link_id, definition_link_type, ba_entry, term_entry)
             if success:
