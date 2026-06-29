@@ -19,6 +19,7 @@ from discovery.engine.approval_handler import ApprovalHandler
 from discovery.engine.profiler import Profiler, format_profile_report
 from discovery.engine.sql_generator import SQLGenerator
 from discovery.engine.contract_generator import ContractGenerator
+from discovery.engine.scd_config_generator import SCDConfigGenerator
 
 # Initialize engine components
 kg = KnowledgeGraph()
@@ -31,6 +32,7 @@ approval_handler = ApprovalHandler()
 profiler = Profiler()
 sql_gen = SQLGenerator()
 contract_gen = ContractGenerator()
+scd_gen = SCDConfigGenerator()
 
 
 WELCOME_MESSAGE = """
@@ -316,6 +318,11 @@ async def _approve_all():
     contract_path = contract_gen.generate_and_push(suggestion)
     contract_yaml = contract_gen.generate(suggestion)
 
+    # Generate and push SCD config
+    business_intent = cl.user_session.get("business_intent") or ""
+    scd_type = scd_gen.infer_scd_type(business_intent, suggestion.data_domain)
+    scd_path = scd_gen.generate_and_push(suggestion, scd_type=scd_type, business_intent=business_intent)
+
     # Report what was done
     lines = ["## Approval Processed\n"]
 
@@ -340,6 +347,12 @@ async def _approve_all():
         lines.append(f"- `{contract_path}`")
         lines.append(f"- Version: 1.0.0 (draft)")
         lines.append(f"- Pipeline will enforce DQ SLAs from this contract")
+        lines.append("")
+
+    if scd_path:
+        lines.append(f"### SCD Dimension Config Generated")
+        lines.append(f"- `{scd_path}`")
+        lines.append(f"- SCD Type: {scd_gen.get_scd_description(scd_type)}")
         lines.append("")
 
     if results["policies_set"]:
@@ -578,11 +591,13 @@ async def _try_natural_language(text: str):
 
 Running discovery...""").send()
 
+        # Store original text as business intent for SCD inference
+        cl.user_session.set("business_intent", text)
         await _run_discovery_from_dict(parsed)
     else:
         await cl.Message(content="""I couldn't extract a dataset definition from that. You can:
 
-- **Describe naturally:** "I have a new CIBIL feed with customer_id, pan_number, cibil_score, enquiry_date and loan_amount"
+- **Describe naturally:** "I have a new CIBIL feed with customer_id, pan_number, cibil_score, enquiry_date and loan_amount. Track score changes over time."
 - **Paste YAML/JSON** with field definitions
 - **Paste CSV data** or upload a .csv file for profiling
 - Type `help` for all commands""").send()
