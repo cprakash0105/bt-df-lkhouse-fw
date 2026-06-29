@@ -21,6 +21,7 @@ except ImportError:
 
 
 PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "bt-df-lkhouse")
+PROJECT_NUMBER = "978009776592"
 LOCATION = os.environ.get("GCP_REGION", "europe-west2")
 GLOSSARY_ID = "enterprise-data-glossary"
 ENTRY_GROUP_ID = "enterprise-hierarchy"
@@ -96,6 +97,9 @@ class ApprovalHandler:
                 results["config_gcs_path"] = gcs_path
             else:
                 results["errors"].append("Failed to push config to GCS")
+
+        # 5. Create EntryLinks (dataset->BDEs, dataset->BA)
+        self._create_entry_links(suggestion)
 
         return results
 
@@ -248,3 +252,80 @@ class ApprovalHandler:
         except Exception as e:
             print(f"[ApprovalHandler] Failed to push config to GCS: {e}")
             return None
+
+    def _create_entry_links(self, suggestion: DiscoverySuggestion):
+        """Create EntryLinks between dataset/BA and BDEs for catalog navigation."""
+        import json
+        import urllib.request
+
+        try:
+            import subprocess
+            result = subprocess.run(["gcloud", "auth", "print-access-token"], capture_output=True, text=True)
+            token = result.stdout.strip()
+        except Exception:
+            # Try application default credentials
+            try:
+                import google.auth
+                import google.auth.transport.requests
+                creds, _ = google.auth.default()
+                creds.refresh(google.auth.transport.requests.Request())
+                token = creds.token
+            except Exception as e:
+                print(f"[ApprovalHandler] Cannot get token for EntryLinks: {e}")
+                return
+
+        if not token:
+            return
+
+        entry_group_url = f"projects/{PROJECT_NUMBER}/locations/{LOCATION}/entryGroups/{ENTRY_GROUP_ID}"
+        definition_link_type = "projects/dataplex-types/locations/global/entryLinkTypes/definition"
+        related_link_type = "projects/dataplex-types/locations/global/entryLinkTypes/related"
+
+        # Link dataset to BA (related)
+        if suggestion.business_application:
+            ba_id = suggestion.business_application.replace("_", "-") if suggestion.business_application else None
+            if ba_id:
+                dataset_entry = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/{ENTRY_GROUP_ID}/entries/dataset-{suggestion.asset_name.replace('_', '-')}"
+                ba_entry = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/{ENTRY_GROUP_ID}/entries/{suggestion.business_application}"
+                link_id = f"dataset-{suggestion.asset_name.replace('_', '-')}-to-ba-{suggestion.business_application}"
+                self._post_entry_link(token, entry_group_url, link_id, related_link_type, dataset_entry, ba_entry)
+
+        # Link dataset to each matched BDE (definition)
+        glossary_term_prefix = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/@dataplex/entries/projects/{PROJECT_NUMBER}/locations/{LOCATION}/glossaries/{GLOSSARY_ID}/terms"
+        dataset_entry = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/{ENTRY_GROUP_ID}/entries/dataset-{suggestion.asset_name.replace('_', '-')}"
+
+        for field in suggestion.fields:
+            if field.linked_term and field.confidence >= 0.5:
+                term_entry = f"{glossary_term_prefix}/{field.linked_term}"
+                link_id = f"dataset-{suggestion.asset_name.replace('_', '-')}-to-bde-{field.linked_term}"
+                self._post_entry_link(token, entry_group_url, link_id, definition_link_type, dataset_entry, term_entry)
+
+    def _post_entry_link(self, token: str, entry_group_url: str, link_id: str,
+                         link_type: str, source: str, target: str):
+        """POST an EntryLink to the Dataplex API."""
+        import json
+        import urllib.request
+
+        url = f"https://dataplex.googleapis.com/v1/{entry_group_url}/entryLinks?entry_link_id={link_id}"
+        payload = json.dumps({
+            "entry_link_type": link_type,
+            "entry_references": [
+                {"name": source, "type": "SOURCE"},
+                {"name": target, "type": "TARGET"},
+            ],
+        })
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            req = urllib.request.Request(url, data=payload.encode(), headers=headers, method="POST")
+            with urllib.request.urlopen(req) as resp:
+                print(f"[ApprovalHandler] EntryLink created: {link_id}")
+        except Exception as e:
+            error_msg = str(e)
+            if "ALREADY_EXISTS" in error_msg:
+                pass  # Silent - link already exists
+            else:
+                print(f"[ApprovalHandler] EntryLink failed ({link_id}): {error_msg[:100]}")
