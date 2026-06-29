@@ -339,12 +339,12 @@ SELECT *,
 FROM ({source_query}) LIMIT 0
 """
         elif scd_type == 3:
-            prev_cols = ", ".join([f"CAST(NULL AS STRING) AS prev_{c}" for c in tracked])
+            prev_cols = ", ".join([f"CAST(NULL AS ANY TYPE) AS prev_{c}" for c in tracked])
             sql = f"""
 CREATE TABLE {target} AS
-SELECT *, {prev_cols},
+SELECT *, {', '.join([f'S.{c} AS prev_{c}' for c in tracked])},
     CURRENT_TIMESTAMP() AS created_at, CURRENT_TIMESTAMP() AS updated_at
-FROM ({source_query}) LIMIT 0
+FROM ({source_query}) S LIMIT 0
 """
         elif scd_type == 4:
             sql = f"""
@@ -364,16 +364,16 @@ FROM ({source_query}) LIMIT 0
 
         elif scd_type == 6:
             meta = config.get("metadata_columns", {})
-            current_cols = ", ".join([f"CAST(NULL AS STRING) AS current_{c}" for c in tracked])
-            prev_cols = ", ".join([f"CAST(NULL AS STRING) AS prev_{c}" for c in tracked])
             sql = f"""
 CREATE TABLE {target} AS
-SELECT *, {current_cols}, {prev_cols},
+SELECT *,
+    {', '.join([f'S.{c} AS current_{c}' for c in tracked])},
+    {', '.join([f'S.{c} AS prev_{c}' for c in tracked])},
     CURRENT_TIMESTAMP() AS {meta.get('effective_from', 'effective_from')},
     CAST('9999-12-31' AS TIMESTAMP) AS {meta.get('effective_to', 'effective_to')},
     TRUE AS {meta.get('is_current', 'is_current')},
     1 AS {meta.get('version', 'version')}
-FROM ({source_query}) LIMIT 0
+FROM ({source_query}) S LIMIT 0
 """
         else:
             return False
