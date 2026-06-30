@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Semantic Discovery — AI-Assisted Data Onboarding</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/reveal.min.css"/>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/theme/night.min.css"/>
+<style>
+.reveal h1,.reveal h2,.reveal h3{text-transform:none!important}
+.reveal pre{font-size:.55em;width:100%}
+.reveal table{font-size:.6em;margin:0 auto}
+.reveal table th,.reveal table td{padding:4px 10px;border:1px solid #444}
+.reveal .highlight{color:#4fc3f7}
+.reveal .warn{color:#ffb74d}
+.reveal .ok{color:#81c784}
+.reveal .small{font-size:.6em;color:#999}
+.reveal section img{max-height:500px}
+.flow-box{display:inline-block;background:#1a237e;border:1px solid #42a5f5;border-radius:8px;padding:8px 16px;margin:4px;font-size:.7em}
+.flow-arrow{display:inline-block;font-size:1.2em;margin:0 4px;color:#4fc3f7}
+.signal-bar{display:inline-block;height:14px;border-radius:3px;margin-right:2px}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:20px;text-align:left}
+</style>
+</head>
+<body>
+<div class="reveal">
+<div class="slides">
+
+<!-- TITLE -->
+<section>
+<h1>Semantic Discovery</h1>
+<h3>AI-Assisted Metadata Control Plane<br/>for Enterprise Data Platforms</h3>
+<p class="small">Chandra Prakash · BT Group · June 2026</p>
+<p class="small">GCP Native · Open Source · Config-Driven</p>
+</section>
+
+<!-- PROBLEM -->
+<section>
+<h2>The Problem</h2>
+<table>
+<tr><th>Activity</th><th>Who</th><th>Time</th></tr>
+<tr><td>Understand source schema</td><td>BA + Analyst</td><td>2-3 days</td></tr>
+<tr><td>Classify fields (PII, sensitivity)</td><td>Steward</td><td>1-2 days</td></tr>
+<tr><td>Define DQ rules</td><td>Steward + Eng</td><td>1-2 days</td></tr>
+<tr><td>Map to business terms</td><td>Governance</td><td>1 day</td></tr>
+<tr><td>Write pipeline config</td><td>Engineering</td><td>2-3 days</td></tr>
+<tr><td>Build and test pipeline</td><td>Engineering</td><td>3-5 days</td></tr>
+<tr><td>Governance review</td><td>Governance</td><td>2-3 days</td></tr>
+<tr style="font-weight:bold;color:#ef5350"><td>Total</td><td></td><td>2–4 weeks</td></tr>
+</table>
+<p class="fragment">Repeated for <strong>every new data source</strong>. At scale (50-100/year) = primary bottleneck.</p>
+</section>
+
+<!-- SOLUTION -->
+<section>
+<h2>Our Solution: 8 Minutes, Not 4 Weeks</h2>
+<div>
+<span class="flow-box">Steward speaks<br/><span class="small">~5 min</span></span>
+<span class="flow-arrow">→</span>
+<span class="flow-box">SD discovers<br/><span class="small">auto</span></span>
+<span class="flow-arrow">→</span>
+<span class="flow-box">Steward approves<br/><span class="small">1 click</span></span>
+<span class="flow-arrow">→</span>
+<span class="flow-box">Pipeline runs<br/><span class="small">~3 min</span></span>
+<span class="flow-arrow">→</span>
+<span class="flow-box ok">Data in BQ<br/><span class="small">queryable</span></span>
+</div>
+<br/>
+<p class="fragment">Human only does: <strong>describe</strong> + <strong>approve</strong>.<br/>Everything else is automated.</p>
+</section>
+
+<!-- ARCHITECTURE OVERVIEW -->
+<section>
+<h2>Architecture Overview</h2>
+<div class="two-col">
+<div>
+<h4 class="highlight">Metadata Control Plane</h4>
+<ul style="font-size:.7em">
+<li>Enterprise Glossary (40+ BDEs)</li>
+<li>Knowledge Graph (domains, BAs)</li>
+<li>Discovery Engine (rules + AI)</li>
+<li>DQ Inheritance Engine</li>
+<li>Contract Generator</li>
+</ul>
+</div>
+<div>
+<h4 class="highlight">Integration Layer</h4>
+<ul style="font-size:.7em">
+<li>Landing → Reservoir → CCN → DP</li>
+<li>JSONL → Parquet → Iceberg → BigQuery</li>
+<li>Dataproc (Spark processing)</li>
+<li>Cloud Function (event-driven)</li>
+<li>Dataplex Knowledge Catalog</li>
+</ul>
+</div>
+</div>
+</section>
+
+<!-- DATA FLOW -->
+<section>
+<h2>Lakehouse Layers</h2>
+<table>
+<tr><th>Layer</th><th>Format</th><th>Catalog</th><th>Purpose</th></tr>
+<tr><td><strong>Landing</strong></td><td>JSONL</td><td>—</td><td>Raw from source, immutable</td></tr>
+<tr><td><strong>Reservoir</strong></td><td>Parquet</td><td>—</td><td>Typed + ingestion_ts</td></tr>
+<tr><td><strong>CCN</strong></td><td>Iceberg</td><td>BLMS</td><td>DQ validated, deduplicated, governed</td></tr>
+<tr><td><strong>Data Product</strong></td><td>BigQuery</td><td>BQ</td><td>Materialised for consumers</td></tr>
+</table>
+<p class="fragment small">Config-driven: add a YAML → pipeline processes it. Zero code changes.</p>
+</section>
+
+<!-- SD: HOW IT WORKS -->
+<section>
+<h2>How Semantic Discovery Works</h2>
+<p style="font-size:.8em">Inspired by Ab Initio's approach — but GCP-native, AI-enhanced, open.</p>
+<div>
+<span class="flow-box">Profile</span>
+<span class="flow-arrow">→</span>
+<span class="flow-box">Analyze</span>
+<span class="flow-arrow">→</span>
+<span class="flow-box">Fingerprint</span>
+<span class="flow-arrow">→</span>
+<span class="flow-box">Score</span>
+<span class="flow-arrow">→</span>
+<span class="flow-box">Suggest</span>
+</div>
+</section>
+
+<!-- SD: STEP 0 - PROFILE -->
+<section>
+<h2>Step 0: Auto-Profile</h2>
+<ul>
+<li>Fetches landing data from GCS automatically</li>
+<li>Analyses each field: types, nulls, cardinality, patterns, ranges</li>
+<li>Detects PII from <strong>actual values</strong> (not just names)</li>
+<li>Identifies key candidates (>95% unique, <1% null)</li>
+<li>Persists profile to <code>gs://…/profiles/{dataset}/latest.json</code></li>
+</ul>
+<p class="fragment warn">No raw data leaves this step. Only statistical summaries proceed.</p>
+</section>
+
+<!-- SD: STEP 1-3 - ANALYZE -->
+<section>
+<h2>Steps 1–3: Multi-Layer Analysis</h2>
+<table>
+<tr><th>Layer</th><th>Method</th><th>Speed</th><th>Example</th></tr>
+<tr><td><strong>1. Knowledge Graph</strong></td><td>Synonym lookup</td><td>Instant</td><td>cibil_score → "Credit Score"</td></tr>
+<tr><td><strong>2. Rules Engine</strong></td><td>Deterministic patterns</td><td>Instant</td><td>*_id → Identifier, *email* → PII</td></tr>
+<tr><td><strong>3. Embeddings</strong></td><td>Semantic similarity</td><td>~100ms</td><td>loan_amount → "Transaction Amount"</td></tr>
+</table>
+<p class="fragment small">Each layer only fires if previous layers couldn't resolve with high confidence.</p>
+</section>
+
+<!-- SD: FINGERPRINTING -->
+<section>
+<h2>Step 4: Fingerprinting</h2>
+<p style="font-size:.8em">Compare field values against <strong>all 14 reference code sets</strong> in the glossary.</p>
+<pre><code>Field: "status"
+Values: [open, in_progress, resolved, escalated, closed]
+
+vs. order_statuses:      [delivered, shipped, processing...]  → 0% match ✗
+vs. complaint_statuses:  [open, in_progress, resolved...]     → 100% match ✓
+vs. payment_statuses:    [paid, overdue, partial, waived]     → 0% match ✗
+
+Result: fingerprint = complaint_statuses (100%)
+        → Override wrong BDE match</code></pre>
+<p class="fragment ok">This is what fixed the customer_complaints DQ failure.</p>
+</section>
+
+<!-- SD: COMPOSITE SCORING -->
+<section>
+<h2>Step 5: Composite Confidence Score</h2>
+<p style="font-size:.8em">Ab Initio synthesizes multiple tests. We do the same:</p>
+<table>
+<tr><th>Signal</th><th>Weight</th><th>What it measures</th></tr>
+<tr><td>Keyword</td><td>30%</td><td>Field name matches BDE synonym</td></tr>
+<tr><td>Pattern</td><td>25%</td><td>Values match PII regex patterns</td></tr>
+<tr><td>Fingerprint</td><td>25%</td><td>Values match reference code sets</td></tr>
+<tr><td>Statistical</td><td>20%</td><td>Type + range + cardinality aligns with BDE</td></tr>
+</table>
+<br/>
+<pre><code>csat_score: keyword=100% + pattern=0% + fingerprint=0% + stat=80%
+            → composite = 0.30×1 + 0.25×0 + 0.25×0 + 0.20×0.8 = 46%
+
+complaint_id: keyword=100% + pattern=0% + fingerprint=0% + stat=70%
+              → composite = 0.30×1 + 0.25×0 + 0.25×0 + 0.20×0.7 = 44%</code></pre>
+</section>
+
+<!-- LLM ROLE -->
+<section>
+<h2>The Role of the LLM</h2>
+<div class="two-col">
+<div>
+<h4 class="ok">LLM Does (Reasoning)</h4>
+<ul style="font-size:.7em">
+<li>Parse natural language → structured JSON</li>
+<li>Generate SQL from requirements</li>
+<li>Validate/correct suggestions</li>
+<li>Generate business DQ from stats</li>
+<li>Infer SCD type from intent</li>
+</ul>
+</div>
+<div>
+<h4 class="warn">LLM Never Does (Execution)</h4>
+<ul style="font-size:.7em">
+<li>Write to storage</li>
+<li>Create/alter tables</li>
+<li>Submit jobs</li>
+<li>Modify schemas</li>
+<li>Access raw data</li>
+</ul>
+</div>
+</div>
+<p class="fragment" style="font-size:.8em;margin-top:20px">
+<strong>Self-hosted</strong> (Gemma2 9B on Azure VM). Stateless. Isolated. Replaceable.<br/>
+Only receives <strong>statistical summaries</strong>, never raw record data.
+</p>
+</section>
+
+<!-- LLM DATA BOUNDARY -->
+<section>
+<h2>Data Boundary: What the LLM Sees</h2>
+<pre><code>✗ NEVER sent to LLM:
+  "CUST001", "ABCPD1234F", "750", "2024-01-15"
+
+✓ ONLY sent to LLM:
+  "cibil_score: integer, min=302, max=898, mean=701,
+   null_pct=0.1%, distinct=587, distribution=normal"</code></pre>
+<p style="font-size:.8em">The LLM reasons about <em>what the data means</em>, not what it contains.</p>
+</section>
+
+<!-- DQ INHERITANCE -->
+<section>
+<h2>Business-Level DQ (Amanda's Feedback)</h2>
+<p style="font-size:.8em">"Define at conceptual level, push down — a handful of rules, not thousands."</p>
+<pre><code>Glossary BDE "Credit Score":
+  dq_rules:
+    not_null: true
+    range: [300, 900]
+
+→ Automatically applied to ALL tables using "Credit Score":
+    • cibil_bureau_feed.cibil_score
+    • credit_risk_model.bureau_score
+    • loan_eligibility.score
+
+= 1 rule defined. Applied everywhere. Zero engineering.</code></pre>
+</section>
+
+<!-- WHAT SD OUTPUTS -->
+<section>
+<h2>What SD Produces on Approval</h2>
+<ol style="font-size:.75em">
+<li><strong>Pipeline Config</strong> (YAML) → pushed to GCS → Cloud Function auto-triggers</li>
+<li><strong>Data Contract</strong> → schema, DQ SLAs, governance, consumers, masking</li>
+<li><strong>BDE Terms</strong> → created in Dataplex Knowledge Catalog glossary</li>
+<li><strong>Dataset Entry</strong> → registered in KC with EntryLinks to BA + BDEs</li>
+<li><strong>SCD Config</strong> → dimension tracking (Types 1-6)</li>
+<li><strong>Profile</strong> → persisted for audit trail and re-validation</li>
+</ol>
+<p class="fragment small">All from one "approve" click. No manual config writing.</p>
+</section>
+
+<!-- AUTOMATION -->
+<section>
+<h2>End-to-End Automation</h2>
+<pre><code>SD Approves
+    │
+    ▼ config YAML lands in GCS
+Cloud Function fires:
+    ├── 1. Ingest (Landing → Reservoir)
+    ├── 2. Curate (Reservoir → CCN/Iceberg)
+    │       ├── DQ validation (inherited from BDE)
+    │       ├── Deduplication (PK + order_by)
+    │       └── Schema evolution governance
+    ├── 3. Create BQ external table (Iceberg via BLMS)
+    ├── 4. Run consumption SQL (Data Product)
+    ├── 5. Apply column-level security (Policy Tags)
+    └── 6. Log to pipeline_monitor (BQ audit)
+    
+    → Data Product ready in BigQuery (~3 min)</code></pre>
+</section>
+
+<!-- COMPARISON -->
+<section>
+<h2>vs. Enterprise Alternatives</h2>
+<table>
+<tr><th></th><th>Ab Initio</th><th>Informatica</th><th>Collibra</th><th style="color:#4fc3f7">This Platform</th></tr>
+<tr><td>Annual cost</td><td>$500K-1M</td><td>$300-500K</td><td>$200-400K</td><td class="ok"><strong>~$3K</strong></td></tr>
+<tr><td>Semantic Discovery</td><td>✓</td><td>✓ (CLAIRE)</td><td>✗</td><td class="ok">✓</td></tr>
+<tr><td>Fingerprinting</td><td>✓</td><td>✗</td><td>✗</td><td class="ok">✓</td></tr>
+<tr><td>Composite Scoring</td><td>✓</td><td>✗</td><td>✗</td><td class="ok">✓</td></tr>
+<tr><td>Data Contracts</td><td>✗</td><td>✗</td><td>Partial</td><td class="ok">✓</td></tr>
+<tr><td>Schema Evolution</td><td>✓</td><td>✗</td><td>✗</td><td class="ok">✓</td></tr>
+<tr><td>Self-hosted LLM</td><td>✗</td><td>✗</td><td>✗</td><td class="ok">✓</td></tr>
+<tr><td>Open formats</td><td>✗</td><td>✗</td><td>✗</td><td class="ok">✓ (Iceberg)</td></tr>
+<tr><td>Vendor lock-in</td><td>High</td><td>High</td><td>Medium</td><td class="ok"><strong>None</strong></td></tr>
+</table>
+</section>
+
+<!-- IMPLEMENTATION -->
+<section>
+<h2>Implementation Stack</h2>
+<table>
+<tr><th>Component</th><th>Technology</th><th>Purpose</th></tr>
+<tr><td>UI</td><td>React + Tailwind</td><td>Steward interface</td></tr>
+<tr><td>API</td><td>FastAPI (Python)</td><td>REST endpoints</td></tr>
+<tr><td>Engine</td><td>Pure Python</td><td>Discovery + profiling</td></tr>
+<tr><td>Glossary</td><td>Dataplex KC</td><td>BDEs + hierarchy</td></tr>
+<tr><td>Processing</td><td>PySpark on Dataproc</td><td>Ingest/curate/SCD</td></tr>
+<tr><td>Storage</td><td>GCS + Iceberg + BQ</td><td>Lakehouse layers</td></tr>
+<tr><td>Automation</td><td>Cloud Functions</td><td>Event-driven pipeline</td></tr>
+<tr><td>LLM</td><td>Gemma2 9B (Ollama)</td><td>NL parsing, SQL gen</td></tr>
+<tr><td>Deployment</td><td>Cloud Run</td><td>Serverless hosting</td></tr>
+</table>
+</section>
+
+<!-- KEY PRINCIPLES -->
+<section>
+<h2>5 Design Principles</h2>
+<ol style="font-size:.75em">
+<li><strong>Metadata is Executable</strong> — not documentation. BDE DQ → pipeline config → enforced.</li>
+<li><strong>Contracts Before Code</strong> — every dataset has a contract. Pipeline compiled from it.</li>
+<li><strong>AI Reasons, Determinism Executes</strong> — LLM suggests. Rules validate. Code executes.</li>
+<li><strong>One Table, Many Policies</strong> — column security at query time, not storage time.</li>
+<li><strong>Platform Learns</strong> — every approval enriches glossary for next onboarding.</li>
+</ol>
+</section>
+
+<!-- DATASETS ONBOARDED -->
+<section>
+<h2>Proven End-to-End</h2>
+<table>
+<tr><th>Dataset</th><th>Records</th><th>Domain</th><th>Status</th></tr>
+<tr><td>CIBIL Bureau Feed</td><td>1,000</td><td>Credit</td><td class="ok">✓ Complete</td></tr>
+<tr><td>e-KYC Provider</td><td>800</td><td>Customer</td><td class="ok">✓ Complete</td></tr>
+<tr><td>UPI Transactions</td><td>5,000</td><td>Payments</td><td class="ok">✓ Complete</td></tr>
+<tr><td>Customer Complaints</td><td>500</td><td>Customer</td><td class="ok">✓ Fixed (fingerprint)</td></tr>
+<tr><td>Insurance (4 feeds)</td><td>3,400</td><td>Insurance</td><td class="warn">Generated, pending</td></tr>
+</table>
+<p class="small">Glossary grew from 26 → 40+ terms through onboarding (learning loop).</p>
+</section>
+
+<!-- NEXT STEPS -->
+<section>
+<h2>Roadmap</h2>
+<ul style="font-size:.75em">
+<li class="ok">✓ Fingerprinting + Composite Scoring (Ab Initio parity)</li>
+<li class="ok">✓ Business DQ at BDE level with inheritance</li>
+<li class="ok">✓ React UI + FastAPI (production-ready)</li>
+<li class="ok">✓ Profile persistence for audit</li>
+<li class="warn">◐ Great Expectations full integration (GE profiler built, optional dep)</li>
+<li>○ Feedback loop (corrections improve future runs)</li>
+<li>○ OpenLineage integration (lineage in KC)</li>
+<li>○ Multi-cloud (Trino federation)</li>
+</ul>
+</section>
+
+<!-- LIVE DEMO -->
+<section>
+<h2>Live Demo</h2>
+<p style="font-size:.9em">
+<strong>React UI:</strong> <a href="https://sd-web-978009776592.europe-west2.run.app" target="_blank">sd-web-978009776592.europe-west2.run.app</a>
+</p>
+<p style="font-size:.8em">
+Try: "New customer complaints dataset with complaint_id, customer_id,<br/>
+complaint_date, channel, category, priority, status, csat_score"
+</p>
+<br/>
+<p class="small">
+Chainlit (parallel): semantic-discovery-978009776592.europe-west2.run.app<br/>
+GitHub: github.com/cprakash0105/bt-df-lkhouse-fw
+</p>
+</section>
+
+<!-- THANK YOU -->
+<section>
+<h1>Thank You</h1>
+<p class="highlight">Questions?</p>
+<br/>
+<p class="small">
+Chandra Prakash<br/>
+Platform: GCP · Python · React · Iceberg · BigQuery<br/>
+LLM: Self-hosted Gemma2 9B (no data leaves perimeter)
+</p>
+</section>
+
+</div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/reveal.min.js"></script>
+<script>Reveal.initialize({hash:true,slideNumber:true,transition:'slide'});</script>
+</body>
+</html>
