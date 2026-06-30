@@ -75,22 +75,11 @@ if static_dir.exists():
     from fastapi.staticfiles import StaticFiles
     from fastapi.responses import FileResponse
 
-    @app.get("/")
-    async def serve_index():
-        return FileResponse(str(static_dir / "index.html"))
-
+    # NOTE: SPA fallback is registered AFTER all API routes (at bottom of file)
     # Serve static assets (JS/CSS)
     assets_dir = static_dir / "assets"
     if assets_dir.exists():
         app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="static")
-
-    # SPA fallback — any unmatched GET returns index.html
-    @app.get("/{path:path}")
-    async def spa_fallback(path: str):
-        file_path = static_dir / path
-        if file_path.exists() and file_path.is_file():
-            return FileResponse(str(file_path))
-        return FileResponse(str(static_dir / "index.html"))
 
 # In-memory session store (single user POC)
 _session = {"suggestion": None, "profile": None}
@@ -640,3 +629,24 @@ def _serialize_profile(p) -> dict:
             for col in p.columns
         ],
     }
+
+
+# --- SPA Fallback (must be LAST — after all API routes) ---
+if static_dir.exists():
+    from fastapi.responses import FileResponse
+
+    @app.get("/")
+    async def serve_index():
+        return FileResponse(str(static_dir / "index.html"))
+
+    @app.get("/{path:path}")
+    async def spa_fallback(path: str):
+        # Don't catch API paths
+        if path.startswith(("health", "glossary", "applications", "domains",
+                           "ask", "discover", "landing", "profile", "approve",
+                           "correct", "suggestion", "generate")):
+            raise HTTPException(404, "Not found")
+        file_path = static_dir / path
+        if file_path.exists() and file_path.is_file():
+            return FileResponse(str(file_path))
+        return FileResponse(str(static_dir / "index.html"))
