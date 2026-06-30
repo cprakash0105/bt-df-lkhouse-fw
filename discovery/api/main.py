@@ -380,6 +380,8 @@ def _serialize_suggestion(s) -> dict:
                 "dq_rules": f.dq_rules,
                 "new_term": f.new_term_proposed,
                 "reasoning": f.reasoning,
+                "accepted_values": f.accepted_values,
+                "reference_code_set": f.reference_code_set,
             }
             for f in s.fields
         ],

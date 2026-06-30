@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from discovery.engine.knowledge_graph import KnowledgeGraph, BusinessTerm
 from discovery.engine.rules_engine import RulesEngine
 from discovery.engine.embedder import Embedder
-from discovery.engine.profiler import Profiler, ColumnProfile
+from discovery.engine.discovery_profiler import DiscoveryProfiler, DatasetProfile, FieldProfile
 
 
 @dataclass
@@ -56,11 +56,11 @@ class Suggester:
     def __init__(self, knowledge_graph: Optional[KnowledgeGraph] = None,
                  rules_engine: Optional[RulesEngine] = None,
                  embedder: Optional[Embedder] = None,
-                 profiler: Optional[Profiler] = None):
+                 profiler: Optional[DiscoveryProfiler] = None):
         self.kg = knowledge_graph or KnowledgeGraph()
         self.rules = rules_engine or RulesEngine()
         self.embedder = embedder or Embedder(mode="local")
-        self.profiler = profiler or Profiler()
+        self.profiler = profiler or DiscoveryProfiler()
 
         # Initialize embedder with knowledge graph terms
         term_dicts = [
@@ -86,7 +86,7 @@ class Suggester:
         )
 
         # Step 0: Try to auto-profile from GCS landing data
-        profile_map = self._auto_profile(asset_name)
+        profile = self._auto_profile(asset_name)
 
         # Step 1: Suggest Business Application
         self._suggest_business_application(suggestion, asset_name, field_names)
@@ -102,8 +102,8 @@ class Suggester:
             suggestion.fields.append(field_suggestion)
 
         # Step 4: Enhance with profile evidence (boost confidence, detect PII, fix types)
-        if profile_map:
-            self._enhance_with_profile(suggestion, profile_map)
+        if profile:
+            self._enhance_with_profile(suggestion, profile)
 
         # Step 5: Identify primary key
         self._suggest_primary_key(suggestion)
@@ -356,103 +356,105 @@ class Suggester:
 
         suggestion.schema_evolution = self.rules.get_schema_evolution_defaults(classification)
 
-    def _auto_profile(self, asset_name: str) -> Optional[dict]:
-        """Try to fetch and profile landing data from GCS.
-        Returns dict of field_name -> ColumnProfile, or None."""
-        import os
-        bucket_name = os.environ.get("CONFIG_BUCKET", "bt-df-lkhouse-lakehouse")
-        prefix = f"landing/{asset_name}/"
-
+    def _auto_profile(self, asset_name: str) -> Optional[DatasetProfile]:
+        """Try to fetch and profile landing data from GCS. Returns DatasetProfile or None."""
         try:
-            from google.cloud import storage
-            client = storage.Client()
-            bucket = client.bucket(bucket_name)
-            blobs = list(bucket.list_blobs(prefix=prefix, max_results=5))
-
-            if not blobs:
-                print(f"[Suggester] No landing data found at gs://{bucket_name}/{prefix}")
-                return None
-
-            # Read first file (sample)
-            blob = blobs[0]
-            content = blob.download_as_text()
-
-            if not content.strip():
-                return None
-
-            # Profile based on file type
-            if blob.name.endswith(".csv"):
-                profile = self.profiler.profile_csv(content)
-            else:
-                # Assume JSONL
-                profile = self.profiler.profile_jsonl(content)
-
-            if not profile.columns:
-                return None
-
-            print(f"[Suggester] Auto-profiled {asset_name}: {profile.row_count} rows, {profile.column_count} cols")
-            return {col.name: col for col in profile.columns}
-
-        except ImportError:
-            print("[Suggester] google-cloud-storage not available, skipping auto-profile")
-            return None
+            profile = self.profiler.profile_from_gcs(asset_name)
+            if profile and profile.fields:
+                # Persist for audit trail
+                self.profiler.persist_profile(profile)
+                print(f"[Suggester] Auto-profiled {asset_name}: {profile.row_count} rows, {profile.column_count} cols")
+            return profile
         except Exception as e:
-            print(f"[Suggester] Auto-profile failed for {asset_name}: {e}")
+            print(f"[Suggester] Auto-profile failed: {e}")
             return None
 
-    def _enhance_with_profile(self, suggestion: DiscoverySuggestion, profile_map: dict):
+    def _enhance_with_profile(self, suggestion: DiscoverySuggestion, profile: DatasetProfile):
         """Enhance field suggestions with profiling evidence from actual data."""
+        profile_map = {fp.name: fp for fp in profile.fields}
+
         for fs in suggestion.fields:
-            col = profile_map.get(fs.field_name)
-            if not col:
+            fp = profile_map.get(fs.field_name)
+            if not fp:
                 continue
 
-            # PII detection from values (overrides name-based if profile finds patterns)
-            if col.is_likely_pii and not fs.is_pii:
+            # Store signal breakdown for UI display
+            if fp.signals:
+                fs.reasoning.append(
+                    f"PROFILE SIGNALS: keyword={fp.signals.keyword_score:.0%}, "
+                    f"pattern={fp.signals.pattern_score:.0%}, "
+                    f"fingerprint={fp.signals.fingerprint_score:.0%}, "
+                    f"stat={fp.signals.stat_score:.0%} → "
+                    f"composite={fp.signals.composite_score:.0%}"
+                )
+
+            # PII detection from values
+            if fp.is_pii and not fs.is_pii:
                 fs.is_pii = True
                 fs.classification = "PII"
                 fs.reasoning.append(
-                    f"PROFILE: PII detected from values (pattern: {', '.join(col.detected_patterns)})"
+                    f"PROFILE: PII detected from values (pattern: {', '.join(fp.detected_patterns)})"
                 )
 
             # Key detection from cardinality
-            if col.is_likely_identifier and not fs.is_key_candidate:
+            if fp.is_key and not fs.is_key_candidate:
                 fs.is_key_candidate = True
                 fs.reasoning.append(
-                    f"PROFILE: Likely key (cardinality: {col.cardinality_ratio:.0%}, nulls: {col.null_pct:.0%})"
+                    f"PROFILE: Likely key (cardinality: {fp.distinct_pct:.0%}, nulls: {fp.null_pct:.0%})"
                 )
 
-            # Reference set detection — override wrong accepted_values
-            if col.is_likely_reference and col.distinct_values:
-                # If current accepted_values are wrong (from BDE mismatch), replace with actual values
-                if fs.accepted_values and not self._values_overlap(fs.accepted_values, col.distinct_values):
+            # Fingerprint → override wrong accepted_values or set new ones
+            if fp.fingerprint_set and fp.fingerprint_ratio >= 0.5:
+                # High fingerprint match → use the reference set from glossary
+                ref_values = self.profiler.reference_sets.get(fp.fingerprint_set, [])
+                if ref_values:
+                    if fs.accepted_values and not self._values_overlap(fs.accepted_values, fp.distinct_values or []):
+                        fs.reasoning.append(
+                            f"PROFILE: Fingerprint override — actual values match '{fp.fingerprint_set}' "
+                            f"({fp.fingerprint_ratio:.0%}), not previous BDE match"
+                        )
+                    fs.accepted_values = ref_values
+                    fs.dq_rules["accepted_values"] = ref_values
+                    fs.reference_code_set = fp.fingerprint_set
+            elif fp.is_reference and fp.distinct_values:
+                # No fingerprint but low cardinality → use actual values
+                if fs.accepted_values and not self._values_overlap(fs.accepted_values, fp.distinct_values):
                     fs.reasoning.append(
-                        f"PROFILE: Overriding accepted_values — actual values: {col.distinct_values}"
+                        f"PROFILE: Overriding accepted_values — actual values: {fp.distinct_values}"
                     )
-                    fs.accepted_values = col.distinct_values
-                    fs.dq_rules["accepted_values"] = col.distinct_values
+                    fs.accepted_values = fp.distinct_values
+                    fs.dq_rules["accepted_values"] = fp.distinct_values
                 elif not fs.accepted_values:
-                    fs.accepted_values = col.distinct_values
-                    fs.dq_rules["accepted_values"] = col.distinct_values
+                    fs.accepted_values = fp.distinct_values
+                    fs.dq_rules["accepted_values"] = fp.distinct_values
                     fs.reasoning.append(
-                        f"PROFILE: Reference field ({col.distinct_count} values): {col.distinct_values}"
+                        f"PROFILE: Reference field ({fp.distinct_count} values): {fp.distinct_values}"
                     )
 
-            # Confidence boost if profile confirms the BDE match
-            if col.detected_patterns and fs.confidence > 0:
-                fs.confidence = min(fs.confidence + 0.1, 0.99)
-                fs.reasoning.append(f"PROFILE: +10% confidence (pattern confirmed)")
-
-            # Type correction from profile
-            if col.inferred_type != fs.field_type and col.inferred_type != "string":
+            # Confidence: use composite score if it's higher than current
+            if fp.signals and fp.signals.composite_score > fs.confidence:
+                fs.confidence = fp.signals.composite_score
                 fs.reasoning.append(
-                    f"PROFILE: Type inferred as {col.inferred_type} (declared: {fs.field_type})"
+                    f"PROFILE: Confidence upgraded to {fp.signals.composite_score:.0%} (composite)"
                 )
+            elif fp.signals and fs.confidence > 0:
+                # Boost existing confidence by up to 10% if profile confirms
+                boost = min(fp.signals.composite_score * 0.2, 0.1)
+                fs.confidence = min(fs.confidence + boost, 0.99)
 
-            # Merge DQ from profile (profile evidence is high-trust)
-            for k, v in col.suggested_dq.items():
-                if k not in fs.dq_rules:
-                    fs.dq_rules[k] = v
+            # Information type from profile
+            if fp.signals and fp.signals.information_type != "Dimension":
+                if not fs.information_type or fs.information_type == "Dimension":
+                    fs.information_type = fp.signals.information_type
+
+            # Merge DQ suggestions from profile stats
+            if fp.null_pct < 0.05 and "not_null" not in fs.dq_rules:
+                fs.dq_rules["not_null"] = True
+            if fp.is_key and "unique" not in fs.dq_rules:
+                fs.dq_rules["unique"] = True
+            if fp.inferred_type in ("integer", "decimal") and fp.min_val is not None:
+                if float(fp.min_val) >= 0 and "positive" not in fs.dq_rules:
+                    fs.dq_rules["positive"] = True
 
     def _values_overlap(self, expected: list, actual: list) -> bool:
         """Check if expected values overlap with actual values (case-insensitive)."""
