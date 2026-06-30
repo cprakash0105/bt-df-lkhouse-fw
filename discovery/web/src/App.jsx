@@ -23,7 +23,8 @@ export default function App() {
 
     try {
       // Command: list landing / what's available
-      if (lower.includes('available') || lower.includes('list') || lower.includes('what') && lower.includes('landing')) {
+      if ((lower.includes('available') || lower.includes('landing')) ||
+          (lower.includes('list') && lower.includes('landing'))) {
         const result = await api.listLanding()
         setLandingDatasets(result.datasets)
         addMessage({
@@ -178,7 +179,8 @@ function _isGlossaryQuestion(text) {
     (text.includes('terms') && (text.includes('how many') || text.includes('list') || text.includes('show'))) ||
     text.includes('pii') || text.includes('dq rule') || text.includes('data quality') ||
     text.includes('who owns') || text.includes('relationship') || text.includes('linked') ||
-    text.includes('catalog') || text.includes('search for')
+    text.includes('catalog') || text.includes('search for') ||
+    (text.includes('list') && (text.includes('application') || text.includes('domain') || text.includes('term') || text.includes('dataset')))
 }
 
 async function _answerGlossaryQuestion(text) {
