@@ -1,0 +1,49 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/semantic-discovery/profiler:${_TAG}'
+      - '-f'
+      - 'Dockerfile.profiler'
+      - '.'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/semantic-discovery/profiler:${_TAG}'
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'sd-profiler'
+      - '--image'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/semantic-discovery/profiler:${_TAG}'
+      - '--region'
+      - '${_REGION}'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--port'
+      - '8080'
+      - '--memory'
+      - '1Gi'
+      - '--cpu'
+      - '2'
+      - '--min-instances'
+      - '0'
+      - '--max-instances'
+      - '2'
+      - '--timeout'
+      - '120'
+      - '--set-env-vars'
+      - 'CONFIG_BUCKET=bt-df-lkhouse-lakehouse,GLOSSARY_PATH=/app/seed_glossary.yaml'
+
+substitutions:
+  _REGION: europe-west2
+  _TAG: v1
+
+options:
+  logging: CLOUD_LOGGING_ONLY
