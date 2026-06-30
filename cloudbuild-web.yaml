@@ -48,7 +48,7 @@ steps:
       - '--timeout'
       - '300'
       - '--set-env-vars'
-      - 'GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${_REGION},LLM_BASE_URL=${_LLM_BASE_URL},LLM_API_KEY=${_LLM_API_KEY},LLM_MODEL=${_LLM_MODEL}'
+      - 'GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${_REGION},LLM_BASE_URL=${_LLM_BASE_URL},LLM_API_KEY=${_LLM_API_KEY},LLM_MODEL=${_LLM_MODEL},PROFILER_SERVICE_URL=${_PROFILER_URL}'
 
 substitutions:
   _REGION: europe-west2
@@ -56,6 +56,7 @@ substitutions:
   _LLM_BASE_URL: 'http://4.242.19.167:11434/v1'
   _LLM_API_KEY: ''
   _LLM_MODEL: 'gemma2:9b'
+  _PROFILER_URL: 'http://lakehouse-cluster-m:8090'
 
 options:
   logging: CLOUD_LOGGING_ONLY

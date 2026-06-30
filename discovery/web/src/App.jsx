@@ -74,6 +74,15 @@ export default function App() {
           addMessage({ role: 'assistant', content: 'I didn\'t understand that correction. Try: "status is not PII" or "priority values are low, medium, high, critical"', type: 'text' })
         }
       }
+      // Questions about current results (don't trigger discovery)
+      else if (_isQuestion(lower)) {
+        if (suggestion) {
+          const answer = _answerQuestion(lower, suggestion)
+          addMessage({ role: 'assistant', content: answer, type: 'text' })
+        } else {
+          addMessage({ role: 'assistant', content: 'No active discovery yet. Try: "What\'s available?" or "Onboard <dataset_name>"', type: 'text' })
+        }
+      }
       // Default: discover
       else {
         addMessage({ role: 'assistant', content: 'Discovering...', type: 'loading' })
@@ -113,6 +122,48 @@ export default function App() {
       </div>
     </div>
   )
+}
+
+function _isQuestion(text) {
+  const questionWords = ['did you', 'can you tell', 'what is', 'what are', 'why', 'how', 'which', 'show me', 'explain', 'tell me', 'is there', 'was the', 'were the', 'has the', 'profile', 'fingerprint', 'confidence', 'reasoning', 'why did']
+  return questionWords.some(q => text.includes(q)) || text.endsWith('?')
+}
+
+function _answerQuestion(text, suggestion) {
+  if (text.includes('profile') || text.includes('fingerprint')) {
+    const profiledFields = suggestion.fields.filter(f => f.reasoning?.some(r => r.startsWith('PROFILE')))
+    if (profiledFields.length > 0) {
+      return `Yes, I profiled the data from GCS landing. ${profiledFields.length} fields had profile evidence:\n\n` +
+        profiledFields.map(f => {
+          const profileReasoning = f.reasoning.filter(r => r.startsWith('PROFILE'))
+          return `• **${f.name}**: ${profileReasoning[0]}`
+        }).join('\n')
+    } else {
+      return 'No profile evidence was found for this dataset. This could mean:\n• No landing data exists at `gs://bucket/landing/' + suggestion.asset_name + '/`\n• The GCS client couldn\'t connect\n\nThe discovery used KG synonym match + rules + embeddings only.'
+    }
+  }
+  if (text.includes('pii')) {
+    const piiFields = suggestion.fields.filter(f => f.is_pii)
+    if (piiFields.length > 0) {
+      return `PII fields detected:\n\n` + piiFields.map(f => {
+        const reason = f.reasoning?.find(r => r.toLowerCase().includes('pii')) || 'matched PII BDE'
+        return `• **${f.name}**: ${reason}`
+      }).join('\n') + '\n\nTo correct: say "<field_name> is not PII"'
+    }
+    return 'No PII fields detected in this dataset.'
+  }
+  if (text.includes('confidence') || text.includes('why')) {
+    const field = suggestion.fields.find(f => text.includes(f.name))
+    if (field) {
+      return `**${field.name}** (confidence: ${Math.round(field.confidence * 100)}%):\n\n` +
+        (field.reasoning || []).map(r => `• ${r}`).join('\n')
+    }
+    return 'Ask about a specific field, e.g., "why did you mark resolution_date as PII?"'
+  }
+  if (text.includes('domain') || text.includes('business app')) {
+    return `• Domain: **${suggestion.data_domain || 'unknown'}**\n• Business Application: **${suggestion.business_application || 'unknown'}** (${Math.round(suggestion.app_confidence * 100)}% confidence)\n\nThis was inferred from field names and dataset name matching against known application keywords.`
+  }
+  return `Currently viewing **${suggestion.asset_name}** (${suggestion.fields.length} fields). You can:\n• Ask: "why is X marked as PII?"\n• Correct: "X is not PII" or "X values are a, b, c"\n• Approve: "approve"\n• Move on: "onboard <next dataset>"`
 }
 
 function _isCorrection(text) {

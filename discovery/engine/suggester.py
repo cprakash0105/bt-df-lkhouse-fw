@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from discovery.engine.knowledge_graph import KnowledgeGraph, BusinessTerm
 from discovery.engine.rules_engine import RulesEngine
 from discovery.engine.embedder import Embedder
-from discovery.engine.discovery_profiler import DiscoveryProfiler, DatasetProfile, FieldProfile
+from discovery.engine.discovery_profiler import DiscoveryProfiler, DatasetProfile, FieldProfile, FieldSignals as DPFieldSignals
 
 
 @dataclass
@@ -357,17 +357,85 @@ class Suggester:
         suggestion.schema_evolution = self.rules.get_schema_evolution_defaults(classification)
 
     def _auto_profile(self, asset_name: str) -> Optional[DatasetProfile]:
-        """Try to fetch and profile landing data from GCS. Returns DatasetProfile or None."""
+        """Call the Profiler Service to profile landing data.
+        Falls back to local lightweight profiler if service unavailable."""
+        import os
+        import json
+        import urllib.request
+
+        profiler_url = os.environ.get("PROFILER_SERVICE_URL", "")
+
+        # Strategy 1: Call the profiler service (Dataproc)
+        if profiler_url:
+            try:
+                url = f"{profiler_url}/profile"
+                payload = json.dumps({"dataset_name": asset_name}).encode()
+                req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+                with urllib.request.urlopen(req, timeout=120) as resp:
+                    result = json.loads(resp.read().decode())
+
+                if result and result.get("fields"):
+                    profile = self._service_response_to_profile(result)
+                    print(f"[Suggester] Profiler service returned: {result['row_count']} rows, {result['column_count']} cols ({result['duration_seconds']}s)")
+                    return profile
+            except Exception as e:
+                print(f"[Suggester] Profiler service call failed: {e}, falling back to local")
+
+        # Strategy 2: Fallback to local profiler (lightweight, no GE)
         try:
             profile = self.profiler.profile_from_gcs(asset_name)
             if profile and profile.fields:
-                # Persist for audit trail
                 self.profiler.persist_profile(profile)
-                print(f"[Suggester] Auto-profiled {asset_name}: {profile.row_count} rows, {profile.column_count} cols")
+                print(f"[Suggester] Local profiled {asset_name}: {profile.row_count} rows")
             return profile
         except Exception as e:
-            print(f"[Suggester] Auto-profile failed: {e}")
+            print(f"[Suggester] Local profile failed: {e}")
             return None
+
+    def _service_response_to_profile(self, result: dict) -> DatasetProfile:
+        """Convert profiler service JSON response to DatasetProfile."""
+        ds = DatasetProfile(
+            dataset_name=result["dataset_name"],
+            row_count=result["row_count"],
+            column_count=result["column_count"],
+            source_path=result.get("source_path", ""),
+        )
+        for f in result["fields"]:
+            signals = f.get("signals", {})
+            fp = FieldProfile(
+                name=f["name"],
+                row_count=result["row_count"],
+                null_pct=f["null_pct"],
+                distinct_count=f["distinct_count"],
+                distinct_pct=f["distinct_pct"],
+                inferred_type=f["inferred_type"],
+                is_pii=f["is_pii"],
+                is_key=f["is_key"],
+                is_reference=f["is_reference"],
+                detected_patterns=f.get("detected_patterns", []),
+                distinct_values=f.get("distinct_values"),
+                fingerprint_set=signals.get("fingerprint_set"),
+                fingerprint_ratio=signals.get("fingerprint_score", 0),
+                fingerprint_unmatched=signals.get("fingerprint_unmatched", []),
+            )
+            if f.get("stats"):
+                fp.min_val = str(f["stats"].get("min", ""))
+                fp.max_val = str(f["stats"].get("max", ""))
+                fp.mean_val = f["stats"].get("mean")
+            fp.signals = DPFieldSignals(
+                field_name=f["name"],
+                keyword_score=signals.get("keyword_score", 0),
+                keyword_match=signals.get("keyword_match"),
+                pattern_score=signals.get("pattern_score", 0),
+                detected_pattern=signals.get("detected_pattern"),
+                fingerprint_score=signals.get("fingerprint_score", 0),
+                fingerprint_set=signals.get("fingerprint_set"),
+                stat_score=signals.get("stat_score", 0),
+                composite_score=signals.get("composite_score", 0),
+                information_type=signals.get("information_type", "Dimension"),
+            )
+            ds.fields.append(fp)
+        return ds
 
     def _enhance_with_profile(self, suggestion: DiscoverySuggestion, profile: DatasetProfile):
         """Enhance field suggestions with profiling evidence from actual data."""
