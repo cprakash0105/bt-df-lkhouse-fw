@@ -1,104 +1,305 @@
 import React, { useState, useEffect } from 'react'
 import { api } from '../api'
 
-export default function HomePage({ landingDatasets }) {
-  const [stats, setStats] = useState(null)
+export default function HomePage() {
+  const [tree, setTree] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [selectedNode, setSelectedNode] = useState(null)
 
   useEffect(() => {
-    api.health().then(setStats).catch(() => {})
+    api.catalogTree()
+      .then(data => setTree(data.hierarchy))
+      .catch(() => {
+        // Fallback: build tree from glossary API
+        buildFallbackTree().then(setTree)
+      })
+      .finally(() => setLoading(false))
   }, [])
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      {/* Platform header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white mb-1">BT Data Fabric</h1>
-        <p className="text-sm text-gray-500">GCP Native Lakehouse · europe-west2 · bt-df-lkhouse</p>
-      </div>
-
-      {/* Layer cards */}
-      <div className="grid grid-cols-4 gap-3 mb-6">
-        <LayerCard title="Landing Zone" count={landingDatasets?.length || '—'} subtitle="Raw JSONL" color="border-red-500/40" dot="bg-red-500" />
-        <LayerCard title="Reservoir" count="—" subtitle="Parquet (typed)" color="border-blue-500/40" dot="bg-blue-500" />
-        <LayerCard title="CCN (Iceberg)" count="—" subtitle="Governed" color="border-yellow-500/40" dot="bg-yellow-500" />
-        <LayerCard title="Data Products" count="—" subtitle="BigQuery" color="border-green-500/40" dot="bg-green-500" />
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
-        <StatCard label="Business Data Elements" value={stats?.glossary_terms || '—'} icon="📖" />
-        <StatCard label="Landing Datasets" value={landingDatasets?.length || '—'} icon="📁" />
-        <StatCard label="Profiler Service" value="Active" icon="📊" status="ok" />
-      </div>
-
-      {/* Landing datasets */}
-      {landingDatasets && (
-        <div className="mb-6">
-          <h3 className="text-sm font-medium text-gray-400 mb-3">DATASETS IN LANDING ZONE</h3>
-          <div className="grid grid-cols-3 gap-2">
-            {landingDatasets.map(ds => (
-              <div key={ds} className="p-2 bg-[#0f1524] border border-[#1e2a4a] rounded text-xs text-gray-300 hover:border-blue-500/50 cursor-pointer">
-                📁 {ds}
-              </div>
-            ))}
+    <div className="flex h-full">
+      {/* Left: Hierarchy tree */}
+      <div className="flex-1 p-6 overflow-auto">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-xl font-bold text-white">BT Group — Data Estate</h1>
+            <p className="text-xs text-gray-500 mt-0.5">Business Semantic Hierarchy · Knowledge Catalog</p>
           </div>
+          <div className="flex gap-2">
+            <Stat label="BDEs" value="40+" />
+            <Stat label="BAs" value="14" />
+            <Stat label="Domains" value="9" />
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="text-gray-500 text-sm">Loading catalog hierarchy...</div>
+        ) : tree && tree.length > 0 ? (
+          <div className="space-y-0.5">
+            {/* Org root */}
+            <OrgRoot tree={tree} onSelect={setSelectedNode} />
+          </div>
+        ) : (
+          <FallbackView onSelect={setSelectedNode} />
+        )}
+      </div>
+
+      {/* Right: Detail panel (when a node is selected) */}
+      {selectedNode && (
+        <div className="w-[320px] border-l border-[#1e2a4a] p-4 overflow-auto bg-[#0f1524]">
+          <DetailPanel node={selectedNode} onClose={() => setSelectedNode(null)} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function OrgRoot({ tree, onSelect }) {
+  const [expanded, setExpanded] = useState(true)
+
+  return (
+    <div>
+      <div
+        className="flex items-center gap-2 py-2 px-3 rounded cursor-pointer hover:bg-[#1a2035]"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <span className="text-xs text-gray-500 w-4">{expanded ? '▼' : '▶'}</span>
+        <span className="text-lg">🏛️</span>
+        <span className="text-sm font-bold text-white">BT Group</span>
+        <span className="text-[10px] text-gray-500 ml-2">Organization</span>
+      </div>
+      {expanded && (
+        <div className="ml-4">
+          {tree.map(node => (
+            <TreeNode key={node.id} node={node} depth={1} onSelect={onSelect} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TreeNode({ node, depth, onSelect }) {
+  const [expanded, setExpanded] = useState(depth < 2)
+  const hasChildren = node.children && node.children.length > 0
+
+  const config = {
+    cfu: { icon: '🏢', color: 'text-yellow-300', label: 'CFU' },
+    domain: { icon: '📁', color: 'text-blue-300', label: 'Domain' },
+    application: { icon: '⚙️', color: 'text-green-300', label: 'BA' },
+    term: { icon: '📖', color: 'text-gray-200', label: 'BDE' },
+    dataset: { icon: '📊', color: 'text-purple-300', label: 'Dataset' },
+  }[node.type] || { icon: '•', color: 'text-gray-400', label: '' }
+
+  return (
+    <div>
+      <div
+        className={`flex items-center gap-1.5 py-1.5 px-2 rounded cursor-pointer hover:bg-[#1a2035] group`}
+        style={{ paddingLeft: `${depth * 12}px` }}
+      >
+        {/* Expand toggle */}
+        {hasChildren ? (
+          <button onClick={() => setExpanded(!expanded)} className="text-xs text-gray-500 w-4 hover:text-white">
+            {expanded ? '▼' : '▶'}
+          </button>
+        ) : (
+          <span className="w-4" />
+        )}
+
+        {/* Icon + Name (clickable for detail) */}
+        <div className="flex items-center gap-1.5 flex-1" onClick={() => onSelect(node)}>
+          <span className="text-sm">{config.icon}</span>
+          <span className={`text-sm font-medium ${config.color}`}>{node.name}</span>
+
+          {/* Badges */}
+          {node.is_pii && <span className="text-[9px] bg-red-900/50 text-red-300 px-1 rounded">PII</span>}
+          {node.dq_rules && Object.keys(node.dq_rules).length > 0 && (
+            <span className="text-[9px] bg-blue-900/50 text-blue-300 px-1 rounded">DQ</span>
+          )}
+          {node.term_count > 0 && (
+            <span className="text-[9px] text-gray-500">({node.term_count})</span>
+          )}
+          {node.field_count > 0 && (
+            <span className="text-[9px] text-gray-500">{node.field_count} fields</span>
+          )}
+        </div>
+
+        {/* Type label (on hover) */}
+        <span className="text-[9px] text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity">
+          {config.label}
+        </span>
+      </div>
+
+      {/* Children */}
+      {expanded && hasChildren && (
+        <div>
+          {node.children.map(child => (
+            <TreeNode key={child.id} node={child} depth={depth + 1} onSelect={onSelect} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DetailPanel({ node, onClose }) {
+  const config = {
+    cfu: { title: 'Customer Facing Unit', color: 'text-yellow-300' },
+    domain: { title: 'Data Domain', color: 'text-blue-300' },
+    application: { title: 'Business Application', color: 'text-green-300' },
+    term: { title: 'Business Data Element', color: 'text-gray-200' },
+    dataset: { title: 'Dataset', color: 'text-purple-300' },
+  }[node.type] || { title: 'Entity', color: 'text-gray-300' }
+
+  return (
+    <div>
+      <div className="flex justify-between items-start mb-4">
+        <div>
+          <p className={`text-xs font-medium ${config.color}`}>{config.title}</p>
+          <h3 className="text-lg font-bold text-white">{node.name}</h3>
+        </div>
+        <button onClick={onClose} className="text-gray-500 hover:text-white text-sm">✕</button>
+      </div>
+
+      {node.description && (
+        <p className="text-xs text-gray-400 mb-3">{node.description}</p>
+      )}
+
+      {/* BDE specific */}
+      {node.type === 'term' && (
+        <div className="space-y-2">
+          {node.data_type && (
+            <Field label="Data Type" value={node.data_type} />
+          )}
+          {node.is_pii && <Field label="Classification" value="🔴 PII" />}
+          {node.dq_rules && Object.keys(node.dq_rules).length > 0 && (
+            <div>
+              <p className="text-[10px] text-gray-500 mb-1">DQ Rules (inherited by all linked fields)</p>
+              {Object.entries(node.dq_rules).map(([k, v]) => (
+                <div key={k} className="text-xs text-blue-300 bg-blue-900/20 px-2 py-0.5 rounded mb-0.5">
+                  {k}: {JSON.stringify(v)}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Services */}
-      <div className="mb-6">
-        <h3 className="text-sm font-medium text-gray-400 mb-3">PLATFORM SERVICES</h3>
-        <div className="grid grid-cols-5 gap-2">
-          <ServiceBadge name="Cloud Run" detail="Ontika + Profiler" status="ok" />
-          <ServiceBadge name="Dataproc" detail="Spark Processing" status="ok" />
-          <ServiceBadge name="BigQuery" detail="Data Products" status="ok" />
-          <ServiceBadge name="Dataplex" detail="Knowledge Catalog" status="ok" />
-          <ServiceBadge name="Firestore" detail="Catalog Cache" status="ok" />
+      {/* BA specific */}
+      {node.type === 'application' && node.children && (
+        <div>
+          <p className="text-[10px] text-gray-500 mb-1">BDEs used ({node.children.filter(c => c.type === 'term').length})</p>
+          {node.children.filter(c => c.type === 'term').map(t => (
+            <div key={t.id} className="text-xs text-gray-300 py-0.5 flex items-center gap-1">
+              <span>📖</span> {t.name}
+              {t.is_pii && <span className="text-red-400 text-[9px]">PII</span>}
+            </div>
+          ))}
+          {node.children.filter(c => c.type === 'dataset').length > 0 && (
+            <>
+              <p className="text-[10px] text-gray-500 mt-3 mb-1">Datasets</p>
+              {node.children.filter(c => c.type === 'dataset').map(d => (
+                <div key={d.id} className="text-xs text-purple-300 py-0.5">
+                  📊 {d.name}
+                </div>
+              ))}
+            </>
+          )}
         </div>
-      </div>
+      )}
 
-      {/* Quick actions */}
-      <div className="p-4 bg-[#0f1524] border border-[#1e2a4a] rounded-lg">
-        <h3 className="text-sm font-medium text-gray-400 mb-2">QUICK START</h3>
-        <p className="text-xs text-gray-500">
-          Use the assistant on the right to: onboard datasets, browse the catalog, run profiling, or ask questions about your data estate.
-        </p>
-      </div>
+      {/* Domain specific */}
+      {node.type === 'domain' && (
+        <div>
+          <Field label="Terms" value={`${node.term_count || 0} BDEs`} />
+          {node.children && node.children.length > 0 && (
+            <>
+              <p className="text-[10px] text-gray-500 mt-3 mb-1">Business Applications</p>
+              {node.children.map(a => (
+                <div key={a.id} className="text-xs text-green-300 py-0.5">
+                  ⚙️ {a.name}
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }
 
-function LayerCard({ title, count, subtitle, color, dot }) {
+function Field({ label, value }) {
   return (
-    <div className={`p-3 rounded-lg border ${color} bg-[#0f1524]`}>
-      <div className="flex items-center gap-2 mb-1">
-        <div className={`w-2 h-2 rounded-full ${dot}`} />
-        <span className="text-xs font-medium text-white">{title}</span>
-      </div>
-      <p className="text-xl font-bold text-white">{count}</p>
-      <p className="text-[10px] text-gray-500">{subtitle}</p>
+    <div className="flex justify-between text-xs py-0.5">
+      <span className="text-gray-500">{label}</span>
+      <span className="text-gray-300">{value}</span>
     </div>
   )
 }
 
-function StatCard({ label, value, icon, status }) {
+function Stat({ label, value }) {
   return (
-    <div className="p-3 rounded-lg border border-[#1e2a4a] bg-[#0f1524] flex items-center gap-3">
-      <span className="text-xl">{icon}</span>
-      <div>
-        <p className={`text-lg font-bold ${status === 'ok' ? 'text-green-400' : 'text-white'}`}>{value}</p>
-        <p className="text-[10px] text-gray-500">{label}</p>
-      </div>
+    <div className="px-2 py-1 bg-[#0f1524] border border-[#1e2a4a] rounded text-center">
+      <p className="text-sm font-bold text-white">{value}</p>
+      <p className="text-[9px] text-gray-500">{label}</p>
     </div>
   )
 }
 
-function ServiceBadge({ name, detail, status }) {
+function FallbackView({ onSelect }) {
+  // When Firestore isn't available, show a message
   return (
-    <div className="p-2 rounded border border-[#1e2a4a] bg-[#0f1524] text-center">
-      <div className={`w-1.5 h-1.5 rounded-full mx-auto mb-1 ${status === 'ok' ? 'bg-green-400' : 'bg-gray-600'}`} />
-      <p className="text-[11px] font-medium text-gray-300">{name}</p>
-      <p className="text-[9px] text-gray-600">{detail}</p>
+    <div className="p-4 bg-[#0f1524] border border-[#1e2a4a] rounded-lg">
+      <p className="text-sm text-gray-400">
+        Catalog tree not loaded. Use the assistant to ask:
+      </p>
+      <ul className="mt-2 text-xs text-gray-500 space-y-1">
+        <li>• "Show me the domains"</li>
+        <li>• "List all business applications"</li>
+        <li>• "What BDEs are in the Customer domain?"</li>
+      </ul>
     </div>
   )
+}
+
+async function buildFallbackTree() {
+  try {
+    const [glossary, apps, domains] = await Promise.all([
+      api.glossary(),
+      api.applications(),
+      api.domains(),
+    ])
+    // Build a simple tree from API responses
+    const tree = [{
+      id: 'bt_group',
+      name: 'BT Group',
+      type: 'cfu',
+      children: domains.map(d => ({
+        id: d.id,
+        name: d.name,
+        type: 'domain',
+        description: d.description,
+        term_count: d.term_count,
+        children: apps
+          .filter(a => a.keywords?.some(k => k.includes(d.id) || d.id.includes(k)))
+          .map(a => ({
+            id: a.id,
+            name: a.name,
+            type: 'application',
+            description: a.description,
+            children: (glossary[d.name] || []).slice(0, 10).map(t => ({
+              id: t.id,
+              name: t.name,
+              type: 'term',
+              is_pii: t.is_pii,
+              dq_rules: t.dq_rules,
+              data_type: t.information_type,
+            }))
+          }))
+      }))
+    }]
+    return tree
+  } catch {
+    return []
+  }
 }
