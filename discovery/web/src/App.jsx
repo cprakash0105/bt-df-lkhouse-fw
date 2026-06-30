@@ -22,9 +22,12 @@ export default function App() {
     const lower = text.toLowerCase().trim()
 
     try {
-      // Command: list landing / what's available
-      if ((lower.includes('available') || lower.includes('landing')) ||
-          (lower.includes('list') && lower.includes('landing'))) {
+      // Command: list landing / what's available (but NOT "what business apps are available")
+      if (((lower.includes('available') && lower.includes('landing')) ||
+           (lower.includes('landing') && lower.includes('list')) ||
+           lower === "what's available" || lower === "what's available?" || lower === 'whats available' ||
+           (lower.includes('available') && lower.includes('dataset')) ||
+           (lower.includes('available') && !lower.includes('business app') && !lower.includes('business application') && !lower.includes('domain') && !lower.includes('bde') && !lower.includes('term')))) {
         const result = await api.listLanding()
         setLandingDatasets(result.datasets)
         addMessage({
@@ -75,8 +78,8 @@ export default function App() {
           addMessage({ role: 'assistant', content: 'I didn\'t understand that correction. Try: "status is not PII" or "priority values are low, medium, high, critical"', type: 'text' })
         }
       }
-      // Questions about glossary/domains/BAs (can answer anytime)
-      else if (_isGlossaryQuestion(lower)) {
+      // Questions about glossary/domains/BAs (can answer anytime) — but NOT field-specific questions
+      else if (_isGlossaryQuestion(lower) && !_isFieldSpecificQuestion(lower)) {
         const answer = await _answerGlossaryQuestion(lower)
         addMessage({ role: 'assistant', content: answer, type: 'text' })
       }
@@ -132,7 +135,18 @@ export default function App() {
 
 function _isQuestion(text) {
   const questionWords = ['did you', 'can you tell', 'what is', 'what are', 'why', 'how', 'which', 'show me', 'explain', 'tell me', 'is there', 'was the', 'were the', 'has the', 'profile', 'fingerprint', 'confidence', 'reasoning', 'why did']
+  // "what about X" is a discover request, not a question
+  if (text.includes('what about') || text.includes('how about')) return false
   return questionWords.some(q => text.includes(q)) || text.endsWith('?')
+}
+
+function _isFieldSpecificQuestion(text) {
+  // "why is X marked as PII" → result question, not glossary
+  if ((text.includes('marked') || text.includes('why is') || text.includes('why did')) &&
+      (text.includes('pii') || text.includes('unique') || text.includes('key') || text.includes('null'))) {
+    return true
+  }
+  return false
 }
 
 function _answerQuestion(text, suggestion) {
