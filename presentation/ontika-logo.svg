@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <defs>
+    <!-- Gradients -->
+    <radialGradient id="nucleus-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFD700" stop-opacity="1"/>
+      <stop offset="60%" stop-color="#DAA520" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#B8860B" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="core-gradient" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="40%" stop-color="#FFD700"/>
+      <stop offset="100%" stop-color="#DAA520"/>
+    </radialGradient>
+    <linearGradient id="orbit-red" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#DC143C"/>
+      <stop offset="100%" stop-color="#FF4500"/>
+    </linearGradient>
+    <linearGradient id="orbit-blue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E90FF"/>
+      <stop offset="100%" stop-color="#4169E1"/>
+    </linearGradient>
+    <linearGradient id="orbit-gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFD700"/>
+      <stop offset="100%" stop-color="#FFA500"/>
+    </linearGradient>
+    <!-- Shadow -->
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="nucleus-shadow">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background (transparent) -->
+
+  <!-- Outer glow -->
+  <circle cx="200" cy="200" r="90" fill="url(#nucleus-glow)" opacity="0.3"/>
+
+  <!-- Orbital Path 1 (Red) — tilted 0° — Profile -->
+  <ellipse cx="200" cy="200" rx="140" ry="50"
+    fill="none" stroke="url(#orbit-red)" stroke-width="2.5" opacity="0.9"
+    transform="rotate(-30, 200, 200)"/>
+
+  <!-- Orbital Path 2 (Blue) — tilted 60° — Analyze -->
+  <ellipse cx="200" cy="200" rx="140" ry="50"
+    fill="none" stroke="url(#orbit-blue)" stroke-width="2.5" opacity="0.9"
+    transform="rotate(30, 200, 200)"/>
+
+  <!-- Orbital Path 3 (Gold) — tilted 120° — Discover -->
+  <ellipse cx="200" cy="200" rx="140" ry="50"
+    fill="none" stroke="url(#orbit-gold)" stroke-width="2.5" opacity="0.9"
+    transform="rotate(90, 200, 200)"/>
+
+  <!-- Electron particles on orbits -->
+  <!-- Red electron -->
+  <circle cx="320" cy="145" r="8" fill="#DC143C" filter="url(#glow)"/>
+  <circle cx="320" cy="145" r="4" fill="#FFFFFF" opacity="0.8"/>
+
+  <!-- Blue electron -->
+  <circle cx="100" cy="165" r="8" fill="#1E90FF" filter="url(#glow)"/>
+  <circle cx="100" cy="165" r="4" fill="#FFFFFF" opacity="0.8"/>
+
+  <!-- Gold electron -->
+  <circle cx="200" cy="60" r="8" fill="#FFD700" filter="url(#glow)"/>
+  <circle cx="200" cy="60" r="4" fill="#FFFFFF" opacity="0.8"/>
+
+  <!-- Nucleus (center) -->
+  <circle cx="200" cy="200" r="35" fill="url(#core-gradient)" filter="url(#nucleus-shadow)"/>
+  <circle cx="200" cy="200" r="22" fill="#1a237e" opacity="0.9"/>
+  <circle cx="200" cy="200" r="14" fill="#FFD700" opacity="0.9"/>
+  <circle cx="200" cy="200" r="6" fill="#FFFFFF"/>
+
+  <!-- Inner nucleus particles -->
+  <circle cx="190" cy="193" r="5" fill="#DC143C" opacity="0.7"/>
+  <circle cx="210" cy="193" r="5" fill="#1E90FF" opacity="0.7"/>
+  <circle cx="200" cy="210" r="5" fill="#FFD700" opacity="0.7"/>
+
+  <!-- Text: ONTIKA -->
+  <text x="200" y="330" text-anchor="middle"
+    font-family="'Segoe UI', Arial, sans-serif" font-size="42" font-weight="700"
+    fill="#FFFFFF" letter-spacing="6">ONTIKA</text>
+
+  <!-- Tagline -->
+  <text x="200" y="360" text-anchor="middle"
+    font-family="'Segoe UI', Arial, sans-serif" font-size="12" font-weight="300"
+    fill="#B0B0B0" letter-spacing="3">INTELLIGENT DATA DISCOVERY</text>
+</svg>

@@ -16,11 +16,20 @@ export default function ChatPanel({ messages, onSend, loading }) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-gray-850">
+    <div className="flex flex-col h-full bg-[#0a0e1a]">
       {/* Header */}
-      <div className="p-3 border-b border-gray-700 bg-gray-800">
-        <h2 className="text-sm font-bold text-white">🔍 Semantic Discovery</h2>
-        <p className="text-xs text-gray-400">Talk naturally — I'll discover, profile, and onboard.</p>
+      <div className="p-3 border-b border-[#1e2a4a] bg-[#0f1524]">
+        <div className="flex items-center gap-2">
+          <svg width="20" height="20" viewBox="0 0 64 64">
+            <ellipse cx="32" cy="32" rx="28" ry="10" fill="none" stroke="#DC143C" strokeWidth="2" transform="rotate(-30, 32, 32)" opacity="0.9"/>
+            <ellipse cx="32" cy="32" rx="28" ry="10" fill="none" stroke="#1E90FF" strokeWidth="2" transform="rotate(30, 32, 32)" opacity="0.9"/>
+            <ellipse cx="32" cy="32" rx="28" ry="10" fill="none" stroke="#FFD700" strokeWidth="2" transform="rotate(90, 32, 32)" opacity="0.9"/>
+            <circle cx="32" cy="32" r="6" fill="#1a237e"/>
+            <circle cx="32" cy="32" r="3" fill="#FFD700"/>
+          </svg>
+          <h2 className="text-sm font-bold text-white">Ontika</h2>
+        </div>
+        <p className="text-xs text-gray-500 mt-0.5">Intelligent Data Discovery · BT Data Fabric</p>
       </div>
 
       {/* Messages */}
@@ -49,19 +58,19 @@ export default function ChatPanel({ messages, onSend, loading }) {
       </div>
 
       {/* Input */}
-      <form onSubmit={handleSubmit} className="p-3 border-t border-gray-700 bg-gray-800">
+      <form onSubmit={handleSubmit} className="p-3 border-t border-[#1e2a4a] bg-[#0f1524]">
         <div className="flex gap-2">
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="e.g., Onboard customer complaints..."
+            placeholder="Ask anything or onboard a dataset..."
             disabled={loading}
-            className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
+            className="flex-1 px-3 py-2 bg-[#1a2035] border border-[#2a3a5a] rounded-lg text-sm text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
           />
           <button
             type="submit"
             disabled={loading || !input.trim()}
-            className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-3 py-2 bg-gradient-to-r from-red-600 to-blue-600 text-white rounded-lg text-sm hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             →
           </button>
@@ -72,7 +81,7 @@ export default function ChatPanel({ messages, onSend, loading }) {
               key={q}
               type="button"
               onClick={() => { setInput(q); }}
-              className="px-1.5 py-0.5 text-xs text-gray-400 bg-gray-700 rounded hover:bg-gray-600 hover:text-white"
+              className="px-1.5 py-0.5 text-xs text-gray-500 bg-[#1a2035] border border-[#2a3a5a] rounded hover:bg-[#1e2a4a] hover:text-white"
             >
               {q}
             </button>

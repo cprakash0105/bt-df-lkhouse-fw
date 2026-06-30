@@ -2,17 +2,23 @@ import React, { useState, useRef, useEffect } from 'react'
 import { api } from './api'
 import DataPanel from './components/DataPanel'
 import ChatPanel from './components/ChatPanel'
+import LandingPage from './components/LandingPage'
 
 export default function App() {
+  const [started, setStarted] = useState(false)
   const [messages, setMessages] = useState([
-    { role: 'assistant', content: 'Hi! I\'m Semantic Discovery. Tell me what you\'d like to onboard — just say the dataset name or ask what\'s available in landing.', type: 'text' }
+    { role: 'assistant', content: 'Hi! I\'m **Ontika** — your intelligent data discovery assistant.\n\nI can help you:\n• Onboard datasets from the landing zone\n• Answer questions about the Knowledge Catalog\n• Profile data and suggest DQ rules\n• Browse domains, BDEs, and business applications\n\nWhat would you like to do?', type: 'text' }
   ])
   const [suggestion, setSuggestion] = useState(null)
-  const [profileData, setProfileData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [landingDatasets, setLandingDatasets] = useState(null)
 
   const addMessage = (msg) => setMessages(prev => [...prev, msg])
+
+  // Show landing page first
+  if (!started) {
+    return <LandingPage onStart={() => setStarted(true)} />
+  }
 
   const handleSend = async (text) => {
     if (!text.trim()) return
@@ -37,7 +43,7 @@ export default function App() {
         })
       }
       // Command: approve
-      else if (lower === 'approve' || lower === 'approve all' || lower.includes('approve')) {
+      else if (lower === 'approve' || lower === 'approve all' || (lower.includes('approve') && !lower.includes('business'))) {
         if (!suggestion) {
           addMessage({ role: 'assistant', content: 'Nothing to approve yet. Discover a dataset first.', type: 'text' })
         } else {
@@ -58,7 +64,9 @@ export default function App() {
         }
       }
       // Command: generate config
-      else if (lower.includes('config') || lower.includes('yaml') || lower.includes('generate')) {
+      else if (lower === 'show config' || lower === 'generate config' || lower === 'generate the yaml' ||
+               (lower.includes('config') && lower.includes('generate')) ||
+               (lower.includes('yaml') && lower.includes('generate'))) {
         if (!suggestion) {
           addMessage({ role: 'assistant', content: 'No active discovery. Tell me what to onboard first.', type: 'text' })
         } else {
@@ -97,7 +105,6 @@ export default function App() {
         addMessage({ role: 'assistant', content: 'Discovering...', type: 'loading' })
         const result = await api.discover({ text })
         setSuggestion(result)
-        // Remove the loading message
         setMessages(prev => prev.filter(m => m.type !== 'loading'))
         addMessage({
           role: 'assistant',
@@ -106,7 +113,7 @@ export default function App() {
             `• Business App: ${result.business_application || '?'} (${Math.round(result.app_confidence * 100)}%)\n` +
             `• Primary Key: \`${result.primary_key}\`\n` +
             `• PII fields: ${result.fields.filter(f => f.is_pii).map(f => f.name).join(', ') || 'none'}\n\n` +
-            `Review the results on the left. Say **approve** when ready, or correct anything (e.g., "status is not PII").`,
+            `Review the results on the left. Say **approve** when ready, or correct anything.`,
           type: 'text'
         })
       }
@@ -119,72 +126,21 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-900">
+    <div className="flex h-screen bg-[#0a0e1a]">
       {/* Left: Data Panel (wide) */}
-      <div className="flex-1 overflow-auto border-r border-gray-700">
+      <div className="flex-1 overflow-auto border-r border-[#1e2a4a]">
         <DataPanel suggestion={suggestion} landingDatasets={landingDatasets} />
       </div>
 
       {/* Right: Chat Panel (narrow) */}
-      <div className="w-[400px] flex flex-col">
+      <div className="w-[420px] flex flex-col border-l border-[#1e2a4a]">
         <ChatPanel messages={messages} onSend={handleSend} loading={loading} />
       </div>
     </div>
   )
 }
 
-function _isQuestion(text) {
-  const questionWords = ['did you', 'can you tell', 'what is', 'what are', 'why', 'how', 'which', 'show me', 'explain', 'tell me', 'is there', 'was the', 'were the', 'has the', 'profile', 'fingerprint', 'confidence', 'reasoning', 'why did']
-  // "what about X" is a discover request, not a question
-  if (text.includes('what about') || text.includes('how about')) return false
-  return questionWords.some(q => text.includes(q)) || text.endsWith('?')
-}
-
-function _isFieldSpecificQuestion(text) {
-  // "why is X marked as PII" → result question, not glossary
-  if ((text.includes('marked') || text.includes('why is') || text.includes('why did')) &&
-      (text.includes('pii') || text.includes('unique') || text.includes('key') || text.includes('null'))) {
-    return true
-  }
-  return false
-}
-
-function _answerQuestion(text, suggestion) {
-  if (text.includes('profile') || text.includes('fingerprint')) {
-    const profiledFields = suggestion.fields.filter(f => f.reasoning?.some(r => r.startsWith('PROFILE')))
-    if (profiledFields.length > 0) {
-      return `Yes, I profiled the data from GCS landing. ${profiledFields.length} fields had profile evidence:\n\n` +
-        profiledFields.map(f => {
-          const profileReasoning = f.reasoning.filter(r => r.startsWith('PROFILE'))
-          return `• **${f.name}**: ${profileReasoning[0]}`
-        }).join('\n')
-    } else {
-      return 'No profile evidence was found for this dataset. This could mean:\n• No landing data exists at `gs://bucket/landing/' + suggestion.asset_name + '/`\n• The GCS client couldn\'t connect\n\nThe discovery used KG synonym match + rules + embeddings only.'
-    }
-  }
-  if (text.includes('pii')) {
-    const piiFields = suggestion.fields.filter(f => f.is_pii)
-    if (piiFields.length > 0) {
-      return `PII fields detected:\n\n` + piiFields.map(f => {
-        const reason = f.reasoning?.find(r => r.toLowerCase().includes('pii')) || 'matched PII BDE'
-        return `• **${f.name}**: ${reason}`
-      }).join('\n') + '\n\nTo correct: say "<field_name> is not PII"'
-    }
-    return 'No PII fields detected in this dataset.'
-  }
-  if (text.includes('confidence') || text.includes('why')) {
-    const field = suggestion.fields.find(f => text.includes(f.name))
-    if (field) {
-      return `**${field.name}** (confidence: ${Math.round(field.confidence * 100)}%):\n\n` +
-        (field.reasoning || []).map(r => `• ${r}`).join('\n')
-    }
-    return 'Ask about a specific field, e.g., "why did you mark resolution_date as PII?"'
-  }
-  if (text.includes('domain') || text.includes('business app')) {
-    return `• Domain: **${suggestion.data_domain || 'unknown'}**\n• Business Application: **${suggestion.business_application || 'unknown'}** (${Math.round(suggestion.app_confidence * 100)}% confidence)\n\nThis was inferred from field names and dataset name matching against known application keywords.`
-  }
-  return `Currently viewing **${suggestion.asset_name}** (${suggestion.fields.length} fields). You can:\n• Ask: "why is X marked as PII?"\n• Correct: "X is not PII" or "X values are a, b, c"\n• Approve: "approve"\n• Move on: "onboard <next dataset>"`
-}
+// --- Helpers ---
 
 function _isGlossaryQuestion(text) {
   return text.includes('business application') || text.includes('business app') ||
@@ -197,6 +153,14 @@ function _isGlossaryQuestion(text) {
     (text.includes('list') && (text.includes('application') || text.includes('domain') || text.includes('term') || text.includes('dataset')))
 }
 
+function _isFieldSpecificQuestion(text) {
+  if ((text.includes('marked') || text.includes('why is') || text.includes('why did')) &&
+      (text.includes('pii') || text.includes('unique') || text.includes('key') || text.includes('null'))) {
+    return true
+  }
+  return false
+}
+
 async function _answerGlossaryQuestion(text) {
   try {
     const result = await api.askCatalog(text)
@@ -204,6 +168,42 @@ async function _answerGlossaryQuestion(text) {
   } catch (e) {
     return `Could not query catalog: ${e.message}`
   }
+}
+
+function _isQuestion(text) {
+  const questionWords = ['did you', 'can you tell', 'what is', 'what are', 'why', 'how', 'which', 'show me', 'explain', 'tell me', 'is there', 'was the', 'were the', 'has the', 'profile', 'fingerprint', 'confidence', 'reasoning', 'why did']
+  if (text.includes('what about') || text.includes('how about')) return false
+  return questionWords.some(q => text.includes(q)) || text.endsWith('?')
+}
+
+function _answerQuestion(text, suggestion) {
+  if (text.includes('profile') || text.includes('fingerprint')) {
+    const profiledFields = suggestion.fields.filter(f => f.reasoning?.some(r => r.startsWith('PROFILE')))
+    if (profiledFields.length > 0) {
+      return `Yes, I profiled the data from GCS landing. ${profiledFields.length} fields had profile evidence:\n\n` +
+        profiledFields.map(f => {
+          const profileReasoning = f.reasoning.filter(r => r.startsWith('PROFILE'))
+          return `• **${f.name}**: ${profileReasoning[0]}`
+        }).join('\n')
+    }
+    return 'No profile evidence was found. The profiler service may not have been reachable.'
+  }
+  if (text.includes('pii')) {
+    const piiFields = suggestion.fields.filter(f => f.is_pii)
+    if (piiFields.length > 0) {
+      return `PII fields:\n\n` + piiFields.map(f => `• **${f.name}**: ${f.reasoning?.find(r => r.toLowerCase().includes('pii')) || 'matched PII BDE'}`).join('\n') + '\n\nTo correct: "field_name is not PII"'
+    }
+    return 'No PII fields detected.'
+  }
+  if (text.includes('confidence') || text.includes('why')) {
+    const field = suggestion.fields.find(f => text.includes(f.name))
+    if (field) {
+      return `**${field.name}** (confidence: ${Math.round(field.confidence * 100)}%):\n\n` +
+        (field.reasoning || []).map(r => `• ${r}`).join('\n')
+    }
+    return 'Ask about a specific field, e.g., "why did you mark resolution_date as PII?"'
+  }
+  return `Currently viewing **${suggestion.asset_name}** (${suggestion.fields.length} fields). You can:\n• Ask: "why is X marked as PII?"\n• Correct: "X is not PII"\n• Approve: "approve"\n• Next: "onboard <dataset>"`
 }
 
 function _isCorrection(text) {

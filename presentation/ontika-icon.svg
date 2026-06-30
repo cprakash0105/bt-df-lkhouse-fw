@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <radialGradient id="core" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="40%" stop-color="#FFD700"/>
+      <stop offset="100%" stop-color="#DAA520"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Orbits -->
+  <ellipse cx="32" cy="32" rx="28" ry="10" fill="none" stroke="#DC143C" stroke-width="1.5" transform="rotate(-30, 32, 32)" opacity="0.9"/>
+  <ellipse cx="32" cy="32" rx="28" ry="10" fill="none" stroke="#1E90FF" stroke-width="1.5" transform="rotate(30, 32, 32)" opacity="0.9"/>
+  <ellipse cx="32" cy="32" rx="28" ry="10" fill="none" stroke="#FFD700" stroke-width="1.5" transform="rotate(90, 32, 32)" opacity="0.9"/>
+
+  <!-- Electrons -->
+  <circle cx="56" cy="22" r="3" fill="#DC143C"/>
+  <circle cx="10" cy="26" r="3" fill="#1E90FF"/>
+  <circle cx="32" cy="4" r="3" fill="#FFD700"/>
+
+  <!-- Nucleus -->
+  <circle cx="32" cy="32" r="9" fill="url(#core)"/>
+  <circle cx="32" cy="32" r="6" fill="#1a237e"/>
+  <circle cx="32" cy="32" r="3" fill="#FFD700"/>
+  <circle cx="32" cy="32" r="1.5" fill="#FFFFFF"/>
+</svg>
