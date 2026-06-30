@@ -1,0 +1,16 @@
+node_modules
+discovery/web/node_modules
+.git
+__pycache__
+*.pyc
+.env
+diagrams/
+presentation/
+*.md
+*.drawio
+*.png
+*.zip
+*.docx
+*.xlsx
+*.pdf
+*.vtt.txt
