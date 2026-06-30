@@ -18,6 +18,7 @@ export const api = {
   health: () => request('/health'),
   glossary: () => request('/glossary'),
   searchGlossary: (q) => request(`/glossary/search?q=${encodeURIComponent(q)}`),
+  askCatalog: (question) => request('/ask', { method: 'POST', body: JSON.stringify({ requirement: question }) }),
   applications: () => request('/applications'),
   domains: () => request('/domains'),
 

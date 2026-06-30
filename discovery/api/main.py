@@ -19,6 +19,14 @@ from discovery.engine.embedder import Embedder
 from discovery.engine.suggester import Suggester
 from discovery.engine.config_generator import ConfigGenerator
 from discovery.engine.nl_parser import NLParser
+
+# KC Agent for catalog questions
+try:
+    from discovery.engine.kc_agent import KnowledgeCatalogAgent
+    kc_agent = KnowledgeCatalogAgent(knowledge_graph=kg)
+except Exception as e:
+    print(f"[API] KC Agent init failed: {e}")
+    kc_agent = None
 from discovery.engine.approval_handler import ApprovalHandler
 from discovery.engine.profiler import Profiler
 
@@ -169,6 +177,15 @@ def get_domains():
          "term_count": len(kg.get_terms_by_domain(d.id))}
         for d in kg.domains.values()
     ]
+
+
+@app.post("/ask")
+def ask_catalog(req: SQLRequest):
+    """Ask any question about the data catalog. Uses LLM + KC APIs."""
+    if not kc_agent:
+        raise HTTPException(503, "KC Agent not available")
+    answer = kc_agent.answer(req.requirement)
+    return {"answer": answer}
 
 
 @app.post("/discover")

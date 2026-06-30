@@ -174,59 +174,19 @@ function _answerQuestion(text, suggestion) {
 function _isGlossaryQuestion(text) {
   return text.includes('business application') || text.includes('business app') ||
     text.includes('how many') || text.includes('bde') || text.includes('glossary') ||
-    text.includes('domain') && (text.includes('how') || text.includes('what') || text.includes('which') || text.includes('tell') || text.includes('show') || text.includes('list')) ||
-    text.includes('terms') && (text.includes('how many') || text.includes('list') || text.includes('show'))
+    (text.includes('domain') && (text.includes('how') || text.includes('what') || text.includes('which') || text.includes('tell') || text.includes('show') || text.includes('list'))) ||
+    (text.includes('terms') && (text.includes('how many') || text.includes('list') || text.includes('show'))) ||
+    text.includes('pii') || text.includes('dq rule') || text.includes('data quality') ||
+    text.includes('who owns') || text.includes('relationship') || text.includes('linked') ||
+    text.includes('catalog') || text.includes('search for')
 }
 
 async function _answerGlossaryQuestion(text) {
   try {
-    // Fetch glossary and domains from API
-    const [glossary, domains, apps] = await Promise.all([
-      api.glossary(),
-      api.domains(),
-      api.applications(),
-    ])
-
-    if (text.includes('how many') && text.includes('business app')) {
-      // "how many business applications in Credit domain?"
-      const domainMatch = text.match(/(?:in|for|under)\s+(?:the\s+)?([\w\s]+?)\s*(?:domain|$)/i)
-      if (domainMatch) {
-        const domainName = domainMatch[1].trim().toLowerCase()
-        // We don't have BA-to-domain mapping in API yet, so answer from apps
-        const matchingApps = apps.filter(a => 
-          a.keywords?.some(k => k.toLowerCase().includes(domainName)) ||
-          a.name.toLowerCase().includes(domainName)
-        )
-        return `Found **${matchingApps.length} business application(s)** related to "${domainMatch[1].trim()}":\n\n` +
-          matchingApps.map(a => `• **${a.name}** — ${a.description}`).join('\n') +
-          (matchingApps.length === 0 ? '\n\nNo direct match found. Available BAs:\n' + apps.map(a => `• ${a.name}`).join('\n') : '')
-      }
-      return `There are **${apps.length} business applications** total:\n\n` +
-        apps.map(a => `• **${a.name}** — ${a.description}`).join('\n')
-    }
-
-    if (text.includes('domain')) {
-      return `**Data Domains** (${domains.length}):\n\n` +
-        domains.map(d => `• **${d.name}** — ${d.description} (${d.term_count} terms)`).join('\n')
-    }
-
-    if (text.includes('business app')) {
-      return `**Business Applications** (${apps.length}):\n\n` +
-        apps.map(a => `• **${a.name}** — ${a.description}\n  Keywords: ${a.keywords?.join(', ')}`).join('\n')
-    }
-
-    if (text.includes('glossary') || text.includes('bde') || text.includes('terms')) {
-      const totalTerms = Object.values(glossary).flat().length
-      let response = `**Glossary**: ${totalTerms} Business Data Elements across ${Object.keys(glossary).length} domains:\n\n`
-      for (const [domain, terms] of Object.entries(glossary)) {
-        response += `**${domain}** (${terms.length} terms): ${terms.slice(0, 5).map(t => t.name).join(', ')}${terms.length > 5 ? '...' : ''}\n`
-      }
-      return response
-    }
-
-    return `I can answer about:\n• Business applications: "how many business apps?"\n• Domains: "show me the domains"\n• Glossary: "how many BDEs?"\n• Specific domain: "what BDEs are in the Credit domain?"`
+    const result = await api.askCatalog(text)
+    return result.answer
   } catch (e) {
-    return `Could not fetch glossary info: ${e.message}`
+    return `Could not query catalog: ${e.message}`
   }
 }
 
