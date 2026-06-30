@@ -5,25 +5,30 @@ export default function HomePage() {
   const [tree, setTree] = useState(null)
   const [loading, setLoading] = useState(true)
   const [selectedNode, setSelectedNode] = useState(null)
+  const [viewMode, setViewMode] = useState('business') // business | technical
+  const [techTree, setTechTree] = useState(null)
 
   useEffect(() => {
+    // Load business hierarchy
     api.catalogTree()
       .then(data => setTree(data.hierarchy))
       .catch(() => {
-        // Fallback: build tree from glossary API
         buildFallbackTree().then(setTree)
       })
       .finally(() => setLoading(false))
+
+    // Load technical hierarchy (from landing datasets + profiles)
+    loadTechTree().then(setTechTree)
   }, [])
 
   return (
     <div className="flex h-full">
       {/* Left: Hierarchy tree */}
       <div className="flex-1 p-6 overflow-auto">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4">
           <div>
             <h1 className="text-xl font-bold text-white">BT Group — Data Estate</h1>
-            <p className="text-xs text-gray-500 mt-0.5">Business Semantic Hierarchy · Knowledge Catalog</p>
+            <p className="text-xs text-gray-500 mt-0.5">Knowledge Catalog · Ontika</p>
           </div>
           <div className="flex gap-2">
             <Stat label="BDEs" value="40+" />
@@ -32,19 +37,46 @@ export default function HomePage() {
           </div>
         </div>
 
+        {/* View toggle */}
+        <div className="flex gap-1 mb-4 p-0.5 bg-[#0f1524] rounded-lg border border-[#1e2a4a] w-fit">
+          <button
+            onClick={() => setViewMode('business')}
+            className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+              viewMode === 'business'
+                ? 'bg-gradient-to-r from-blue-600/30 to-blue-500/20 text-blue-300 border border-blue-500/30'
+                : 'text-gray-500 hover:text-gray-300'
+            }`}
+          >
+            🏢 Business Semantic
+          </button>
+          <button
+            onClick={() => setViewMode('technical')}
+            className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+              viewMode === 'technical'
+                ? 'bg-gradient-to-r from-green-600/30 to-green-500/20 text-green-300 border border-green-500/30'
+                : 'text-gray-500 hover:text-gray-300'
+            }`}
+          >
+            💾 Technical Assets
+          </button>
+        </div>
+
         {loading ? (
           <div className="text-gray-500 text-sm">Loading catalog hierarchy...</div>
-        ) : tree && tree.length > 0 ? (
-          <div className="space-y-0.5">
-            {/* Org root */}
-            <OrgRoot tree={tree} onSelect={setSelectedNode} />
-          </div>
+        ) : viewMode === 'business' ? (
+          tree && tree.length > 0 ? (
+            <div className="space-y-0.5">
+              <OrgRoot tree={tree} onSelect={setSelectedNode} />
+            </div>
+          ) : (
+            <FallbackView onSelect={setSelectedNode} />
+          )
         ) : (
-          <FallbackView onSelect={setSelectedNode} />
+          <TechnicalTree techTree={techTree} onSelect={setSelectedNode} />
         )}
       </div>
 
-      {/* Right: Detail panel (when a node is selected) */}
+      {/* Right: Detail panel */}
       {selectedNode && (
         <div className="w-[320px] border-l border-[#1e2a4a] p-4 overflow-auto bg-[#0f1524]">
           <DetailPanel node={selectedNode} onClose={() => setSelectedNode(null)} />
@@ -269,7 +301,6 @@ async function buildFallbackTree() {
       api.applications(),
       api.domains(),
     ])
-    // Build a simple tree from API responses
     const tree = [{
       id: 'bt_group',
       name: 'BT Group',
@@ -301,5 +332,145 @@ async function buildFallbackTree() {
     return tree
   } catch {
     return []
+  }
+}
+
+async function loadTechTree() {
+  try {
+    const result = await api.listLanding()
+    const datasets = result.datasets || []
+
+    // Try to load profiles for each dataset
+    const layers = {
+      landing: [],
+      ccn: [],
+      dataproduct: [],
+    }
+
+    for (const ds of datasets) {
+      layers.landing.push({ id: ds, name: ds, type: 'table', children: [] })
+    }
+
+    // Build technical tree
+    return [
+      {
+        id: 'project',
+        name: 'bt-df-lkhouse',
+        type: 'project',
+        children: [
+          {
+            id: 'landing',
+            name: 'Landing Zone (GCS/JSONL)',
+            type: 'layer',
+            layer: 'landing',
+            children: layers.landing,
+          },
+          {
+            id: 'reservoir',
+            name: 'Reservoir (GCS/Parquet)',
+            type: 'layer',
+            layer: 'reservoir',
+            children: [], // populated after ingest
+          },
+          {
+            id: 'ccn',
+            name: 'CCN (Iceberg/BLMS)',
+            type: 'layer',
+            layer: 'ccn',
+            children: [], // populated after curate
+          },
+          {
+            id: 'dataproduct',
+            name: 'Data Products (BigQuery)',
+            type: 'layer',
+            layer: 'dataproduct',
+            children: [
+              { id: 'dp_loan', name: 'loan_eligibility_360', type: 'table', children: [] },
+              { id: 'dp_spend', name: 'customer_spend_360', type: 'table', children: [] },
+              { id: 'dp_health', name: 'customer_health_score', type: 'table', children: [] },
+              { id: 'dp_monitor', name: 'pipeline_monitor', type: 'table', children: [] },
+            ],
+          },
+        ],
+      },
+    ]
+  } catch {
+    return null
+  }
+}
+
+function TechnicalTree({ techTree, onSelect }) {
+  if (!techTree || techTree.length === 0) {
+    return <div className="text-gray-500 text-sm">Loading technical assets...</div>
+  }
+
+  return (
+    <div className="space-y-0.5">
+      {techTree.map(node => (
+        <TechNode key={node.id} node={node} depth={0} onSelect={onSelect} />
+      ))}
+    </div>
+  )
+}
+
+function TechNode({ node, depth, onSelect }) {
+  const [expanded, setExpanded] = useState(depth < 2)
+  const hasChildren = node.children && node.children.length > 0
+
+  const config = {
+    project: { icon: '☁️', color: 'text-white' },
+    layer: { icon: '🗂️', color: layerColor(node.layer) },
+    table: { icon: '📊', color: 'text-gray-300' },
+    column: { icon: '│', color: 'text-gray-400' },
+  }[node.type] || { icon: '•', color: 'text-gray-400' }
+
+  return (
+    <div>
+      <div
+        className={`flex items-center gap-1.5 py-1.5 px-2 rounded cursor-pointer hover:bg-[#1a2035] group`}
+        style={{ paddingLeft: `${depth * 14}px` }}
+      >
+        {hasChildren ? (
+          <button onClick={() => setExpanded(!expanded)} className="text-xs text-gray-500 w-4 hover:text-white">
+            {expanded ? '▼' : '▶'}
+          </button>
+        ) : (
+          <span className="w-4" />
+        )}
+
+        <div className="flex items-center gap-1.5 flex-1" onClick={() => onSelect(node)}>
+          <span className="text-sm">{config.icon}</span>
+          <span className={`text-sm font-mono ${config.color}`}>{node.name}</span>
+          {node.type === 'layer' && node.children && (
+            <span className="text-[9px] text-gray-500">({node.children.length})</span>
+          )}
+          {node.type === 'column' && (
+            <>
+              <span className="text-[9px] text-gray-600">{node.data_type}</span>
+              {node.is_pii && <span className="text-[9px] text-red-400">PII</span>}
+              {node.is_key && <span className="text-[9px] text-yellow-400">🔑</span>}
+            </>
+          )}
+        </div>
+      </div>
+
+      {expanded && hasChildren && (
+        <div>
+          {node.children.map(child => (
+            <TechNode key={child.id} node={child} depth={depth + 1} onSelect={onSelect} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function layerColor(layer) {
+  switch (layer) {
+    case 'landing': return 'text-red-300'
+    case 'reservoir': return 'text-blue-300'
+    case 'ccn': return 'text-yellow-300'
+    case 'dataproduct': return 'text-green-300'
+    default: return 'text-gray-300'
   }
 }
