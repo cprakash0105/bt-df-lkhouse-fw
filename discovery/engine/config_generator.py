@@ -135,8 +135,13 @@ class ConfigGenerator:
         accepted = {}
         for f in fields:
             if f.accepted_values:
+                # Don't set accepted_values for boolean or numeric fields
+                if f.field_type in ("boolean", "integer", "decimal", "double", "float", "int"):
+                    continue
                 accepted[f.field_name] = f.accepted_values
             elif f.dq_rules.get("accepted_values"):
+                if f.field_type in ("boolean", "integer", "decimal", "double", "float", "int"):
+                    continue
                 accepted[f.field_name] = f.dq_rules["accepted_values"]
         if accepted:
             dq["accepted_values"] = accepted
