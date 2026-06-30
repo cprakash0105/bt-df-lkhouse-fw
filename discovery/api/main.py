@@ -95,6 +95,8 @@ class DiscoverRequest(BaseModel):
     yaml_content: Optional[str] = None
     fields: Optional[list[dict]] = None
     name: Optional[str] = None
+    # New: just provide dataset name, SD fetches schema from landing
+    discover_from_landing: Optional[str] = None
 
 class ProfileRequest(BaseModel):
     data: str
@@ -174,13 +176,41 @@ def discover(req: DiscoverRequest):
     """Run full discovery on a dataset definition."""
     asset_def = None
 
-    # Parse from natural language
-    if req.text:
-        asset_def = nl_parser.parse(req.text)
-        if not asset_def or not asset_def.get("fields"):
-            raise HTTPException(400, "Could not parse natural language input")
+    # Mode 1: Discover from landing (just dataset name)
+    if req.discover_from_landing:
+        asset_def = _fetch_schema_from_landing(req.discover_from_landing)
+        if not asset_def:
+            raise HTTPException(404, f"No landing data found for '{req.discover_from_landing}'")
 
-    # Parse from YAML
+    # Mode 2: Parse from natural language
+    elif req.text:
+        # Check if it's just a dataset name (no field descriptions)
+        text_clean = req.text.strip().lower()
+        # If it looks like just a name or "onboard X" / "discover X"
+        potential_name = None
+        for prefix in ["onboard ", "discover ", "new ", "load "]:
+            if text_clean.startswith(prefix):
+                potential_name = text_clean[len(prefix):].strip()
+                break
+        if not potential_name:
+            potential_name = text_clean
+
+        # Clean up the name
+        import re
+        potential_name = re.sub(r'[^a-z0-9_\s]', '', potential_name)
+        potential_name = potential_name.replace(' ', '_').strip('_')
+
+        # Try fetching from landing first
+        if potential_name and '_' in potential_name or len(potential_name.split()) == 1:
+            asset_def = _fetch_schema_from_landing(potential_name)
+
+        # If not found in landing, fall back to NL parsing
+        if not asset_def:
+            asset_def = nl_parser.parse(req.text)
+            if not asset_def or not asset_def.get("fields"):
+                raise HTTPException(400, "Could not parse input or find dataset in landing")
+
+    # Mode 3: Parse from YAML
     elif req.yaml_content:
         import yaml
         try:
@@ -188,12 +218,12 @@ def discover(req: DiscoverRequest):
         except Exception:
             raise HTTPException(400, "Invalid YAML")
 
-    # Direct fields
+    # Mode 4: Direct fields
     elif req.fields and req.name:
         asset_def = {"name": req.name, "fields": req.fields}
 
     if not asset_def or not asset_def.get("fields"):
-        raise HTTPException(400, "Provide text, yaml_content, or name+fields")
+        raise HTTPException(400, "Provide text, yaml_content, name+fields, or discover_from_landing")
 
     suggestion = suggester.full_discovery(asset_def)
 
@@ -355,6 +385,58 @@ def generate_sql(req: SQLRequest):
 
 
 # --- Helpers ---
+
+def _fetch_schema_from_landing(dataset_name: str) -> Optional[dict]:
+    """Fetch schema from landing data in GCS. Returns asset_def dict or None."""
+    import os
+    bucket_name = os.environ.get("CONFIG_BUCKET", "bt-df-lkhouse-lakehouse")
+    prefix = f"landing/{dataset_name}/"
+
+    try:
+        from google.cloud import storage as gcs_storage
+        client = gcs_storage.Client()
+        bucket = client.bucket(bucket_name)
+        blobs = list(bucket.list_blobs(prefix=prefix, max_results=5))
+
+        if not blobs:
+            return None
+
+        # Read first file
+        blob = blobs[0]
+        content = blob.download_as_text()
+        if not content.strip():
+            return None
+
+        # Parse to get field names
+        import json
+        import csv
+        from io import StringIO
+
+        if blob.name.endswith(".csv"):
+            reader = csv.DictReader(StringIO(content))
+            row = next(reader, None)
+            if not row:
+                return None
+            fields = [{"name": k.strip(), "type": "string"} for k in row.keys()]
+        else:
+            # JSONL
+            first_line = content.strip().split("\n")[0]
+            record = json.loads(first_line)
+            fields = [{"name": k, "type": "string"} for k in record.keys()]
+
+        if not fields:
+            return None
+
+        print(f"[API] Fetched schema from landing/{dataset_name}/: {len(fields)} fields")
+        return {"name": dataset_name, "fields": fields}
+
+    except ImportError:
+        print("[API] google-cloud-storage not available")
+        return None
+    except Exception as e:
+        print(f"[API] Failed to fetch schema from landing: {e}")
+        return None
+
 
 def _serialize_suggestion(s) -> dict:
     return {

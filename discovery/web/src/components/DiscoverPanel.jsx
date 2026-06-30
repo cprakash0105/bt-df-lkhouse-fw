@@ -64,7 +64,7 @@ export default function DiscoverPanel({ onResult, onSwitchTab }) {
         onChange={(e) => setInput(e.target.value)}
         placeholder={
           mode === 'natural'
-            ? 'e.g., I have a new CIBIL bureau feed with customer_id, pan_number, cibil_score, enquiry_date, loan_amount...'
+            ? 'Just type the dataset name e.g., customer_complaints — SD will fetch schema from GCS and profile it automatically'
             : mode === 'yaml'
             ? 'name: cibil_bureau_feed\nfields:\n  - name: customer_id\n    type: string\n  - name: cibil_score\n    type: integer'
             : 'discover domain Insurance:\n1. motor_policy: policy_id, customer_id, vehicle_reg, premium_amount, start_date, status\n2. motor_claims: claim_id, policy_id, claim_date, claim_amount, status'
@@ -97,22 +97,30 @@ export default function DiscoverPanel({ onResult, onSwitchTab }) {
 
       {/* Quick examples */}
       <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-        <h3 className="text-sm font-medium text-gray-600 mb-2">Quick Examples</h3>
+        <h3 className="text-sm font-medium text-gray-600 mb-2">Quick Examples — Just type the dataset name</h3>
         <div className="flex flex-wrap gap-2">
           {[
-            'New e-KYC feed with customer_id, aadhaar_number, kyc_status, full_name, address, consent_timestamp',
-            'UPI transactions: transaction_id, payer_vpa, payee_vpa, amount, transaction_date, status, device_id',
-            'Customer complaints with complaint_id, customer_id, channel, category, priority, status, csat_score',
+            'cibil_bureau_feed',
+            'ekyc_provider_feed',
+            'upi_transactions',
+            'customer_complaints',
+            'loan_repayment_schedule',
+            'card_transactions',
+            'motor_policy',
+            'motor_claims',
+            'vehicle_master',
+            'premium_payments',
           ].map((ex, i) => (
             <button
               key={i}
               onClick={() => { setInput(ex); setMode('natural') }}
-              className="px-2 py-1 text-xs bg-white border border-gray-200 rounded hover:bg-blue-50 text-left"
+              className="px-2 py-1 text-xs bg-white border border-gray-200 rounded hover:bg-blue-50"
             >
-              {ex.slice(0, 60)}...
+              {ex}
             </button>
           ))}
         </div>
+        <p className="mt-2 text-xs text-gray-500">SD will auto-fetch schema + data from GCS landing and profile it.</p>
       </div>
     </div>
   )
