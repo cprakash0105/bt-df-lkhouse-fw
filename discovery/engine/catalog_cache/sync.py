@@ -21,7 +21,7 @@ from discovery.engine.catalog_cache import CatalogCache
 CFUS = {
     "consumer_banking": {
         "name": "Consumer Banking",
-        "domains": ["credit", "customer", "finance", "order", "digital", "bureau"],
+        "domains": ["bureau", "customer", "finance", "order", "digital"],
     },
     "enterprise_services": {
         "name": "Enterprise Services",

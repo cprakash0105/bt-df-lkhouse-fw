@@ -9,7 +9,11 @@ export default function HomePage() {
   const [techTree, setTechTree] = useState(null)
 
   useEffect(() => {
-    // Load business hierarchy
+    loadCatalog()
+  }, [])
+
+  const loadCatalog = () => {
+    setLoading(true)
     api.catalogTree()
       .then(data => setTree(data.hierarchy))
       .catch(() => {
@@ -17,9 +21,19 @@ export default function HomePage() {
       })
       .finally(() => setLoading(false))
 
-    // Load technical hierarchy (from landing datasets + profiles)
     loadTechTree().then(setTechTree)
-  }, [])
+  }
+
+  const handleRefresh = async () => {
+    setLoading(true)
+    try {
+      await api.catalogSync()
+      await loadCatalog()
+    } catch (e) {
+      // Fallback reload
+      loadCatalog()
+    }
+  }
 
   return (
     <div className="flex h-full">
@@ -30,10 +44,18 @@ export default function HomePage() {
             <h1 className="text-xl font-bold text-white">The Enterprise Catalog</h1>
             <p className="text-xs text-gray-500 mt-0.5">Find, understand and explore data</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
             <Stat label="BDEs" value="40+" />
             <Stat label="BAs" value="14" />
             <Stat label="Domains" value="9" />
+            <button
+              onClick={handleRefresh}
+              disabled={loading}
+              className="px-2 py-1 text-xs bg-[#1a2035] border border-[#2a3a5a] rounded text-gray-400 hover:text-white hover:border-blue-500/50 disabled:opacity-50"
+              title="Sync catalog from glossary"
+            >
+              {loading ? '⏳' : '🔄'} Refresh
+            </button>
           </div>
         </div>
 
