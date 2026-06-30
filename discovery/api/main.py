@@ -19,14 +19,6 @@ from discovery.engine.embedder import Embedder
 from discovery.engine.suggester import Suggester
 from discovery.engine.config_generator import ConfigGenerator
 from discovery.engine.nl_parser import NLParser
-
-# KC Agent for catalog questions
-try:
-    from discovery.engine.kc_agent import KnowledgeCatalogAgent
-    kc_agent = KnowledgeCatalogAgent(knowledge_graph=kg)
-except Exception as e:
-    print(f"[API] KC Agent init failed: {e}")
-    kc_agent = None
 from discovery.engine.approval_handler import ApprovalHandler
 from discovery.engine.profiler import Profiler
 
@@ -57,6 +49,14 @@ try:
     approval_handler = ApprovalHandler()
 except Exception:
     approval_handler = None
+
+# KC Agent for catalog questions (must be after kg init)
+try:
+    from discovery.engine.kc_agent import KnowledgeCatalogAgent
+    kc_agent = KnowledgeCatalogAgent(knowledge_graph=kg)
+except Exception as e:
+    print(f"[API] KC Agent init failed: {e}")
+    kc_agent = None
 
 app = FastAPI(title="Semantic Discovery API", version="1.0.0")
 
