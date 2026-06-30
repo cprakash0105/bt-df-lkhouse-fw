@@ -550,18 +550,24 @@ def _resolve_from_text(text: str) -> Optional[dict]:
             if score > best_score:
                 best_score = score
                 best_match = ds_name
-        # Check word overlap
+        # Check word overlap (including partial word matches)
         else:
             words_input = set(extracted_clean.split('_'))
             words_ds = set(ds_lower.split('_'))
+            # Full word overlap
             overlap = words_input & words_ds
+            # Also check if any input word is a prefix of a ds word or vice versa
+            for wi in words_input:
+                for wd in words_ds:
+                    if wi.startswith(wd) or wd.startswith(wi) and len(min(wi, wd, key=len)) >= 2:
+                        overlap.add(wi)
             if overlap:
                 score = len(overlap) / max(len(words_input), len(words_ds))
                 if score > best_score:
                     best_score = score
                     best_match = ds_name
 
-    if best_match and best_score >= 0.4:
+    if best_match and best_score >= 0.25:
         print(f"[API] Fuzzy matched '{text_clean}' → '{best_match}' (score: {best_score:.0%})")
         return _fetch_schema_from_landing(best_match)
 
@@ -577,9 +583,10 @@ def _resolve_from_text(text: str) -> Optional[dict]:
                 f"If multiple match, return the most likely one. If none match, return NONE."
             )
             response = get_llm().generate(
-                system="You match user requests to dataset names. Return only the dataset name.",
+                system="You match user requests to dataset names. Return only the dataset name from the list. If none match return NONE.",
                 user=prompt,
-                max_tokens=50
+                max_tokens=50,
+                temperature=0.0,
             )
             if response and response != "__QUOTA_EXCEEDED__":
                 llm_name = response.strip().strip('"\' ')
