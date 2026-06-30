@@ -56,14 +56,28 @@ def _is_field_specific_question(text):
 
 
 def is_glossary_question(text):
-    return ('business application' in text or 'business app' in text or
+    if ('business application' in text or 'business app' in text or
             'how many' in text or 'bde' in text or 'glossary' in text or
             ('domain' in text and any(w in text for w in ['how', 'what', 'which', 'tell', 'show', 'list'])) or
             ('terms' in text and any(w in text for w in ['how many', 'list', 'show'])) or
             'pii' in text or 'dq rule' in text or 'data quality' in text or
             'who owns' in text or 'relationship' in text or 'linked' in text or
             'catalog' in text or 'search for' in text or
-            ('list' in text and any(w in text for w in ['application', 'domain', 'term', 'dataset'])))
+            ('list' in text and any(w in text for w in ['application', 'domain', 'term', 'dataset']))):
+        return True
+    # Known entity names
+    known_entities = [
+        'credit risk', 'customer management', 'marketing', 'billing', 'finance',
+        'order management', 'product catalog', 'core banking', 'payments hub',
+        'card management', 'loan origination', 'loan management', 'crm', 'aml',
+        'risk engine', 'credit score', 'customer id', 'pan number'
+    ]
+    if any(e in text for e in known_entities):
+        return True
+    if 'inside' in text or 'contents' in text or 'contain' in text or \
+       'belongs to' in text or 'part of' in text or 'under' in text:
+        return True
+    return False
 
 
 def is_question(text):
@@ -162,6 +176,12 @@ TESTS = [
     ("show me business apps in the Credit domain", "GLOSSARY_QUESTION"),  # NOT discover
     ("what about motor claims?", "DISCOVER"),  # should discover, not question
     ("onboard all insurance datasets", "DISCOVER"),  # should discover
+    # New: entity-name and content queries
+    ("What is inside Credit Risk & Lending", "GLOSSARY_QUESTION"),
+    ("what are the contents of Credit Risk & Lending?", "GLOSSARY_QUESTION"),
+    ("tell me about Customer Management", "GLOSSARY_QUESTION"),
+    ("what does Payments Hub contain?", "GLOSSARY_QUESTION"),
+    ("show me what's under Billing & Finance", "GLOSSARY_QUESTION"),
 ]
 
 

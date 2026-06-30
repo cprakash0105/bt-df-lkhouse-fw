@@ -3,38 +3,46 @@ business_applications:
     name: Core Banking System
     domain: Core Banking
     description: Manages accounts, balances, and transactions
+    keywords: [account, balance, transaction, core, banking, ledger, deposit, withdrawal]
 
   - id: APP_PAYMENTS
     name: Payments Hub
     domain: Payments
-    description: Handles NEFT, RTGS, IMPS, SWIFT flows
+    description: Handles NEFT, RTGS, IMPS, SWIFT, UPI payment flows
+    keywords: [payment, neft, rtgs, imps, swift, upi, transfer, settlement, remittance]
 
   - id: APP_CARDS
     name: Card Management System
     domain: Cards
     description: Manages credit/debit card lifecycle
+    keywords: [card, credit_card, debit_card, visa, mastercard, pos, atm, merchant]
 
   - id: APP_LOS
     name: Loan Origination System
     domain: Lending
-    description: Processes loan applications
+    description: Processes loan applications and approvals
+    keywords: [loan, origination, application, sanction, disbursement, eligibility]
 
   - id: APP_LMS
     name: Loan Management System
     domain: Lending
     description: Manages loan repayment and servicing
+    keywords: [loan, repayment, emi, installment, dpd, npa, collection, servicing]
 
   - id: APP_CRM
     name: Customer Relationship Management
     domain: Customer
-    description: Maintains customer profiles
+    description: Maintains customer profiles, complaints, and interactions
+    keywords: [customer, complaint, ticket, interaction, feedback, csat, service]
 
   - id: APP_AML
     name: AML System
     domain: Compliance
-    description: Monitors suspicious transactions
+    description: Monitors suspicious transactions for anti-money laundering
+    keywords: [aml, suspicious, laundering, compliance, sar, kyc, sanction, watchlist]
 
   - id: APP_RISK
     name: Risk Engine
     domain: Risk
     description: Credit scoring and exposure analysis
+    keywords: [risk, scoring, exposure, credit_risk, probability, default, model]

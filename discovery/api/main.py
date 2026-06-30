@@ -323,7 +323,7 @@ def discover_multi(req: MultiDiscoverRequest):
 
 @app.post("/profile")
 def profile_data(req: ProfileRequest):
-    """Profile sample data."""
+    """Profile sample data (pasted)."""
     if req.format == "csv":
         profile = profiler.profile_csv(req.data)
     else:
@@ -334,6 +334,28 @@ def profile_data(req: ProfileRequest):
 
     _session["profile"] = profile
     return _serialize_profile(profile)
+
+
+class DatasetProfileRequest(BaseModel):
+    dataset_name: str
+
+@app.post("/profile/dataset")
+def profile_dataset_from_landing(req: DatasetProfileRequest):
+    """Profile a dataset by calling the Profiler Service."""
+    import urllib.request
+    profiler_url = os.environ.get("PROFILER_SERVICE_URL", "")
+    if not profiler_url:
+        raise HTTPException(503, "Profiler service URL not configured")
+
+    try:
+        url = f"{profiler_url}/profile"
+        payload = json.dumps({"dataset_name": req.dataset_name}).encode()
+        http_req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(http_req, timeout=120) as resp:
+            result = json.loads(resp.read().decode())
+        return result
+    except Exception as e:
+        raise HTTPException(502, f"Profiler service error: {str(e)}")
 
 
 @app.post("/approve")

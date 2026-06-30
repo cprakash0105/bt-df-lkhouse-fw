@@ -1,24 +1,29 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState } from 'react'
 import { api } from './api'
-import DataPanel from './components/DataPanel'
 import ChatPanel from './components/ChatPanel'
-import LandingPage from './components/LandingPage'
+import HomePage from './components/HomePage'
+import DataPanel from './components/DataPanel'
+import CatalogPanel from './components/CatalogPanel'
+import ProfilerPanel from './components/ProfilerPanel'
+
+const VIEWS = {
+  HOME: 'home',
+  RESULTS: 'results',
+  CATALOG: 'catalog',
+  PROFILER: 'profiler',
+}
 
 export default function App() {
-  const [started, setStarted] = useState(false)
+  const [view, setView] = useState(VIEWS.HOME)
   const [messages, setMessages] = useState([
-    { role: 'assistant', content: 'Hi! I\'m **Ontika** — your intelligent data discovery assistant.\n\nI can help you:\n• Onboard datasets from the landing zone\n• Answer questions about the Knowledge Catalog\n• Profile data and suggest DQ rules\n• Browse domains, BDEs, and business applications\n\nWhat would you like to do?', type: 'text' }
+    { role: 'assistant', content: 'Welcome to **Ontika**. I can help you onboard datasets, browse the catalog, run profiling, or answer questions about your data estate.\n\nTry: "What\\'s available?" or "Onboard customer complaints"', type: 'text' }
   ])
   const [suggestion, setSuggestion] = useState(null)
+  const [profileResult, setProfileResult] = useState(null)
   const [loading, setLoading] = useState(false)
   const [landingDatasets, setLandingDatasets] = useState(null)
 
   const addMessage = (msg) => setMessages(prev => [...prev, msg])
-
-  // Show landing page first
-  if (!started) {
-    return <LandingPage onStart={() => setStarted(true)} />
-  }
 
   const handleSend = async (text) => {
     if (!text.trim()) return
@@ -28,12 +33,8 @@ export default function App() {
     const lower = text.toLowerCase().trim()
 
     try {
-      // Command: list landing / what's available (but NOT "what business apps are available")
-      if (((lower.includes('available') && lower.includes('landing')) ||
-           (lower.includes('landing') && lower.includes('list')) ||
-           lower === "what's available" || lower === "what's available?" || lower === 'whats available' ||
-           (lower.includes('available') && lower.includes('dataset')) ||
-           (lower.includes('available') && !lower.includes('business app') && !lower.includes('business application') && !lower.includes('domain') && !lower.includes('bde') && !lower.includes('term')))) {
+      // Landing list
+      if (_isLandingRequest(lower)) {
         const result = await api.listLanding()
         setLandingDatasets(result.datasets)
         addMessage({
@@ -42,7 +43,26 @@ export default function App() {
           type: 'text'
         })
       }
-      // Command: approve
+      // Profile request
+      else if (lower.includes('profile') && (lower.includes('run') || lower.includes('start') || lower.includes('execute'))) {
+        const datasetName = _extractDatasetFromText(lower)
+        if (datasetName) {
+          addMessage({ role: 'assistant', content: `Profiling **${datasetName}**...`, type: 'loading' })
+          const result = await api.profileDataset(datasetName)
+          setProfileResult(result)
+          setView(VIEWS.PROFILER)
+          setMessages(prev => prev.filter(m => m.type !== 'loading'))
+          addMessage({
+            role: 'assistant',
+            content: `Profiled **${result.dataset_name}** — ${result.column_count} fields, ${result.row_count} rows (${result.duration_seconds}s).\n\nView results in the Profiler panel.`,
+            type: 'text'
+          })
+        } else {
+          addMessage({ role: 'assistant', content: 'Which dataset? Say "run profile on customer_complaints" or use the Profiler panel.', type: 'text' })
+          setView(VIEWS.PROFILER)
+        }
+      }
+      // Approve
       else if (lower === 'approve' || lower === 'approve all' || (lower.includes('approve') && !lower.includes('business'))) {
         if (!suggestion) {
           addMessage({ role: 'assistant', content: 'Nothing to approve yet. Discover a dataset first.', type: 'text' })
@@ -61,43 +81,42 @@ export default function App() {
             type: 'text'
           })
           setSuggestion(null)
+          setView(VIEWS.HOME)
         }
       }
-      // Command: generate config
-      else if (lower === 'show config' || lower === 'generate config' || lower === 'generate the yaml' ||
-               (lower.includes('config') && lower.includes('generate')) ||
-               (lower.includes('yaml') && lower.includes('generate'))) {
+      // Generate config
+      else if (lower === 'show config' || lower === 'generate config' || lower === 'generate the yaml') {
         if (!suggestion) {
           addMessage({ role: 'assistant', content: 'No active discovery. Tell me what to onboard first.', type: 'text' })
         } else {
           const result = await api.generateConfig()
-          addMessage({ role: 'assistant', content: `Generated pipeline config:\n\`\`\`yaml\n${result.yaml}\n\`\`\``, type: 'text' })
+          addMessage({ role: 'assistant', content: `\`\`\`yaml\n${result.yaml}\n\`\`\``, type: 'text' })
         }
       }
-      // Command: correction patterns
+      // Corrections
       else if (suggestion && _isCorrection(lower)) {
         const correction = _parseCorrection(lower)
         if (correction) {
           await api.correct(correction.field, correction.action, correction.values)
           const updated = await api.getSuggestion()
           setSuggestion(updated)
-          addMessage({ role: 'assistant', content: `✅ Done — ${correction.field}: ${correction.action}`, type: 'text' })
+          addMessage({ role: 'assistant', content: `✅ ${correction.field}: ${correction.action}`, type: 'text' })
         } else {
-          addMessage({ role: 'assistant', content: 'I didn\'t understand that correction. Try: "status is not PII" or "priority values are low, medium, high, critical"', type: 'text' })
+          addMessage({ role: 'assistant', content: 'Try: "status is not PII" or "priority values are low, medium, high"', type: 'text' })
         }
       }
-      // Questions about glossary/domains/BAs (can answer anytime) — but NOT field-specific questions
+      // Catalog/glossary questions
       else if (_isGlossaryQuestion(lower) && !_isFieldSpecificQuestion(lower)) {
         const answer = await _answerGlossaryQuestion(lower)
         addMessage({ role: 'assistant', content: answer, type: 'text' })
       }
-      // Questions about current results (don't trigger discovery)
+      // Questions about current results
       else if (_isQuestion(lower)) {
         if (suggestion) {
           const answer = _answerQuestion(lower, suggestion)
           addMessage({ role: 'assistant', content: answer, type: 'text' })
         } else {
-          addMessage({ role: 'assistant', content: 'No active discovery yet. Try: "What\'s available?" or "Onboard <dataset_name>"', type: 'text' })
+          addMessage({ role: 'assistant', content: 'No active discovery. Try onboarding a dataset first.', type: 'text' })
         }
       }
       // Default: discover
@@ -105,6 +124,7 @@ export default function App() {
         addMessage({ role: 'assistant', content: 'Discovering...', type: 'loading' })
         const result = await api.discover({ text })
         setSuggestion(result)
+        setView(VIEWS.RESULTS)
         setMessages(prev => prev.filter(m => m.type !== 'loading'))
         addMessage({
           role: 'assistant',
@@ -112,8 +132,8 @@ export default function App() {
             `• Domain: ${result.data_domain || '?'}\n` +
             `• Business App: ${result.business_application || '?'} (${Math.round(result.app_confidence * 100)}%)\n` +
             `• Primary Key: \`${result.primary_key}\`\n` +
-            `• PII fields: ${result.fields.filter(f => f.is_pii).map(f => f.name).join(', ') || 'none'}\n\n` +
-            `Review the results on the left. Say **approve** when ready, or correct anything.`,
+            `• PII: ${result.fields.filter(f => f.is_pii).map(f => f.name).join(', ') || 'none'}\n\n` +
+            `Say **approve** when ready, or correct anything.`,
           type: 'text'
         })
       }
@@ -125,40 +145,139 @@ export default function App() {
     }
   }
 
-  return (
-    <div className="flex h-screen bg-[#0a0e1a]">
-      {/* Left: Data Panel (wide) */}
-      <div className="flex-1 overflow-auto border-r border-[#1e2a4a]">
-        <DataPanel suggestion={suggestion} landingDatasets={landingDatasets} />
-      </div>
+  // Render main panel based on current view
+  const renderMainPanel = () => {
+    switch (view) {
+      case VIEWS.RESULTS:
+        return <DataPanel suggestion={suggestion} landingDatasets={landingDatasets} />
+      case VIEWS.CATALOG:
+        return <CatalogPanel />
+      case VIEWS.PROFILER:
+        return <ProfilerPanel profileResult={profileResult} setProfileResult={setProfileResult} />
+      default:
+        return <HomePage landingDatasets={landingDatasets} />
+    }
+  }
 
-      {/* Right: Chat Panel (narrow) */}
-      <div className="w-[420px] flex flex-col border-l border-[#1e2a4a]">
-        <ChatPanel messages={messages} onSend={handleSend} loading={loading} />
+  return (
+    <div className="flex flex-col h-screen bg-[#0a0e1a]">
+      {/* Top Nav */}
+      <header className="flex items-center justify-between px-4 py-2 border-b border-[#1e2a4a] bg-[#0f1524]">
+        <div className="flex items-center gap-3">
+          <AtomIcon />
+          <span className="text-lg font-bold text-white tracking-wider">ONTIKA</span>
+          <span className="text-[10px] text-gray-500 tracking-[2px] hidden sm:inline">INTELLIGENT DATA DISCOVERY</span>
+        </div>
+
+        {/* Nav buttons */}
+        <nav className="flex items-center gap-1">
+          {[
+            { id: VIEWS.HOME, label: 'Home', icon: '🏠' },
+            { id: VIEWS.CATALOG, label: 'Catalog', icon: '📖' },
+            { id: VIEWS.PROFILER, label: 'Profiler', icon: '📊' },
+            { id: VIEWS.RESULTS, label: 'Results', icon: '🔍' },
+          ].map(({ id, label, icon }) => (
+            <button
+              key={id}
+              onClick={() => setView(id)}
+              className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+                view === id
+                  ? 'bg-gradient-to-r from-red-600/20 to-blue-600/20 text-white border border-blue-500/30'
+                  : 'text-gray-400 hover:text-white hover:bg-[#1a2035]'
+              }`}
+            >
+              {icon} {label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="text-right hidden sm:block">
+          <p className="text-xs text-gray-500">BT Data Fabric</p>
+          <p className="text-[10px] text-gray-600">GCP · europe-west2</p>
+        </div>
+      </header>
+
+      {/* Main content */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left: Main Panel */}
+        <div className="flex-1 overflow-auto">
+          {renderMainPanel()}
+        </div>
+
+        {/* Right: Assistant (always visible) */}
+        <div className="w-[380px] border-l border-[#1e2a4a] flex flex-col">
+          <ChatPanel messages={messages} onSend={handleSend} loading={loading} />
+        </div>
       </div>
     </div>
   )
 }
 
-// --- Helpers ---
+// --- Atom Icon ---
+function AtomIcon() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 64 64">
+      <ellipse cx="32" cy="32" rx="28" ry="10" fill="none" stroke="#DC143C" strokeWidth="1.8" transform="rotate(-30, 32, 32)" opacity="0.9"/>
+      <ellipse cx="32" cy="32" rx="28" ry="10" fill="none" stroke="#1E90FF" strokeWidth="1.8" transform="rotate(30, 32, 32)" opacity="0.9"/>
+      <ellipse cx="32" cy="32" rx="28" ry="10" fill="none" stroke="#FFD700" strokeWidth="1.8" transform="rotate(90, 32, 32)" opacity="0.9"/>
+      <circle cx="32" cy="32" r="6" fill="#1a237e"/>
+      <circle cx="32" cy="32" r="3" fill="#FFD700"/>
+      <circle cx="32" cy="32" r="1.5" fill="#FFFFFF"/>
+    </svg>
+  )
+}
+
+// --- Intent Helpers ---
+
+function _isLandingRequest(text) {
+  return ((text.includes('available') && text.includes('landing')) ||
+    (text.includes('landing') && text.includes('list')) ||
+    text === "what's available" || text === "what's available?" || text === 'whats available' ||
+    (text.includes('available') && text.includes('dataset')) ||
+    (text.includes('available') && !text.includes('business app') && !text.includes('business application') && !text.includes('domain') && !text.includes('bde') && !text.includes('term')))
+}
+
+function _extractDatasetFromText(text) {
+  const patterns = [
+    /profile\s+(?:on\s+)?(?:the\s+)?([a-z_]+)/,
+    /run\s+profile\s+(?:on\s+)?(?:the\s+)?([a-z_]+)/,
+    /profile\s+(.+?)(?:\s+data|\s+dataset)?$/,
+  ]
+  for (const p of patterns) {
+    const m = text.match(p)
+    if (m) return m[1].trim().replace(/\s+/g, '_')
+  }
+  return null
+}
 
 function _isGlossaryQuestion(text) {
-  return text.includes('business application') || text.includes('business app') ||
+  if (text.includes('business application') || text.includes('business app') ||
     text.includes('how many') || text.includes('bde') || text.includes('glossary') ||
     (text.includes('domain') && (text.includes('how') || text.includes('what') || text.includes('which') || text.includes('tell') || text.includes('show') || text.includes('list'))) ||
     (text.includes('terms') && (text.includes('how many') || text.includes('list') || text.includes('show'))) ||
     text.includes('pii') || text.includes('dq rule') || text.includes('data quality') ||
     text.includes('who owns') || text.includes('relationship') || text.includes('linked') ||
     text.includes('catalog') || text.includes('search for') ||
-    (text.includes('list') && (text.includes('application') || text.includes('domain') || text.includes('term') || text.includes('dataset')))
-}
-
-function _isFieldSpecificQuestion(text) {
-  if ((text.includes('marked') || text.includes('why is') || text.includes('why did')) &&
-      (text.includes('pii') || text.includes('unique') || text.includes('key') || text.includes('null'))) {
+    (text.includes('list') && (text.includes('application') || text.includes('domain') || text.includes('term') || text.includes('dataset')))) {
+    return true
+  }
+  const knownEntities = [
+    'credit risk', 'customer management', 'marketing', 'billing', 'finance',
+    'order management', 'product catalog', 'core banking', 'payments hub',
+    'card management', 'loan origination', 'loan management', 'crm', 'aml',
+    'risk engine', 'credit score', 'customer id', 'pan number'
+  ]
+  if (knownEntities.some(e => text.includes(e))) return true
+  if (text.includes('inside') || text.includes('contents') || text.includes('contain') ||
+      text.includes('belongs to') || text.includes('part of') || text.includes('under')) {
     return true
   }
   return false
+}
+
+function _isFieldSpecificQuestion(text) {
+  return (text.includes('marked') || text.includes('why is') || text.includes('why did')) &&
+    (text.includes('pii') || text.includes('unique') || text.includes('key') || text.includes('null'))
 }
 
 async function _answerGlossaryQuestion(text) {
@@ -171,64 +290,42 @@ async function _answerGlossaryQuestion(text) {
 }
 
 function _isQuestion(text) {
-  const questionWords = ['did you', 'can you tell', 'what is', 'what are', 'why', 'how', 'which', 'show me', 'explain', 'tell me', 'is there', 'was the', 'were the', 'has the', 'profile', 'fingerprint', 'confidence', 'reasoning', 'why did']
+  const qw = ['did you', 'can you tell', 'what is', 'what are', 'why', 'how', 'which', 'show me', 'explain', 'tell me', 'is there', 'profile', 'fingerprint', 'confidence', 'reasoning', 'why did']
   if (text.includes('what about') || text.includes('how about')) return false
-  return questionWords.some(q => text.includes(q)) || text.endsWith('?')
+  return qw.some(q => text.includes(q)) || text.endsWith('?')
 }
 
 function _answerQuestion(text, suggestion) {
   if (text.includes('profile') || text.includes('fingerprint')) {
-    const profiledFields = suggestion.fields.filter(f => f.reasoning?.some(r => r.startsWith('PROFILE')))
-    if (profiledFields.length > 0) {
-      return `Yes, I profiled the data from GCS landing. ${profiledFields.length} fields had profile evidence:\n\n` +
-        profiledFields.map(f => {
-          const profileReasoning = f.reasoning.filter(r => r.startsWith('PROFILE'))
-          return `• **${f.name}**: ${profileReasoning[0]}`
-        }).join('\n')
+    const pf = suggestion.fields.filter(f => f.reasoning?.some(r => r.startsWith('PROFILE')))
+    if (pf.length > 0) {
+      return `Profiled ${pf.length} fields:\n\n` + pf.map(f => `• **${f.name}**: ${f.reasoning.find(r => r.startsWith('PROFILE'))}`).join('\n')
     }
-    return 'No profile evidence was found. The profiler service may not have been reachable.'
+    return 'No profile evidence found for this dataset.'
   }
   if (text.includes('pii')) {
-    const piiFields = suggestion.fields.filter(f => f.is_pii)
-    if (piiFields.length > 0) {
-      return `PII fields:\n\n` + piiFields.map(f => `• **${f.name}**: ${f.reasoning?.find(r => r.toLowerCase().includes('pii')) || 'matched PII BDE'}`).join('\n') + '\n\nTo correct: "field_name is not PII"'
-    }
-    return 'No PII fields detected.'
+    const pii = suggestion.fields.filter(f => f.is_pii)
+    return pii.length > 0
+      ? `PII fields:\n\n${pii.map(f => `• **${f.name}**`).join('\n')}\n\nTo fix: "field_name is not PII"`
+      : 'No PII fields detected.'
   }
-  if (text.includes('confidence') || text.includes('why')) {
-    const field = suggestion.fields.find(f => text.includes(f.name))
-    if (field) {
-      return `**${field.name}** (confidence: ${Math.round(field.confidence * 100)}%):\n\n` +
-        (field.reasoning || []).map(r => `• ${r}`).join('\n')
-    }
-    return 'Ask about a specific field, e.g., "why did you mark resolution_date as PII?"'
-  }
-  return `Currently viewing **${suggestion.asset_name}** (${suggestion.fields.length} fields). You can:\n• Ask: "why is X marked as PII?"\n• Correct: "X is not PII"\n• Approve: "approve"\n• Next: "onboard <dataset>"`
+  return `Viewing **${suggestion.asset_name}** (${suggestion.fields.length} fields). Say "approve" or ask about specific fields.`
 }
 
 function _isCorrection(text) {
   return text.includes('is not pii') || text.includes('is pii') ||
     text.includes('is not unique') || text.includes('is unique') ||
-    text.includes('is nullable') || text.includes('not null') ||
-    text.includes('values are') || text.includes('values should') ||
-    text.includes('maps to') || text.includes('remove ')
+    text.includes('is nullable') || text.includes('values are') ||
+    text.includes('values should') || text.includes('maps to') || text.includes('remove ')
 }
 
 function _parseCorrection(text) {
   let m
-  m = text.match(/[`]?([\w]+)[`]?\s+is\s+not\s+pii/)
-  if (m) return { field: m[1], action: 'remove_pii' }
-  m = text.match(/[`]?([\w]+)[`]?\s+is\s+pii/)
-  if (m) return { field: m[1], action: 'add_pii' }
-  m = text.match(/[`]?([\w]+)[`]?\s+is\s+not\s+unique/)
-  if (m) return { field: m[1], action: 'remove_unique' }
-  m = text.match(/[`]?([\w]+)[`]?\s+is\s+unique/)
-  if (m) return { field: m[1], action: 'add_unique' }
-  m = text.match(/[`]?([\w]+)[`]?\s+(?:values?|accepted.values?)\s+(?:are|should be)\s+(.+)/)
-  if (m) return { field: m[1], action: 'set_accepted_values', values: m[2].split(',').map(v => v.trim()) }
-  m = text.match(/remove\s+[`]?([\w]+)[`]?\s+from\s+not.null/)
-  if (m) return { field: m[1], action: 'remove_not_null' }
-  m = text.match(/[`]?([\w]+)[`]?\s+is\s+nullable/)
-  if (m) return { field: m[1], action: 'remove_not_null' }
+  if ((m = text.match(/(\w+)\s+is\s+not\s+pii/))) return { field: m[1], action: 'remove_pii' }
+  if ((m = text.match(/(\w+)\s+is\s+pii/))) return { field: m[1], action: 'add_pii' }
+  if ((m = text.match(/(\w+)\s+is\s+not\s+unique/))) return { field: m[1], action: 'remove_unique' }
+  if ((m = text.match(/(\w+)\s+is\s+unique/))) return { field: m[1], action: 'add_unique' }
+  if ((m = text.match(/(\w+)\s+values?\s+(?:are|should be)\s+(.+)/))) return { field: m[1], action: 'set_accepted_values', values: m[2].split(',').map(v => v.trim()) }
+  if ((m = text.match(/(\w+)\s+is\s+nullable/))) return { field: m[1], action: 'remove_not_null' }
   return null
 }

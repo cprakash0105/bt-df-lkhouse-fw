@@ -31,6 +31,8 @@ export const api = {
   listLanding: () => request('/landing/datasets'),
   profile: (data, format = 'csv', dataset_name = null) =>
     request('/profile', { method: 'POST', body: JSON.stringify({ data, format, dataset_name }) }),
+  profileDataset: (dataset_name) =>
+    request('/profile/dataset', { method: 'POST', body: JSON.stringify({ dataset_name }) }),
 
   approve: (fields = null) => request('/approve', { method: 'POST', body: JSON.stringify({ fields }) }),
   correct: (field, action, values = null, bde = null) =>
