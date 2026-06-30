@@ -42,7 +42,7 @@ export default function DiscoverPanel({ onResult, onSwitchTab }) {
       {/* Mode selector */}
       <div className="flex gap-2 mb-4">
         {[
-          ['natural', 'Natural Language'],
+          ['natural', 'Talk to SD'],
           ['yaml', 'YAML/JSON'],
           ['multi', 'Multi-Feed (Domain)'],
         ].map(([m, label]) => (
@@ -64,7 +64,7 @@ export default function DiscoverPanel({ onResult, onSwitchTab }) {
         onChange={(e) => setInput(e.target.value)}
         placeholder={
           mode === 'natural'
-            ? 'Just type the dataset name e.g., customer_complaints — SD will fetch schema from GCS and profile it automatically'
+            ? 'Talk naturally e.g., "Onboard the CIBIL bureau data" or "Discover customer complaints" or "What\'s available in landing?"'
             : mode === 'yaml'
             ? 'name: cibil_bureau_feed\nfields:\n  - name: customer_id\n    type: string\n  - name: cibil_score\n    type: integer'
             : 'discover domain Insurance:\n1. motor_policy: policy_id, customer_id, vehicle_reg, premium_amount, start_date, status\n2. motor_claims: claim_id, policy_id, claim_date, claim_amount, status'
@@ -97,30 +97,29 @@ export default function DiscoverPanel({ onResult, onSwitchTab }) {
 
       {/* Quick examples */}
       <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-        <h3 className="text-sm font-medium text-gray-600 mb-2">Quick Examples — Just type the dataset name</h3>
+        <h3 className="text-sm font-medium text-gray-600 mb-2">Try saying</h3>
         <div className="flex flex-wrap gap-2">
           {[
-            'cibil_bureau_feed',
-            'ekyc_provider_feed',
-            'upi_transactions',
-            'customer_complaints',
-            'loan_repayment_schedule',
-            'card_transactions',
-            'motor_policy',
-            'motor_claims',
-            'vehicle_master',
-            'premium_payments',
+            'Onboard the CIBIL bureau data',
+            'Discover customer complaints',
+            'I want to onboard the loan repayment schedule',
+            'Please process the UPI transactions',
+            'Load the eKYC feed',
+            'Onboard card transactions',
+            'Discover motor policy',
+            'Process premium payments',
+            'Onboard all insurance datasets',
           ].map((ex, i) => (
             <button
               key={i}
               onClick={() => { setInput(ex); setMode('natural') }}
-              className="px-2 py-1 text-xs bg-white border border-gray-200 rounded hover:bg-blue-50"
+              className="px-2 py-1 text-xs bg-white border border-gray-200 rounded hover:bg-blue-50 text-left"
             >
               {ex}
             </button>
           ))}
         </div>
-        <p className="mt-2 text-xs text-gray-500">SD will auto-fetch schema + data from GCS landing and profile it.</p>
+        <p className="mt-2 text-xs text-gray-500">SD fetches schema from GCS, profiles data, fingerprints against glossary — all automatically.</p>
       </div>
     </div>
   )

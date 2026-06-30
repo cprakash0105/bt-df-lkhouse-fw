@@ -23,6 +23,8 @@ export const api = {
 
   discover: (payload) => request('/discover', { method: 'POST', body: JSON.stringify(payload) }),
   discoverMulti: (text) => request('/discover/multi', { method: 'POST', body: JSON.stringify({ text }) }),
+  discoverAll: () => request('/discover/all', { method: 'POST' }),
+  listLanding: () => request('/landing/datasets'),
   profile: (data, format = 'csv', dataset_name = null) =>
     request('/profile', { method: 'POST', body: JSON.stringify({ data, format, dataset_name }) }),
 

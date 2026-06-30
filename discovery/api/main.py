@@ -173,42 +173,21 @@ def get_domains():
 
 @app.post("/discover")
 def discover(req: DiscoverRequest):
-    """Run full discovery on a dataset definition."""
+    """Run full discovery on a dataset definition.
+    Supports: dataset name, natural language, YAML, or direct fields."""
     asset_def = None
 
-    # Mode 1: Discover from landing (just dataset name)
+    # Mode 1: Explicit discover from landing
     if req.discover_from_landing:
         asset_def = _fetch_schema_from_landing(req.discover_from_landing)
         if not asset_def:
             raise HTTPException(404, f"No landing data found for '{req.discover_from_landing}'")
 
-    # Mode 2: Parse from natural language
+    # Mode 2: Natural language / conversational
     elif req.text:
-        # Check if it's just a dataset name (no field descriptions)
-        text_clean = req.text.strip().lower()
-        # If it looks like just a name or "onboard X" / "discover X"
-        potential_name = None
-        for prefix in ["onboard ", "discover ", "new ", "load "]:
-            if text_clean.startswith(prefix):
-                potential_name = text_clean[len(prefix):].strip()
-                break
-        if not potential_name:
-            potential_name = text_clean
-
-        # Clean up the name
-        import re
-        potential_name = re.sub(r'[^a-z0-9_\s]', '', potential_name)
-        potential_name = potential_name.replace(' ', '_').strip('_')
-
-        # Try fetching from landing first
-        if potential_name and '_' in potential_name or len(potential_name.split()) == 1:
-            asset_def = _fetch_schema_from_landing(potential_name)
-
-        # If not found in landing, fall back to NL parsing
+        asset_def = _resolve_from_text(req.text)
         if not asset_def:
-            asset_def = nl_parser.parse(req.text)
-            if not asset_def or not asset_def.get("fields"):
-                raise HTTPException(400, "Could not parse input or find dataset in landing")
+            raise HTTPException(400, "Could not understand the request. Try a dataset name or describe what you want to onboard.")
 
     # Mode 3: Parse from YAML
     elif req.yaml_content:
@@ -239,6 +218,26 @@ def discover(req: DiscoverRequest):
 
     _session["suggestion"] = suggestion
     return _serialize_suggestion(suggestion)
+
+
+@app.get("/landing/datasets")
+def list_landing_datasets():
+    """List all datasets available in the landing zone."""
+    datasets = _list_landing_datasets()
+    return {"datasets": datasets, "count": len(datasets)}
+
+
+@app.post("/discover/all")
+def discover_all_landing():
+    """Discover all datasets in landing zone. Returns list of suggestions."""
+    datasets = _list_landing_datasets()
+    results = []
+    for ds_name in datasets:
+        asset_def = _fetch_schema_from_landing(ds_name)
+        if asset_def and asset_def.get("fields"):
+            suggestion = suggester.full_discovery(asset_def)
+            results.append(_serialize_suggestion(suggestion))
+    return {"datasets": results, "count": len(results)}
 
 
 @app.post("/discover/multi")
@@ -385,6 +384,136 @@ def generate_sql(req: SQLRequest):
 
 
 # --- Helpers ---
+
+def _list_landing_datasets() -> list[str]:
+    """List all dataset folders in the GCS landing zone."""
+    import os
+    bucket_name = os.environ.get("CONFIG_BUCKET", "bt-df-lkhouse-lakehouse")
+    try:
+        from google.cloud import storage as gcs_storage
+        client = gcs_storage.Client()
+        bucket = client.bucket(bucket_name)
+        # List prefixes (folders) under landing/
+        blobs = client.list_blobs(bucket, prefix="landing/", delimiter="/")
+        # Consume the iterator to get prefixes
+        list(blobs)  # must consume
+        datasets = []
+        for prefix in blobs.prefixes:
+            name = prefix.replace("landing/", "").strip("/")
+            if name:
+                datasets.append(name)
+        return sorted(datasets)
+    except Exception as e:
+        print(f"[API] Failed to list landing datasets: {e}")
+        return []
+
+
+def _resolve_from_text(text: str) -> Optional[dict]:
+    """Resolve natural language input to an asset definition.
+    Strategy:
+    1. Check if text matches or fuzzy-matches a landing dataset name
+    2. Use LLM to extract dataset name from conversational input
+    3. Fall back to NL parser for field extraction
+    """
+    import re
+    text_clean = text.strip()
+    text_lower = text_clean.lower()
+
+    # Get available landing datasets
+    available = _list_landing_datasets()
+    available_lower = {d.lower(): d for d in available}
+
+    # Strategy 1: Direct name match (user typed exact name)
+    if text_lower.replace(' ', '_') in available_lower:
+        name = available_lower[text_lower.replace(' ', '_')]
+        return _fetch_schema_from_landing(name)
+
+    # Strategy 2: Extract name from common patterns
+    patterns = [
+        r"(?:onboard|discover|load|process|ingest|profile|check)\s+(?:the\s+)?(.+?)(?:\s+(?:data|dataset|feed|table|source))?\s*$",
+        r"(?:i want to|please|can you|let'?s)\s+(?:onboard|discover|load|process)\s+(?:the\s+)?(.+?)(?:\s+(?:data|dataset|feed|table))?\s*$",
+        r"(?:new|add)\s+(.+?)(?:\s+(?:data|dataset|feed|table))?\s*$",
+        r"(?:what about|how about|try)\s+(?:the\s+)?(.+?)(?:\s+(?:data|dataset|feed))?\s*$",
+    ]
+
+    extracted_name = None
+    for pattern in patterns:
+        m = re.search(pattern, text_lower)
+        if m:
+            extracted_name = m.group(1).strip()
+            break
+
+    if not extracted_name:
+        extracted_name = text_lower
+
+    # Clean and try to match against available datasets
+    extracted_clean = extracted_name.replace(' ', '_').replace('-', '_')
+    extracted_clean = re.sub(r'[^a-z0-9_]', '', extracted_clean)
+
+    # Exact match after cleaning
+    if extracted_clean in available_lower:
+        return _fetch_schema_from_landing(available_lower[extracted_clean])
+
+    # Fuzzy match: find best matching landing dataset
+    best_match, best_score = None, 0
+    for ds_name in available:
+        ds_lower = ds_name.lower()
+        # Check if extracted name is a substring or vice versa
+        if extracted_clean in ds_lower or ds_lower in extracted_clean:
+            score = len(extracted_clean) / max(len(ds_lower), len(extracted_clean))
+            if score > best_score:
+                best_score = score
+                best_match = ds_name
+        # Check word overlap
+        else:
+            words_input = set(extracted_clean.split('_'))
+            words_ds = set(ds_lower.split('_'))
+            overlap = words_input & words_ds
+            if overlap:
+                score = len(overlap) / max(len(words_input), len(words_ds))
+                if score > best_score:
+                    best_score = score
+                    best_match = ds_name
+
+    if best_match and best_score >= 0.4:
+        print(f"[API] Fuzzy matched '{text_clean}' → '{best_match}' (score: {best_score:.0%})")
+        return _fetch_schema_from_landing(best_match)
+
+    # Strategy 3: Use LLM to resolve dataset name from available list
+    if available:
+        try:
+            from discovery.engine.llm_client import get_llm
+            prompt = (
+                f"The user said: \"{text_clean}\"\n"
+                f"Available datasets in landing zone: {available}\n"
+                f"Which dataset name does the user want to onboard? "
+                f"Return ONLY the exact dataset name from the list, nothing else. "
+                f"If multiple match, return the most likely one. If none match, return NONE."
+            )
+            response = get_llm().generate(
+                system="You match user requests to dataset names. Return only the dataset name.",
+                user=prompt,
+                max_tokens=50
+            )
+            if response and response != "__QUOTA_EXCEEDED__":
+                llm_name = response.strip().strip('"\' ')
+                if llm_name in available:
+                    print(f"[API] LLM resolved '{text_clean}' → '{llm_name}'")
+                    return _fetch_schema_from_landing(llm_name)
+                # Try case-insensitive
+                for ds in available:
+                    if ds.lower() == llm_name.lower():
+                        return _fetch_schema_from_landing(ds)
+        except Exception as e:
+            print(f"[API] LLM resolution failed: {e}")
+
+    # Strategy 4: Fall back to NL parser (extracts fields from text)
+    parsed = nl_parser.parse(text)
+    if parsed and parsed.get("fields"):
+        return parsed
+
+    return None
+
 
 def _fetch_schema_from_landing(dataset_name: str) -> Optional[dict]:
     """Fetch schema from landing data in GCS. Returns asset_def dict or None."""
