@@ -55,7 +55,7 @@ substitutions:
   _TAG: v1
   _LLM_BASE_URL: 'http://4.242.19.167:11434/v1'
   _LLM_API_KEY: ''
-  _LLM_MODEL: 'gemma2:9b'
+  _LLM_MODEL: 'gemma2:latest'
   _PROFILER_URL: 'http://lakehouse-cluster-m:8090'
 
 options:

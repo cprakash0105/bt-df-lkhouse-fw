@@ -13,7 +13,7 @@ class LLMClient:
     def __init__(self):
         self.api_key = os.environ.get("LLM_API_KEY", "")
         self.base_url = os.environ.get("LLM_BASE_URL", "https://api.perplexity.ai")
-        self.model = os.environ.get("LLM_MODEL", "sonar")
+        self.model = os.environ.get("LLM_MODEL", "gemma2:latest")
 
     def generate(self, system: str, user: str, max_tokens: int = 2048, temperature: float = 0.1) -> Optional[str]:
         """Send a request to the LLM. Returns text response or None."""
