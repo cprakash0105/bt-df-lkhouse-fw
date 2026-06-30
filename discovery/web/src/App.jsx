@@ -20,7 +20,7 @@ const VIEWS = {
 export default function App() {
   const [view, setView] = useState(VIEWS.HOME)
   const [messages, setMessages] = useState([
-    { role: 'assistant', content: 'Welcome to **Ontika**. I can help you onboard datasets, browse the catalog, run profiling, or answer questions about your data estate.\n\nTry: "What\\'s available?" or "Onboard customer complaints"', type: 'text' }
+    { role: 'assistant', content: 'Welcome to **Ontika**. I can help you onboard datasets, browse the catalog, run profiling, or answer questions about your data estate.\n\nTry: "What is available?" or "Onboard customer complaints"', type: 'text' }
   ])
   const [suggestion, setSuggestion] = useState(null)
   const [profileResult, setProfileResult] = useState(null)
