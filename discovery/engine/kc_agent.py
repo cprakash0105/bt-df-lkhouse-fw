@@ -127,40 +127,45 @@ class KnowledgeCatalogAgent:
 
     def _rule_based_intent(self, question: str) -> dict:
         """Fallback: detect intent from keywords when LLM unavailable."""
+        import re
         q = question.lower()
         intent = {"original_question": question, "entity": None, "filter": None}
 
-        if any(w in q for w in ["bde", "term", "glossary", "business data element"]):
-            intent["intent"] = "GLOSSARY_TERMS"
-        elif any(w in q for w in ["domain"]):
-            intent["intent"] = "DOMAIN_INFO"
-        elif any(w in q for w in ["business app", "application", " ba "]):
+        # Extract filter first ("in X domain", "for X", "of X")
+        filter_match = re.search(r'(?:in|for|under|of)\s+(?:the\s+)?([a-z\s]+?)\s*(?:domain|area|$)', q)
+        if filter_match:
+            intent["filter"] = filter_match.group(1).strip()
+
+        # Priority: BA > domain ("business applications in Credit domain" = BA_INFO, not DOMAIN_INFO)
+        if "business app" in q or "business application" in q:
             intent["intent"] = "BA_INFO"
-        elif any(w in q for w in ["dataset", "table", "feed", "source"]):
-            intent["intent"] = "DATASET_INFO"
+        elif any(w in q for w in ["bde", "term", "glossary", "business data element"]):
+            intent["intent"] = "GLOSSARY_TERMS"
         elif any(w in q for w in ["dq", "quality", "rule", "validation"]):
             intent["intent"] = "DQ_RULES"
         elif any(w in q for w in ["pii", "sensitive", "classification", "personal"]):
             intent["intent"] = "PII_INFO"
+        elif any(w in q for w in ["dataset", "table", "feed", "source"]):
+            intent["intent"] = "DATASET_INFO"
         elif any(w in q for w in ["link", "relationship", "connected", "uses", "linked"]):
             intent["intent"] = "RELATIONSHIP"
         elif any(w in q for w in ["how many", "count", "total", "number of"]):
-            intent["intent"] = "STATS"
+            # Check what they're counting
+            if "business app" in q or "application" in q:
+                intent["intent"] = "BA_INFO"
+            elif "term" in q or "bde" in q:
+                intent["intent"] = "GLOSSARY_TERMS"
+            else:
+                intent["intent"] = "STATS"
+        elif "domain" in q:
+            intent["intent"] = "DOMAIN_INFO"
         else:
             intent["intent"] = "SEARCH"
 
-        # Try to extract entity
-        import re
-        # Look for quoted terms or specific names
+        # Try to extract entity (quoted terms)
         quoted = re.findall(r'"([^"]+)"|\'([^\']+)\'', question)
         if quoted:
             intent["entity"] = quoted[0][0] or quoted[0][1]
-
-        # Look for domain/dataset names
-        for domain in self.kg.domains.values():
-            if domain.name.lower() in q or domain.id.lower() in q:
-                intent["filter"] = domain.id
-                break
 
         return intent
 
@@ -236,15 +241,19 @@ class KnowledgeCatalogAgent:
     def _handle_business_apps(self, intent: dict) -> dict:
         """Handle business application questions."""
         entity = intent.get("entity")
-        filter_domain = intent.get("filter")
+        filter_val = intent.get("filter")
 
         apps = list(self.kg.applications.values())
 
-        if filter_domain:
-            # Filter apps by domain keywords
+        if filter_val:
+            # Filter apps by keyword matching ("credit" matches credit_risk BA via keywords)
+            filter_lower = filter_val.lower()
             filtered = []
             for app in apps:
-                if filter_domain in app.keywords or any(filter_domain in kw for kw in app.keywords):
+                if any(filter_lower in kw.lower() for kw in app.keywords) or \
+                   filter_lower in app.name.lower() or \
+                   filter_lower in app.id.lower() or \
+                   filter_lower in app.description.lower():
                     filtered.append(app)
             apps = filtered
 
@@ -259,7 +268,7 @@ class KnowledgeCatalogAgent:
 
         return {
             "type": "app_list",
-            "filter": filter_domain,
+            "filter": filter_val,
             "count": len(apps),
             "apps": [{"name": a.name, "id": a.id, "description": a.description, "keywords": a.keywords[:5]} for a in apps],
         }
