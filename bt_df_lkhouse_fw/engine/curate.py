@@ -45,11 +45,19 @@ def apply_dq_rules(df, table_name: str, dq_rules: dict):
 
     for col_name, values in dq_rules.get("accepted_values", {}).items():
         if col_name in df.columns:
+            # Skip accepted_values for boolean/numeric columns (type mismatch with isin)
+            col_type = str(df.schema[col_name].dataType).lower()
+            if "boolean" in col_type or "int" in col_type or "long" in col_type or "double" in col_type or "float" in col_type or "decimal" in col_type:
+                log("dq", f"[{table_name}] SKIPPED ACCEPTED_VALUES({col_name}): column is {col_type}, not string", LogLevel.WARN)
+                continue
             before = df.count()
-            df = df.filter(col(col_name).isin(values) | col(col_name).isNull())
-            rejected = before - df.count()
-            if rejected > 0:
-                log("dq", f"[{table_name}] ACCEPTED_VALUES({col_name}): rejected {rejected}", LogLevel.WARN)
+            try:
+                df = df.filter(col(col_name).isin(values) | col(col_name).isNull())
+                rejected = before - df.count()
+                if rejected > 0:
+                    log("dq", f"[{table_name}] ACCEPTED_VALUES({col_name}): rejected {rejected}", LogLevel.WARN)
+            except Exception as e:
+                log("dq", f"[{table_name}] ACCEPTED_VALUES({col_name}): SKIPPED due to error: {e}", LogLevel.WARN)
 
     final_count = df.count()
     total_rejected = initial_count - final_count

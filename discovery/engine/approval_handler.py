@@ -248,7 +248,7 @@ class ApprovalHandler:
                 return False
 
     def _push_config_to_gcs(self, asset_name: str, config_yaml: str) -> Optional[str]:
-        """Push pipeline config YAML to GCS for the pipeline to pick up."""
+        """Push pipeline config YAML to GCS. Overwrites if exists (re-onboard)."""
         if not GCS_AVAILABLE:
             print("[ApprovalHandler] GCS not available")
             return None
@@ -261,7 +261,7 @@ class ApprovalHandler:
             bucket = client.bucket(CONFIG_BUCKET)
             blob = bucket.blob(blob_name)
             blob.upload_from_string(config_yaml, content_type="application/x-yaml")
-            print(f"[ApprovalHandler] Config pushed to: {gcs_path}")
+            print(f"[ApprovalHandler] Config pushed to: {gcs_path} (overwrite={blob.exists()})")
             return gcs_path
         except Exception as e:
             print(f"[ApprovalHandler] Failed to push config to GCS: {e}")
