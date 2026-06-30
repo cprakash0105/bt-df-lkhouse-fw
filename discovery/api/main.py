@@ -58,6 +58,23 @@ except Exception as e:
     print(f"[API] KC Agent init failed: {e}")
     kc_agent = None
 
+# Catalog Cache (Firestore)
+try:
+    from discovery.engine.catalog_cache import CatalogCache
+    from discovery.engine.catalog_cache.sync import sync_from_glossary, sync_dataset_on_approval
+    catalog_cache = CatalogCache()
+    if catalog_cache.is_available():
+        # Sync on startup if stale (>5 min since last sync)
+        status = catalog_cache.get_sync_status()
+        if not status.get("last_sync"):
+            sync_from_glossary(catalog_cache)
+            print("[API] Catalog cache synced from glossary")
+    else:
+        catalog_cache = None
+except Exception as e:
+    print(f"[API] Catalog cache init failed: {e}")
+    catalog_cache = None
+
 app = FastAPI(title="Semantic Discovery API", version="1.0.0")
 
 app.add_middleware(
@@ -175,6 +192,40 @@ def ask_catalog(req: SQLRequest):
         raise HTTPException(503, "KC Agent not available")
     answer = kc_agent.answer(req.requirement)
     return {"answer": answer}
+
+
+@app.get("/catalog/tree")
+def get_catalog_tree():
+    """Get the full catalog hierarchy for interactive tree rendering."""
+    if not catalog_cache:
+        raise HTTPException(503, "Catalog cache not available")
+    return {"hierarchy": catalog_cache.get_hierarchy()}
+
+
+@app.get("/catalog/flat")
+def get_catalog_flat():
+    """Get all catalog entities in flat structure."""
+    if not catalog_cache:
+        raise HTTPException(503, "Catalog cache not available")
+    return catalog_cache.get_full_tree()
+
+
+@app.get("/catalog/search")
+def search_catalog(q: str):
+    """Search across all catalog entities."""
+    if not catalog_cache:
+        raise HTTPException(503, "Catalog cache not available")
+    results = catalog_cache.search(q)
+    return {"query": q, "count": len(results), "results": results}
+
+
+@app.post("/catalog/sync")
+def trigger_catalog_sync():
+    """Manually trigger a catalog sync from glossary."""
+    if not catalog_cache:
+        raise HTTPException(503, "Catalog cache not available")
+    counts = sync_from_glossary(catalog_cache)
+    return {"status": "synced", "counts": counts}
 
 
 @app.post("/discover")
@@ -298,6 +349,13 @@ def approve(req: ApproveRequest):
         return {"status": "approved", "config_yaml": config_yaml, "errors": ["Approval handler not available (GCP deps missing)"]}
 
     results = approval_handler.process_approval(suggestion, config_yaml=config_yaml)
+
+    # Update catalog cache immediately
+    if catalog_cache:
+        try:
+            sync_dataset_on_approval(catalog_cache, suggestion)
+        except Exception as e:
+            results.setdefault("errors", []).append(f"Cache update failed: {e}")
 
     # Contract
     contract_path = None

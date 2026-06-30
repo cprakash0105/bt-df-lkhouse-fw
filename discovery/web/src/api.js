@@ -19,6 +19,9 @@ export const api = {
   glossary: () => request('/glossary'),
   searchGlossary: (q) => request(`/glossary/search?q=${encodeURIComponent(q)}`),
   askCatalog: (question) => request('/ask', { method: 'POST', body: JSON.stringify({ requirement: question }) }),
+  catalogTree: () => request('/catalog/tree'),
+  catalogSearch: (q) => request(`/catalog/search?q=${encodeURIComponent(q)}`),
+  catalogSync: () => request('/catalog/sync', { method: 'POST' }),
   applications: () => request('/applications'),
   domains: () => request('/domains'),
 
