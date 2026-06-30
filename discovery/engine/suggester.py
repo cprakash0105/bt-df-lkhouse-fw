@@ -331,9 +331,27 @@ class Suggester:
                 })
 
     def _collect_new_term_proposals(self, suggestion: DiscoverySuggestion):
-        """Collect fields that need new business terms."""
+        """Collect fields that need new business terms.
+        Skip generic/reserved words that don't deserve a BDE."""
+        # Fields too generic to become BDEs
+        SKIP_TERMS = {
+            "description", "name", "type", "status", "category", "sub_category",
+            "subcategory", "comments", "notes", "remarks", "details", "info",
+            "data", "value", "code", "text", "message", "content", "body",
+            "assigned_to", "created_by", "updated_by", "modified_by",
+            "created_at", "updated_at", "modified_at", "deleted_at",
+            "is_active", "is_deleted", "is_enabled", "flag", "indicator",
+            "resolution_date", "start_date", "end_date", "effective_date",
+            "row_id", "id", "seq", "sequence", "index",
+        }
+
         for f in suggestion.fields:
             if f.new_term_proposed:
+                # Skip generic fields
+                if f.field_name.lower() in SKIP_TERMS:
+                    f.new_term_proposed = False
+                    f.reasoning.append(f"SKIP: '{f.field_name}' is too generic for a BDE")
+                    continue
                 suggestion.new_term_proposals.append({
                     "field_name": f.field_name,
                     "suggested_term_name": f.field_name.replace("_", " ").title(),

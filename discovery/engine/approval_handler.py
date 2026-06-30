@@ -110,7 +110,11 @@ class ApprovalHandler:
             print(f"[ApprovalHandler] Dataplex not available, skipping term creation")
             return False
 
-        term_id = proposal["field_name"].lower().replace(" ", "_")
+        term_id = f"{suggestion.asset_name}_{proposal['field_name']}".lower().replace(" ", "_")
+        # Dataplex term IDs: only lowercase, numbers, hyphens
+        import re
+        term_id = re.sub(r'[^a-z0-9-]', '-', term_id).strip('-')
+        term_id = re.sub(r'-+', '-', term_id)  # collapse multiple hyphens
         term_name = proposal["suggested_term_name"]
         domain = proposal.get("suggested_domain", "")
         data_type = proposal.get("suggested_type", "string")
