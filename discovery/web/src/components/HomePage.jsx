@@ -27,14 +27,33 @@ export default function HomePage() {
       <div className="flex-1 p-6 overflow-auto">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-xl font-bold text-white">BT Group — Data Estate</h1>
-            <p className="text-xs text-gray-500 mt-0.5">Knowledge Catalog · Ontika</p>
+            <h1 className="text-xl font-bold text-white">The Enterprise Catalog</h1>
+            <p className="text-xs text-gray-500 mt-0.5">Find, understand and explore data</p>
           </div>
           <div className="flex gap-2">
             <Stat label="BDEs" value="40+" />
             <Stat label="BAs" value="14" />
             <Stat label="Domains" value="9" />
           </div>
+        </div>
+
+        {/* Quick Links (like Resources panel in Ab Initio) */}
+        <div className="grid grid-cols-3 gap-3 mb-6">
+          <QuickLinkGroup title="Business Glossary" links={[
+            'Find Business Terms',
+            'Find BDEs with DQ Rules',
+            'Find PII Fields',
+          ]} />
+          <QuickLinkGroup title="Technical Assets" links={[
+            'Find Datasets in Landing',
+            'Find Data Products',
+            'Find Tables in CCN',
+          ]} />
+          <QuickLinkGroup title="Governance" links={[
+            'Show all Domains',
+            'List Business Applications',
+            'DQ Rules by Domain',
+          ]} />
         </div>
 
         {/* View toggle */}
@@ -274,6 +293,19 @@ function Stat({ label, value }) {
     <div className="px-2 py-1 bg-[#0f1524] border border-[#1e2a4a] rounded text-center">
       <p className="text-sm font-bold text-white">{value}</p>
       <p className="text-[9px] text-gray-500">{label}</p>
+    </div>
+  )
+}
+
+function QuickLinkGroup({ title, links }) {
+  return (
+    <div className="p-3 bg-[#0f1524] border border-[#1e2a4a] rounded-lg">
+      <h4 className="text-[10px] font-medium text-gray-400 mb-2 uppercase tracking-wider">{title}</h4>
+      {links.map((link, i) => (
+        <div key={i} className="text-xs text-blue-300 py-0.5 cursor-pointer hover:text-blue-200 hover:underline">
+          • {link}
+        </div>
+      ))}
     </div>
   )
 }

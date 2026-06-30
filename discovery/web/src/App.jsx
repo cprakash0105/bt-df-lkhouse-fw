@@ -5,12 +5,17 @@ import HomePage from './components/HomePage'
 import DataPanel from './components/DataPanel'
 import CatalogPanel from './components/CatalogPanel'
 import ProfilerPanel from './components/ProfilerPanel'
+import DataProductsPanel from './components/DataProductsPanel'
+import GlossaryView from './components/GlossaryView'
+import TechnicalView from './components/TechnicalView'
 
 const VIEWS = {
   HOME: 'home',
-  RESULTS: 'results',
-  CATALOG: 'catalog',
+  DATA_PRODUCTS: 'dataproducts',
+  GLOSSARY: 'glossary',
+  TECHNICAL: 'technical',
   PROFILER: 'profiler',
+  RESULTS: 'results',
 }
 
 export default function App() {
@@ -148,14 +153,18 @@ export default function App() {
   // Render main panel based on current view
   const renderMainPanel = () => {
     switch (view) {
+      case VIEWS.DATA_PRODUCTS:
+        return <DataProductsPanel />
+      case VIEWS.GLOSSARY:
+        return <GlossaryView />
+      case VIEWS.TECHNICAL:
+        return <TechnicalView />
       case VIEWS.RESULTS:
         return <DataPanel suggestion={suggestion} landingDatasets={landingDatasets} />
-      case VIEWS.CATALOG:
-        return <CatalogPanel />
       case VIEWS.PROFILER:
         return <ProfilerPanel profileResult={profileResult} setProfileResult={setProfileResult} />
       default:
-        return <HomePage landingDatasets={landingDatasets} />
+        return <HomePage />
     }
   }
 
@@ -173,7 +182,9 @@ export default function App() {
         <nav className="flex items-center gap-1">
           {[
             { id: VIEWS.HOME, label: 'Home', icon: '🏠' },
-            { id: VIEWS.CATALOG, label: 'Catalog', icon: '📖' },
+            { id: VIEWS.DATA_PRODUCTS, label: 'Data Products', icon: '📦' },
+            { id: VIEWS.GLOSSARY, label: 'Business Glossary', icon: '📖' },
+            { id: VIEWS.TECHNICAL, label: 'Technical Assets', icon: '💾' },
             { id: VIEWS.PROFILER, label: 'Profiler', icon: '📊' },
             { id: VIEWS.RESULTS, label: 'Results', icon: '🔍' },
           ].map(({ id, label, icon }) => (
