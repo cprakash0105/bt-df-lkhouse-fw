@@ -1,4 +1,20 @@
 steps:
+  # Deploy pipeline framework engine files to GCS (used by Dataproc)
+  - name: 'gcr.io/cloud-builders/gsutil'
+    args:
+      - '-m'
+      - 'cp'
+      - '-r'
+      - 'bt_df_lkhouse_fw/engine/*.py'
+      - 'gs://bt-df-lkhouse-lakehouse/framework/engine/'
+
+  # Package and upload framework zip (for imports)
+  - name: 'gcr.io/cloud-builders/gsutil'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - 'cd /workspace && zip -r bt_df_lkhouse_fw.zip bt_df_lkhouse_fw/ && gsutil cp bt_df_lkhouse_fw.zip gs://bt-df-lkhouse-lakehouse/framework/bt_df_lkhouse_fw.zip'
+
   # Build the container image (multi-stage: React + FastAPI)
   - name: 'gcr.io/cloud-builders/docker'
     args:
