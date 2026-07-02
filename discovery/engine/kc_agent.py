@@ -36,6 +36,7 @@ from discovery.engine.knowledge_graph import KnowledgeGraph
 INTENT_SYSTEM = """You are an intent classifier for a Data Catalog Q&A system.
 Given a user question about their data estate, classify it into one of these intents:
 
+- LINKED_DATASETS: questions about which datasets are linked/onboarded to a business application or domain
 - GLOSSARY_TERMS: questions about business terms/BDEs (what terms exist, term definitions, synonyms)
 - DOMAIN_INFO: questions about data domains (list domains, what's in a domain)
 - BA_INFO: questions about business applications (list BAs, what's in a BA, which BA owns what)
@@ -78,6 +79,7 @@ class KnowledgeCatalogAgent:
 
         # Step 2: Execute the right handler
         handler_map = {
+            "LINKED_DATASETS": self._handle_linked_datasets,
             "GLOSSARY_TERMS": self._handle_glossary,
             "DOMAIN_INFO": self._handle_domains,
             "BA_INFO": self._handle_business_apps,
@@ -145,6 +147,8 @@ class KnowledgeCatalogAgent:
             intent["intent"] = "DQ_RULES"
         elif any(w in q for w in ["pii", "sensitive", "classification", "personal"]):
             intent["intent"] = "PII_INFO"
+        elif any(w in q for w in ["dataset", "linked", "onboarded", "registered", "which dataset", "what dataset"]):
+            intent["intent"] = "LINKED_DATASETS"
         elif any(w in q for w in ["dataset", "table", "feed", "source"]):
             intent["intent"] = "DATASET_INFO"
         elif any(w in q for w in ["link", "relationship", "connected", "uses", "linked"]):
@@ -272,6 +276,60 @@ class KnowledgeCatalogAgent:
             "count": len(apps),
             "apps": [{"name": a.name, "id": a.id, "description": a.description, "keywords": a.keywords[:5]} for a in apps],
         }
+
+    def _handle_linked_datasets(self, intent: dict) -> str:
+        """Handle questions about which datasets are linked to a BA or domain."""
+        import os
+        entity = intent.get("entity")
+        filter_val = intent.get("filter")
+        search_term = (entity or filter_val or "").lower()
+
+        # Check GCS configs folder for approved datasets
+        try:
+            from google.cloud import storage
+            client = storage.Client()
+            bucket_name = os.environ.get("CONFIG_BUCKET", "bt-df-lkhouse-lakehouse")
+            bucket = client.bucket(bucket_name)
+            blobs = list(client.list_blobs(bucket, prefix="framework/config/tables/"))
+            configs = [b.name.split("/")[-1].replace(".yaml", "") for b in blobs if b.name.endswith(".yaml")]
+        except Exception:
+            configs = []
+
+        if not configs:
+            return (
+                "No datasets have been onboarded yet, or I can't reach the config store.\n\n"
+                "To onboard a dataset: \"onboard trade blotter data\""
+            )
+
+        # If asking about a specific BA, filter by keyword match
+        if search_term:
+            matched_app = None
+            for app in self.kg.applications.values():
+                if search_term in app.name.lower() or search_term in app.id.lower():
+                    matched_app = app
+                    break
+
+            # Filter configs by BA keywords
+            if matched_app:
+                linked = [c for c in configs if any(kw in c for kw in matched_app.keywords)]
+                if linked:
+                    return (
+                        f"**Datasets linked to {matched_app.name}** ({len(linked)}):\n\n"
+                        + "\n".join(f"• {d}" for d in linked)
+                    )
+                else:
+                    return (
+                        f"No datasets currently linked to **{matched_app.name}**.\n\n"
+                        f"All onboarded datasets: {', '.join(configs)}"
+                    )
+
+        # General: list all onboarded datasets with their BA
+        lines = [f"**Onboarded Datasets** ({len(configs)} total):\n"]
+        for ds_name in sorted(configs):
+            apps = self.kg.search_by_domain_keywords(ds_name)
+            ba = apps[0][0].name if apps else "Unknown"
+            lines.append(f"• **{ds_name}** → {ba}")
+        return "\n".join(lines)
 
     def _handle_dataset(self, intent: dict) -> str:
         """Handle dataset questions — requires KC API (or GCS lookup)."""

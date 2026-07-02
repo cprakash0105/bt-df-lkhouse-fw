@@ -190,7 +190,14 @@ class KnowledgeGraph:
             for app in data.get("business_applications", []):
                 app_id = app["id"].lower()
                 # Derive keywords from name + description + domain
-                keywords = (app.get("name", "") + " " + app.get("description", "") + " " + app.get("domain", "")).lower().split()
+                # Use explicit keywords if defined, else derive from name + domain only (not description)
+                explicit_kw = app.get("keywords", [])
+                if explicit_kw:
+                    keywords = [k.lower().strip() for k in explicit_kw]
+                else:
+                    import re as _re
+                    raw = (app.get("name", "") + " " + app.get("domain", "")).lower()
+                    keywords = [w for w in _re.sub(r'[^a-z0-9 ]', '', raw).split() if len(w) > 2]
                 self.applications[app_id] = BusinessApplication(
                     id=app_id, name=app["name"],
                     description=app.get("description", ""),

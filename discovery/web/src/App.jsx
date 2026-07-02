@@ -141,10 +141,23 @@ export default function App() {
           type: 'text'
         })
       }
-      // Catch-all — pass to LLM
+      // Catch-all — pass to LLM only if it looks like a question or request
       else {
-        const answer = await _askLLM(text)
-        addMessage({ role: 'assistant', content: answer, type: 'text' })
+        const looksLikeQuestion = lower.endsWith('?') || lower.startsWith('what') ||
+          lower.startsWith('which') || lower.startsWith('who') || lower.startsWith('how') ||
+          lower.startsWith('can you') || lower.startsWith('could you') || lower.startsWith('tell me') ||
+          lower.startsWith('show me') || lower.startsWith('find') || lower.startsWith('search') ||
+          lower.startsWith('is there') || lower.startsWith('do you') || lower.startsWith('does')
+        if (looksLikeQuestion) {
+          const answer = await _askLLM(text)
+          addMessage({ role: 'assistant', content: answer, type: 'text' })
+        } else {
+          // User is making a statement — acknowledge and guide
+          const guide = suggestion
+            ? `I have **${suggestion.asset_name}** ready. Say **approve**, correct a field, or ask me something.`
+            : `I'm not sure what to do with that. Try:\n\n• **Onboard data**: "onboard trade blotter"\n• **Ask a question**: "which datasets are linked to payments hub?"\n• **Browse catalog**: "show me all domains"`
+          addMessage({ role: 'assistant', content: guide, type: 'text' })
+        }
       }
     } catch (e) {
       setMessages(prev => prev.filter(m => m.type !== 'loading'))
