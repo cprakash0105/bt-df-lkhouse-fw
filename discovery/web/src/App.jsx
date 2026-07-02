@@ -141,9 +141,10 @@ export default function App() {
           type: 'text'
         })
       }
-      // Catch-all — don't blindly call /discover
+      // Catch-all — pass to LLM
       else {
-        addMessage({ role: 'assistant', content: _helpResponse(lower, suggestion), type: 'text' })
+        const answer = await _askLLM(text)
+        addMessage({ role: 'assistant', content: answer, type: 'text' })
       }
     } catch (e) {
       setMessages(prev => prev.filter(m => m.type !== 'loading'))
@@ -362,23 +363,12 @@ function _parseCorrection(text) {
   return null
 }
 
-// Catch-all: context-aware helpful response instead of random discover
-function _helpResponse(text, suggestion) {
-  // Greetings
-  if (/^(hi|hello|hey|good morning|good afternoon|howdy)\b/.test(text))
-    return `Hello! I'm Ontika. I can help you:\n\n• **Onboard data** — "onboard fd maturity data"\n• **Browse catalog** — "show me all domains"\n• **Ask questions** — "which fields are PII?"\n• **Profile datasets** — "run profile on customer_complaints"\n\nWhat would you like to do?`
-
-  // Follow-up confusion after a discovery
-  if (suggestion)
-    return `I have **${suggestion.asset_name}** ready for review.\n\n` +
-      `• Say **approve** to proceed\n` +
-      `• Correct something: "nomination_flag is not PII"\n` +
-      `• Ask: "which fields are PII?" or "show confidence"`
-
-  // Generic confusion
-  return `I didn't understand that. Here's what I can do:\n\n` +
-    `• **Onboard data**: "onboard fd maturity data"\n` +
-    `• **List datasets**: "what datasets are available?"\n` +
-    `• **Catalog questions**: "show me all domains" or "list PII fields"\n` +
-    `• **Profile**: "run profile on customer_complaints"`
+// Catch-all: pass to LLM via KC agent
+async function _askLLM(text) {
+  try {
+    const result = await api.askCatalog(text)
+    return result.answer
+  } catch (e) {
+    return `I couldn't process that: ${e.message}\n\nTry: "onboard fd maturity data", "show me all domains", or "which fields are PII?"`
+  }
 }
