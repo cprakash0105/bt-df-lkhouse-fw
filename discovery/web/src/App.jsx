@@ -123,8 +123,8 @@ export default function App() {
           addMessage({ role: 'assistant', content: 'No active discovery. Try onboarding a dataset first.', type: 'text' })
         }
       }
-      // Default: discover
-      else {
+      // Onboard intent — explicit trigger words only
+      else if (_isOnboardRequest(lower)) {
         addMessage({ role: 'assistant', content: 'Discovering...', type: 'loading' })
         const result = await api.discover({ text })
         setSuggestion(result)
@@ -140,6 +140,10 @@ export default function App() {
             `Say **approve** when ready, or correct anything.`,
           type: 'text'
         })
+      }
+      // Catch-all — don't blindly call /discover
+      else {
+        addMessage({ role: 'assistant', content: _helpResponse(lower, suggestion), type: 'text' })
       }
     } catch (e) {
       setMessages(prev => prev.filter(m => m.type !== 'loading'))
@@ -239,12 +243,18 @@ function AtomIcon() {
 
 // --- Intent Helpers ---
 
+// Only trigger landing list for explicit requests
 function _isLandingRequest(text) {
-  return ((text.includes('available') && text.includes('landing')) ||
-    (text.includes('landing') && text.includes('list')) ||
-    text === "what's available" || text === "what's available?" || text === 'whats available' ||
+  return text === "what's available" || text === "what's available?" || text === 'whats available' ||
+    (text.includes('landing') && (text.includes('list') || text.includes('show') || text.includes('what'))) ||
     (text.includes('available') && text.includes('dataset')) ||
-    (text.includes('available') && !text.includes('business app') && !text.includes('business application') && !text.includes('domain') && !text.includes('bde') && !text.includes('term')))
+    (text.includes('available') && text.includes('landing'))
+}
+
+// Only trigger discover for explicit onboard/load/ingest intent
+function _isOnboardRequest(text) {
+  return /\b(onboard|ingest|load|discover|add|register|bring in)\b/.test(text) &&
+    !text.includes('how') && !text.includes('what') && !text.includes('why')
 }
 
 function _extractDatasetFromText(text) {
@@ -260,15 +270,18 @@ function _extractDatasetFromText(text) {
   return null
 }
 
+// Catalog/glossary questions — must NOT match onboard intent
 function _isGlossaryQuestion(text) {
+  if (_isOnboardRequest(text)) return false
   if (text.includes('business application') || text.includes('business app') ||
-    text.includes('how many') || text.includes('bde') || text.includes('glossary') ||
-    (text.includes('domain') && (text.includes('how') || text.includes('what') || text.includes('which') || text.includes('tell') || text.includes('show') || text.includes('list'))) ||
-    (text.includes('terms') && (text.includes('how many') || text.includes('list') || text.includes('show'))) ||
-    text.includes('pii') || text.includes('dq rule') || text.includes('data quality') ||
+    text.includes('bde') || text.includes('glossary') ||
+    text.includes('dq rule') || text.includes('data quality') ||
     text.includes('who owns') || text.includes('relationship') || text.includes('linked') ||
     text.includes('catalog') || text.includes('search for') ||
-    (text.includes('list') && (text.includes('application') || text.includes('domain') || text.includes('term') || text.includes('dataset')))) {
+    (text.includes('how many') && (text.includes('term') || text.includes('domain') || text.includes('application') || text.includes('bde') || text.includes('pii'))) ||
+    (text.includes('domain') && (text.includes('what') || text.includes('which') || text.includes('tell') || text.includes('show') || text.includes('list'))) ||
+    (text.includes('list') && (text.includes('application') || text.includes('domain') || text.includes('term'))) ||
+    (text.includes('pii') && (text.includes('which') || text.includes('what') || text.includes('list') || text.includes('show')))) {
     return true
   }
   const knownEntities = [
@@ -277,12 +290,7 @@ function _isGlossaryQuestion(text) {
     'card management', 'loan origination', 'loan management', 'crm', 'aml',
     'risk engine', 'credit score', 'customer id', 'pan number'
   ]
-  if (knownEntities.some(e => text.includes(e))) return true
-  if (text.includes('inside') || text.includes('contents') || text.includes('contain') ||
-      text.includes('belongs to') || text.includes('part of') || text.includes('under')) {
-    return true
-  }
-  return false
+  return knownEntities.some(e => text.includes(e))
 }
 
 function _isFieldSpecificQuestion(text) {
@@ -299,27 +307,41 @@ async function _answerGlossaryQuestion(text) {
   }
 }
 
+// Questions about the current discovery result
 function _isQuestion(text) {
-  const qw = ['did you', 'can you tell', 'what is', 'what are', 'why', 'how', 'which', 'show me', 'explain', 'tell me', 'is there', 'profile', 'fingerprint', 'confidence', 'reasoning', 'why did']
-  if (text.includes('what about') || text.includes('how about')) return false
-  return qw.some(q => text.includes(q)) || text.endsWith('?')
+  if (_isOnboardRequest(text)) return false
+  const qw = ['what is', 'what are', 'why is', 'why did', 'how did', 'which field',
+    'show me', 'explain', 'tell me about', 'what happened', 'what went wrong',
+    'fingerprint', 'confidence', 'reasoning']
+  return qw.some(q => text.includes(q)) || (text.endsWith('?') && text.length < 60)
 }
 
 function _answerQuestion(text, suggestion) {
+  if (text.includes('what happened') || text.includes('what went wrong') || text.includes('why this error') || text.includes('why the error')) {
+    return `Last discovery: **${suggestion.asset_name}** — ${suggestion.fields.length} fields detected.\n\n` +
+      `• Domain: ${suggestion.data_domain || '?'}\n` +
+      `• PII fields: ${suggestion.fields.filter(f => f.is_pii).map(f => f.name).join(', ') || 'none'}\n\n` +
+      `Say **approve** to proceed or correct anything.`
+  }
   if (text.includes('profile') || text.includes('fingerprint')) {
     const pf = suggestion.fields.filter(f => f.reasoning?.some(r => r.startsWith('PROFILE')))
-    if (pf.length > 0) {
+    if (pf.length > 0)
       return `Profiled ${pf.length} fields:\n\n` + pf.map(f => `• **${f.name}**: ${f.reasoning.find(r => r.startsWith('PROFILE'))}`).join('\n')
-    }
     return 'No profile evidence found for this dataset.'
   }
   if (text.includes('pii')) {
     const pii = suggestion.fields.filter(f => f.is_pii)
     return pii.length > 0
-      ? `PII fields:\n\n${pii.map(f => `• **${f.name}**`).join('\n')}\n\nTo fix: "field_name is not PII"`
+      ? `PII fields:\n\n${pii.map(f => `• **${f.name}**`).join('\n')}\n\nTo remove: "field_name is not PII"`
       : 'No PII fields detected.'
   }
-  return `Viewing **${suggestion.asset_name}** (${suggestion.fields.length} fields). Say "approve" or ask about specific fields.`
+  if (text.includes('confidence') || text.includes('reasoning')) {
+    const low = suggestion.fields.filter(f => f.confidence < 0.5)
+    return low.length > 0
+      ? `Low confidence fields:\n\n${low.map(f => `• **${f.name}** (${Math.round(f.confidence * 100)}%)`).join('\n')}\n\nYou can correct these.`
+      : `All fields matched with good confidence.`
+  }
+  return `Viewing **${suggestion.asset_name}** (${suggestion.fields.length} fields).\n\nSay **approve** or correct anything, e.g. "nomination_flag is not PII".`
 }
 
 function _isCorrection(text) {
@@ -338,4 +360,25 @@ function _parseCorrection(text) {
   if ((m = text.match(/(\w+)\s+values?\s+(?:are|should be)\s+(.+)/))) return { field: m[1], action: 'set_accepted_values', values: m[2].split(',').map(v => v.trim()) }
   if ((m = text.match(/(\w+)\s+is\s+nullable/))) return { field: m[1], action: 'remove_not_null' }
   return null
+}
+
+// Catch-all: context-aware helpful response instead of random discover
+function _helpResponse(text, suggestion) {
+  // Greetings
+  if (/^(hi|hello|hey|good morning|good afternoon|howdy)\b/.test(text))
+    return `Hello! I'm Ontika. I can help you:\n\n• **Onboard data** — "onboard fd maturity data"\n• **Browse catalog** — "show me all domains"\n• **Ask questions** — "which fields are PII?"\n• **Profile datasets** — "run profile on customer_complaints"\n\nWhat would you like to do?`
+
+  // Follow-up confusion after a discovery
+  if (suggestion)
+    return `I have **${suggestion.asset_name}** ready for review.\n\n` +
+      `• Say **approve** to proceed\n` +
+      `• Correct something: "nomination_flag is not PII"\n` +
+      `• Ask: "which fields are PII?" or "show confidence"`
+
+  // Generic confusion
+  return `I didn't understand that. Here's what I can do:\n\n` +
+    `• **Onboard data**: "onboard fd maturity data"\n` +
+    `• **List datasets**: "what datasets are available?"\n` +
+    `• **Catalog questions**: "show me all domains" or "list PII fields"\n` +
+    `• **Profile**: "run profile on customer_complaints"`
 }
