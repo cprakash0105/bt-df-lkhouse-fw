@@ -98,8 +98,50 @@ if static_dir.exists():
     if assets_dir.exists():
         app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="static")
 
-# In-memory session store (single user POC)
-_session = {"suggestion": None, "profile": None}
+# Firestore-backed session (survives Cloud Run scale-to-zero)
+import pickle, base64
+
+_SESSION_DOC = "sessions/default"
+_fs_client = None
+
+def _get_fs():
+    global _fs_client
+    if _fs_client is None:
+        try:
+            from google.cloud import firestore
+            _fs_client = firestore.Client()
+        except Exception:
+            pass
+    return _fs_client
+
+def _session_get(key):
+    fs = _get_fs()
+    if not fs:
+        return _mem_session.get(key)
+    try:
+        doc = fs.document(_SESSION_DOC).get()
+        if not doc.exists:
+            return None
+        raw = doc.to_dict().get(key)
+        if raw is None:
+            return None
+        return pickle.loads(base64.b64decode(raw))
+    except Exception as e:
+        print(f"[Session] read error: {e}")
+        return _mem_session.get(key)
+
+def _session_set(key, value):
+    _mem_session[key] = value  # always keep in-mem as fallback
+    fs = _get_fs()
+    if not fs:
+        return
+    try:
+        raw = base64.b64encode(pickle.dumps(value)).decode()
+        fs.document(_SESSION_DOC).set({key: raw}, merge=True)
+    except Exception as e:
+        print(f"[Session] write error: {e}")
+
+_mem_session = {"suggestion": None, "profile": None}
 
 
 # --- Request/Response Models ---
@@ -273,7 +315,7 @@ def discover(req: DiscoverRequest):
     except Exception:
         pass
 
-    _session["suggestion"] = suggestion
+    _session_set("suggestion", suggestion)
     return _serialize_suggestion(suggestion)
 
 
@@ -316,7 +358,7 @@ def discover_multi(req: MultiDiscoverRequest):
 
     # Store first one as active
     if datasets:
-        _session["suggestion"] = suggester.full_discovery(datasets[0])
+        _session_set("suggestion", suggester.full_discovery(datasets[0]))
 
     return {"datasets": results, "count": len(results)}
 
@@ -332,7 +374,7 @@ def profile_data(req: ProfileRequest):
     if not profile.columns:
         raise HTTPException(400, "Could not parse data")
 
-    _session["profile"] = profile
+    _session_set("profile", profile)
     return _serialize_profile(profile)
 
 
@@ -361,7 +403,7 @@ def profile_dataset_from_landing(req: DatasetProfileRequest):
 @app.post("/approve")
 def approve(req: ApproveRequest):
     """Approve current suggestion."""
-    suggestion = _session.get("suggestion")
+    suggestion = _session_get("suggestion")
     if not suggestion:
         raise HTTPException(400, "No active discovery to approve")
 
@@ -405,7 +447,7 @@ def approve(req: ApproveRequest):
 @app.post("/correct")
 def correct(req: CorrectionRequest):
     """Apply a correction to the current suggestion."""
-    suggestion = _session.get("suggestion")
+    suggestion = _session_get("suggestion")
     if not suggestion:
         raise HTTPException(400, "No active discovery to correct")
 
@@ -436,14 +478,14 @@ def correct(req: CorrectionRequest):
     else:
         raise HTTPException(400, f"Unknown action: {req.action}")
 
-    _session["suggestion"] = suggestion
+    _session_set("suggestion", suggestion)
     return {"status": "corrected", "field": req.field, "action": req.action}
 
 
 @app.get("/suggestion")
 def get_current_suggestion():
     """Get current active suggestion."""
-    suggestion = _session.get("suggestion")
+    suggestion = _session_get("suggestion")
     if not suggestion:
         raise HTTPException(404, "No active discovery")
     return _serialize_suggestion(suggestion)
@@ -452,7 +494,7 @@ def get_current_suggestion():
 @app.post("/generate/config")
 def generate_config():
     """Generate pipeline YAML from current suggestion."""
-    suggestion = _session.get("suggestion")
+    suggestion = _session_get("suggestion")
     if not suggestion:
         raise HTTPException(400, "No active discovery")
     return {"yaml": config_gen.generate(suggestion)}
