@@ -21,21 +21,29 @@ from discovery.engine.catalog_cache import CatalogCache
 CFUS = {
     "consumer_banking": {
         "name": "Consumer Banking",
-        "domains": ["bureau", "customer", "finance", "order", "digital"],
+        "domains": ["bureau", "customer", "finance", "order", "digital", "banking", "lending", "payments"],
     },
     "enterprise_services": {
         "name": "Enterprise Services",
         "domains": ["product"],
     },
+    "investment_banking": {
+        "name": "Investment Banking",
+        "domains": ["investment"],
+    },
 }
 
 DOMAIN_TO_APPS = {
     "bureau": ["credit_risk"],
-    "customer": ["customer_management"],
-    "finance": ["billing_finance"],
+    "customer": ["customer_management", "crm"],
+    "finance": ["billing_finance", "aml_system", "risk_engine"],
     "order": ["order_management"],
     "product": ["product_catalog"],
     "digital": ["marketing_campaigns"],
+    "banking": ["core_banking"],
+    "lending": ["loan_origination", "loan_management"],
+    "payments": ["payments_hub", "card_management"],
+    "investment": ["investment_banking"],
 }
 
 BA_TO_BDES = {

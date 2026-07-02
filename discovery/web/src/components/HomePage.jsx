@@ -162,6 +162,7 @@ function TreeNode({ node, depth, onSelect }) {
     application: { icon: '⚙️', color: 'text-green-300', label: 'BA' },
     term: { icon: '📖', color: 'text-gray-200', label: 'BDE' },
     dataset: { icon: '📊', color: 'text-purple-300', label: 'Dataset' },
+    column: { icon: '▸', color: 'text-gray-400', label: 'Field' },
   }[node.type] || { icon: '•', color: 'text-gray-400', label: '' }
 
   return (
@@ -192,8 +193,16 @@ function TreeNode({ node, depth, onSelect }) {
           {node.term_count > 0 && (
             <span className="text-[9px] text-gray-500">({node.term_count})</span>
           )}
-          {node.field_count > 0 && (
+          {node.type === 'dataset' && node.field_count > 0 && (
             <span className="text-[9px] text-gray-500">{node.field_count} fields</span>
+          )}
+          {node.type === 'column' && (
+            <>
+              <span className="text-[9px] text-gray-600 font-mono">{node.data_type}</span>
+              {node.is_pii && <span className="text-[9px] bg-red-900/50 text-red-300 px-1 rounded">PII</span>}
+              {node.is_key && <span className="text-[9px] text-yellow-400">KEY</span>}
+              {node.linked_bde && <span className="text-[9px] text-blue-400" title={node.linked_bde}>BDE</span>}
+            </>
           )}
         </div>
 
@@ -222,6 +231,7 @@ function DetailPanel({ node, onClose }) {
     application: { title: 'Business Application', color: 'text-green-300' },
     term: { title: 'Business Data Element', color: 'text-gray-200' },
     dataset: { title: 'Dataset', color: 'text-purple-300' },
+    column: { title: 'Field', color: 'text-gray-400' },
   }[node.type] || { title: 'Entity', color: 'text-gray-300' }
 
   return (
@@ -236,6 +246,35 @@ function DetailPanel({ node, onClose }) {
 
       {node.description && (
         <p className="text-xs text-gray-400 mb-3">{node.description}</p>
+      )}
+
+      {/* Dataset specific */}
+      {node.type === 'dataset' && (
+        <div className="space-y-2">
+          {node.domain && <Field label="Domain" value={node.domain} />}
+          {node.primary_key && <Field label="Primary Key" value={node.primary_key} />}
+          {node.field_count > 0 && <Field label="Fields" value={node.field_count} />}
+          {node.pii_fields?.length > 0 && (
+            <div>
+              <p className="text-[10px] text-gray-500 mb-1">PII Fields</p>
+              {node.pii_fields.map(f => (
+                <div key={f} className="text-xs text-red-300 py-0.5">🔴 {f}</div>
+              ))}
+            </div>
+          )}
+          {node.onboarded_at && <Field label="Onboarded" value={new Date(node.onboarded_at).toLocaleDateString()} />}
+        </div>
+      )}
+
+      {/* Column specific */}
+      {node.type === 'column' && (
+        <div className="space-y-2">
+          <Field label="Data Type" value={node.data_type || 'string'} />
+          <Field label="PII" value={node.is_pii ? '🔴 Yes' : '🟢 No'} />
+          {node.is_key && <Field label="Role" value="Primary Key" />}
+          {node.linked_bde && <Field label="Linked BDE" value={node.linked_bde} />}
+          {node.confidence && <Field label="Confidence" value={`${Math.round(node.confidence * 100)}%`} />}
+        </div>
       )}
 
       {/* BDE specific */}

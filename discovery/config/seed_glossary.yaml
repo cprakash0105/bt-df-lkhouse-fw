@@ -33,6 +33,51 @@ business_applications:
     description: "Products, services, pricing, inventory"
     keywords: [product, service, sku, catalog, inventory, stock, price]
 
+  - id: core_banking
+    name: "Core Banking System"
+    description: "Manages accounts, balances, deposits, and transactions"
+    keywords: [account, balance, deposit, fd, fixed_deposit, maturity, savings, current, banking, branch, interest, tenure, principal, renewal]
+
+  - id: payments_hub
+    name: "Payments Hub"
+    description: "Handles NEFT, RTGS, IMPS, SWIFT, UPI payment flows"
+    keywords: [payment, upi, neft, rtgs, imps, swift, transfer, remittance, vpa, transaction]
+
+  - id: card_management
+    name: "Card Management System"
+    description: "Manages credit/debit card lifecycle"
+    keywords: [card, credit_card, debit_card, cvv, card_number, expiry, pin, card_status]
+
+  - id: loan_origination
+    name: "Loan Origination System"
+    description: "Processes loan applications and approvals"
+    keywords: [loan, origination, application, approval, disbursement, eligibility, sanction]
+
+  - id: loan_management
+    name: "Loan Management System"
+    description: "Manages loan repayment and servicing"
+    keywords: [loan, repayment, emi, installment, schedule, overdue, dpd, closure, foreclosure]
+
+  - id: crm
+    name: "Customer Relationship Management"
+    description: "Maintains customer profiles, complaints, and interactions"
+    keywords: [complaint, crm, interaction, ticket, case, feedback, resolution, escalation, csat]
+
+  - id: aml_system
+    name: "AML System"
+    description: "Monitors suspicious transactions for anti-money laundering"
+    keywords: [aml, suspicious, laundering, fraud, alert, watchlist, kyc, compliance]
+
+  - id: risk_engine
+    name: "Risk Engine"
+    description: "Credit scoring and exposure analysis"
+    keywords: [risk, exposure, scoring, model, probability, default, pd, lgd, ead, var]
+
+  - id: investment_banking
+    name: "Investment Banking"
+    description: "Trade execution, portfolio management, deal pipeline, corporate actions"
+    keywords: [trade, portfolio, deal, isin, blotter, holdings, corporate_action, dividend, merger, acquisition, kyc, lei, counterparty, desk]
+
 data_domains:
   - id: customer
     name: "Customer"
@@ -57,6 +102,22 @@ data_domains:
   - id: digital
     name: "Digital & Clickstream"
     description: "Web/app interaction data"
+
+  - id: banking
+    name: "Banking & Deposits"
+    description: "Core banking, accounts, deposits, fixed deposits"
+
+  - id: lending
+    name: "Lending"
+    description: "Loans, repayments, origination"
+
+  - id: payments
+    name: "Payments"
+    description: "Payment flows, UPI, NEFT, RTGS"
+
+  - id: investment
+    name: "Investment Banking"
+    description: "Trades, portfolios, deals, corporate actions"
 
 business_terms:
   # --- Customer Domain ---

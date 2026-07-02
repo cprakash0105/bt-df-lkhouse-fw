@@ -158,16 +158,34 @@ class CatalogCache:
                             "dq_rules": term.get("dq_rules", {}),
                             "data_type": term.get("data_type", "string"),
                         })
-                    # Datasets under this app
+                    # Datasets under this app — expandable with fields as children
                     for ds_id in app_to_datasets.get(app_id, []):
                         ds = datasets.get(ds_id, {"name": ds_id})
-                        app_node["children"].append({
+                        ds_fields = ds.get("fields", [])
+                        ds_node = {
                             "id": ds_id,
                             "name": ds.get("name", ds_id),
                             "type": "dataset",
-                            "field_count": len(ds.get("fields", [])),
+                            "field_count": len(ds_fields),
+                            "domain": ds.get("domain"),
+                            "primary_key": ds.get("primary_key"),
+                            "pii_fields": ds.get("pii_fields", []),
                             "onboarded_at": ds.get("onboarded_at"),
-                        })
+                            "children": [
+                                {
+                                    "id": f"{ds_id}-{f['name']}",
+                                    "name": f["name"],
+                                    "type": "column",
+                                    "data_type": f.get("type", "string"),
+                                    "is_pii": f.get("is_pii", False),
+                                    "is_key": f.get("name") == ds.get("primary_key"),
+                                    "linked_bde": f.get("linked_bde"),
+                                    "confidence": f.get("confidence"),
+                                }
+                                for f in ds_fields
+                            ],
+                        }
+                        app_node["children"].append(ds_node)
                     domain_node["children"].append(app_node)
                 cfu_node["children"].append(domain_node)
             hierarchy.append(cfu_node)
