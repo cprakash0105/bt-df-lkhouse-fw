@@ -114,14 +114,10 @@ export default function App() {
         const answer = await _answerGlossaryQuestion(lower)
         addMessage({ role: 'assistant', content: answer, type: 'text' })
       }
-      // Questions about current results
-      else if (_isQuestion(lower)) {
-        if (suggestion) {
-          const answer = _answerQuestion(lower, suggestion)
-          addMessage({ role: 'assistant', content: answer, type: 'text' })
-        } else {
-          addMessage({ role: 'assistant', content: 'No active discovery. Try onboarding a dataset first.', type: 'text' })
-        }
+      // Questions about current results — only when a discovery is active
+      else if (suggestion && _isQuestion(lower)) {
+        const answer = _answerQuestion(lower, suggestion)
+        addMessage({ role: 'assistant', content: answer, type: 'text' })
       }
       // Onboard intent — explicit trigger words only
       else if (_isOnboardRequest(lower)) {
@@ -292,6 +288,7 @@ function _isGlossaryQuestion(text) {
     text.includes('dq rule') || text.includes('data quality') ||
     text.includes('who owns') || text.includes('relationship') || text.includes('linked') ||
     text.includes('catalog') || text.includes('search for') ||
+    text.includes('data product') || text.includes('curated') || text.includes('curate') ||
     (text.includes('how many') && (text.includes('term') || text.includes('domain') || text.includes('application') || text.includes('bde') || text.includes('pii'))) ||
     (text.includes('domain') && (text.includes('what') || text.includes('which') || text.includes('tell') || text.includes('show') || text.includes('list'))) ||
     (text.includes('list') && (text.includes('application') || text.includes('domain') || text.includes('term'))) ||
