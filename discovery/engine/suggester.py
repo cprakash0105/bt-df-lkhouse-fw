@@ -239,8 +239,35 @@ class Suggester:
 
     def _suggest_business_application(self, suggestion: DiscoverySuggestion,
                                        asset_name: str, field_names: list[str]):
-        """Suggest which business application this dataset belongs to."""
-        # Try rules engine first
+        """LLM-first: ask LLM to classify BA and domain together."""
+        llm_result = self._llm_classify(asset_name, field_names)
+        if llm_result:
+            ba_id = llm_result.get("business_application")
+            domain_id = llm_result.get("data_domain")
+            # Match BA
+            if ba_id:
+                app = self.kg.applications.get(ba_id)
+                if not app:
+                    # LLM returned a name, try to find by name
+                    for a in self.kg.applications.values():
+                        if a.name.lower() == ba_id.lower() or a.id == ba_id.lower().replace(" ", "_").replace("&", ""):
+                            app = a
+                            break
+                if app:
+                    suggestion.business_application = app.id
+                    suggestion.business_application_name = app.name
+                    suggestion.app_confidence = 0.85
+                else:
+                    # LLM suggested something not in glossary — use it as-is
+                    suggestion.business_application = ba_id.lower().replace(" ", "_")
+                    suggestion.business_application_name = ba_id
+                    suggestion.app_confidence = 0.80
+            # Store domain for _suggest_domain to use
+            if domain_id:
+                self._llm_domain_hint = domain_id
+            return
+
+        # Fallback: keyword matching
         rule_matches = self.rules.suggest_business_application(asset_name, field_names)
         if rule_matches:
             best = rule_matches[0]
@@ -250,7 +277,6 @@ class Suggester:
                 suggestion.business_application_name = app.name
                 suggestion.app_confidence = best.confidence
 
-        # Also try KG keyword matching
         kg_matches = self.kg.search_by_domain_keywords(
             f"{asset_name} {' '.join(field_names)}"
         )
@@ -263,21 +289,64 @@ class Suggester:
 
     def _suggest_domain(self, suggestion: DiscoverySuggestion,
                         asset_name: str, field_names: list[str]):
-        """Infer data domain from field composition."""
+        """Use LLM hint if available, else keyword fallback."""
+        # Check if LLM already classified
+        hint = getattr(self, "_llm_domain_hint", None)
+        if hint:
+            # Try to match to existing domain
+            for d in self.kg.domains.values():
+                if d.id == hint.lower().replace(" ", "_") or d.name.lower() == hint.lower():
+                    suggestion.data_domain = d.id
+                    self._llm_domain_hint = None
+                    return
+            # LLM suggested new domain — use it
+            suggestion.data_domain = hint.lower().replace(" ", "_")
+            self._llm_domain_hint = None
+            return
+
+        # Fallback: keyword scoring
         domain_scores: dict[str, int] = {}
         all_text = f"{asset_name} {' '.join(field_names)}".lower()
-
         for domain in self.kg.domains.values():
-            # Check how many terms from this domain match our fields
             domain_terms = self.kg.get_terms_by_domain(domain.id)
             for term in domain_terms:
                 for syn in term.synonyms:
                     if syn.lower() in all_text:
                         domain_scores[domain.id] = domain_scores.get(domain.id, 0) + 1
-
         if domain_scores:
             best_domain = max(domain_scores, key=domain_scores.get)
             suggestion.data_domain = best_domain
+
+    def _llm_classify(self, asset_name: str, field_names: list[str]) -> Optional[dict]:
+        """Ask LLM to classify dataset into BA + domain. Returns dict or None."""
+        try:
+            from discovery.engine.llm_client import get_llm
+            import json as _json
+
+            apps = [f"{a.id}: {a.name}" for a in self.kg.applications.values()]
+            domains = [f"{d.id}: {d.name}" for d in self.kg.domains.values()]
+
+            prompt = (
+                f"Dataset: {asset_name}\n"
+                f"Fields: {', '.join(field_names[:20])}\n\n"
+                f"Available business applications:\n{chr(10).join(apps)}\n\n"
+                f"Available data domains:\n{chr(10).join(domains)}\n\n"
+                f"Pick the best business_application and data_domain for this dataset. "
+                f"If none fit well, suggest a new one.\n"
+                f"Return ONLY JSON: {{\"business_application\": \"id\", \"data_domain\": \"id\"}}"
+            )
+
+            resp = get_llm().generate(
+                system="You classify datasets into business applications and data domains. Return only valid JSON.",
+                user=prompt,
+                max_tokens=150,
+                temperature=0.0,
+            )
+            if resp and resp != "__QUOTA_EXCEEDED__":
+                return _json.loads(resp)
+        except Exception as e:
+            print(f"[Suggester] LLM classify failed: {e}")
+        return None
 
     def _suggest_primary_key(self, suggestion: DiscoverySuggestion):
         """Identify the most likely primary key field."""
