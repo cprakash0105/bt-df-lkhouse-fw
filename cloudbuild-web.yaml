@@ -64,14 +64,17 @@ steps:
       - '--timeout'
       - '300'
       - '--set-env-vars'
-      - 'GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${_REGION},LLM_BASE_URL=${_LLM_BASE_URL},LLM_API_KEY=${_LLM_API_KEY},LLM_MODEL=${_LLM_MODEL},PROFILER_SERVICE_URL=${_PROFILER_URL}'
+      - 'GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${_REGION},LLM_PROVIDER=bedrock,LLM_BASE_URL=${_LLM_BASE_URL},LLM_API_KEY=${_LLM_API_KEY},LLM_MODEL=${_LLM_MODEL},LLM_PROJECT=${_LLM_PROJECT},AWS_REGION=${_AWS_REGION},CONFIG_BUCKET=${_CONFIG_BUCKET},PROFILER_SERVICE_URL=${_PROFILER_URL}'
 
 substitutions:
   _REGION: europe-west2
   _TAG: v1
-  _LLM_BASE_URL: 'http://4.242.19.167:11434/v1'
-  _LLM_API_KEY: ''
-  _LLM_MODEL: 'gemma2:latest'
+  _LLM_BASE_URL: 'https://bedrock-mantle.eu-north-1.api.aws/v1'
+  _LLM_API_KEY: ''  # Set via: --substitutions=_LLM_API_KEY=ABSK...
+  _LLM_MODEL: 'openai.gpt-oss-120b'
+  _LLM_PROJECT: 'default'
+  _AWS_REGION: 'eu-north-1'
+  _CONFIG_BUCKET: 'eastside-lakehouse'
   _PROFILER_URL: 'http://lakehouse-cluster-m:8090'
 
 options:

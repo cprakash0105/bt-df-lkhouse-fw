@@ -21,7 +21,7 @@
 | Silver Namespace | `eastside.silver` |
 | Gold Dataset | `bt-df-lkhouse.eastside_dataproduct` |
 | Ontika URL | `https://sd-web-978009776592.europe-west2.run.app` |
-| LLM | Gemma2 on Azure VM `http://4.242.19.167:11434/v1` |
+| LLM | OpenAI GPT-OSS 120B on AWS Bedrock Mantle `https://bedrock-mantle.eu-north-1.api.aws/v1` |
 | GitHub | `cprakash0105/bt-df-lkhouse-fw` (main branch) |
 | Cloud Shell User | `cp0105_admin` |
 
@@ -429,7 +429,7 @@ Ontika now has an agentic LLM with tool-calling capability — the Ab Initio Age
 2. RAG Retriever (context-augmented) — if index exists
 3. KC Agent (rule-based) — fallback
 
-**Cost: £0** — ChromaDB is open-source, embeddings and LLM from existing Ollama instance.
+**Cost: ~$3-5/month** — Bedrock pay-per-token, ChromaDB is open-source. No VM to manage.
 
 **Example flow**:
 ```

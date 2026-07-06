@@ -1,24 +1,35 @@
-"""LLM Client — Minimal, token-optimized, works with any OpenAI-compatible API.
-Supports: Perplexity, Gemini, OpenAI, Groq, Together, etc.
-Uses only urllib — zero external dependencies."""
+"""LLM Client — Minimal, token-optimized.
+Supports: AWS Bedrock Mantle (OpenAI-compatible) or any OpenAI-compatible API.
+Loads config from .env file via python-dotenv."""
 import os
 import json
 import urllib.request
+from pathlib import Path
 from typing import Optional
+
+# Load .env from discovery/ directory
+try:
+    from dotenv import load_dotenv
+    _env_path = Path(__file__).resolve().parent.parent / ".env"
+    load_dotenv(_env_path)
+except ImportError:
+    pass
 
 
 class LLMClient:
-    """Minimal LLM client using OpenAI-compatible REST API."""
+    """LLM client using OpenAI-compatible REST API. Works with Bedrock Mantle and Ollama."""
 
     def __init__(self):
+        self.provider = os.environ.get("LLM_PROVIDER", "bedrock")
+        self.model = os.environ.get("LLM_MODEL", "openai.gpt-oss-120b")
+        self.base_url = os.environ.get("LLM_BASE_URL", "https://bedrock-mantle.eu-north-1.api.aws/v1")
         self.api_key = os.environ.get("LLM_API_KEY", "")
-        self.base_url = os.environ.get("LLM_BASE_URL", "https://api.perplexity.ai")
-        self.model = os.environ.get("LLM_MODEL", "gemma2:latest")
+        self.project = os.environ.get("LLM_PROJECT", "default")
 
     def generate(self, system: str, user: str, max_tokens: int = 2048, temperature: float = 0.1) -> Optional[str]:
         """Send a request to the LLM. Returns text response or None."""
-        if not self.api_key and not self.base_url:
-            print("[LLM] No LLM_BASE_URL or LLM_API_KEY set")
+        if not self.api_key:
+            print("[LLM] No LLM_API_KEY set. Check your .env file.")
             return None
 
         url = f"{self.base_url}/chat/completions"
@@ -34,35 +45,37 @@ class LLMClient:
 
         headers = {
             "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
         }
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+        if self.project:
+            headers["OpenAI-Project"] = self.project
 
         try:
             req = urllib.request.Request(url, data=payload.encode(), headers=headers)
             with urllib.request.urlopen(req, timeout=300) as resp:
                 result = json.loads(resp.read().decode())
-
-            text = result["choices"][0]["message"]["content"].strip()
-
-            # Strip markdown code fences
-            if text.startswith("```"):
-                lines = text.split("\n")
-                lines = [l for l in lines if not l.strip().startswith("```")]
-                text = "\n".join(lines).strip()
-
-            return text
-
+            msg = result["choices"][0]["message"]
+            # Reasoning models put output in 'reasoning' when content is null
+            text = msg.get("content") or msg.get("reasoning") or ""
+            return self._strip_fences(text.strip())
         except urllib.error.HTTPError as e:
             body = e.read().decode() if e.readable() else ""
             if e.code == 429 or "quota" in body.lower() or "rate" in body.lower():
-                print(f"[LLM] Rate limit / quota exceeded. Please wait and try again.")
+                print("[LLM] Rate limit / quota exceeded.")
                 return "__QUOTA_EXCEEDED__"
             print(f"[LLM] HTTP {e.code}: {body[:200]}")
             return None
         except Exception as e:
             print(f"[LLM] Failed: {e}")
             return None
+
+    @staticmethod
+    def _strip_fences(text: str) -> str:
+        if text.startswith("```"):
+            lines = text.split("\n")
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            text = "\n".join(lines).strip()
+        return text
 
 
 # Singleton

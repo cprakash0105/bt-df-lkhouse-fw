@@ -1,0 +1,67 @@
+<mxfile host="app.diagrams.net" modified="2026-06-30T00:00:00.000Z" agent="draw.io" version="21.0.0">
+  <diagram name="SD Discovery Flow" id="sd-flow">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="title" value="Semantic Discovery — Processing Flow" style="text;html=1;align=center;verticalAlign=middle;fontSize=18;fontStyle=1;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="350" y="20" width="500" height="40" as="geometry"/>
+        </mxCell>
+        <!-- Input -->
+        <mxCell id="input" value="Steward Input&#xa;&#xa;• Natural Language&#xa;• YAML/JSON&#xa;• CSV Upload&#xa;• Multi-feed" style="rounded=1;whiteSpace=wrap;fillColor=#1a237e;strokeColor=#42a5f5;fontColor=#ffffff;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="40" y="200" width="140" height="120" as="geometry"/>
+        </mxCell>
+        <!-- Step 0: Profile -->
+        <mxCell id="step0" value="STEP 0: AUTO-PROFILE&#xa;&#xa;Fetch from GCS landing&#xa;&#xa;• Type inference&#xa;• Null analysis&#xa;• Cardinality&#xa;• PII patterns&#xa;• Key detection&#xa;• Reference detection" style="rounded=1;whiteSpace=wrap;fillColor=#4a148c;strokeColor=#ab47bc;fontColor=#ffffff;fontSize=9;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="230" y="120" width="160" height="180" as="geometry"/>
+        </mxCell>
+        <!-- Step 1-3: Analyze -->
+        <mxCell id="step13" value="STEPS 1–3: ANALYZE&#xa;&#xa;Layer 1: KG Synonym Match&#xa;  → cibil_score → Credit Score&#xa;&#xa;Layer 2: Rules Engine&#xa;  → *_id → Identifier&#xa;  → *email* → PII&#xa;&#xa;Layer 3: Embeddings&#xa;  → Semantic similarity" style="rounded=1;whiteSpace=wrap;fillColor=#1565c0;strokeColor=#64b5f6;fontColor=#ffffff;fontSize=9;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="440" y="120" width="170" height="180" as="geometry"/>
+        </mxCell>
+        <!-- Step 4: Fingerprint -->
+        <mxCell id="step4" value="STEP 4: FINGERPRINT&#xa;&#xa;Values vs ALL ref sets:&#xa;&#xa;status values:&#xa;[open, closed, resolved]&#xa;  vs order_statuses → 0%&#xa;  vs complaint_statuses → 100% ✓&#xa;  vs payment_statuses → 0%&#xa;&#xa;→ Override wrong BDE match" style="rounded=1;whiteSpace=wrap;fillColor=#e65100;strokeColor=#ff9800;fontColor=#ffffff;fontSize=9;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="660" y="120" width="180" height="180" as="geometry"/>
+        </mxCell>
+        <!-- Step 5: Score -->
+        <mxCell id="step5" value="STEP 5: COMPOSITE SCORE&#xa;&#xa;Keyword:     30%&#xa;Pattern:     25%&#xa;Fingerprint: 25%&#xa;Statistical: 20%&#xa;─────────────────&#xa;= Composite Confidence&#xa;&#xa;+ Signal breakdown&#xa;  for audit trail" style="rounded=1;whiteSpace=wrap;fillColor=#1b5e20;strokeColor=#66bb6a;fontColor=#ffffff;fontSize=9;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="890" y="120" width="160" height="180" as="geometry"/>
+        </mxCell>
+        <!-- Output -->
+        <mxCell id="output" value="SUGGESTION OUTPUT&#xa;&#xa;Per field:&#xa;• BDE match + confidence&#xa;• Signal breakdown&#xa;• PII classification&#xa;• DQ rules (inherited)&#xa;• Information type&#xa;• Accepted values&#xa;&#xa;Per dataset:&#xa;• Business Application&#xa;• Domain&#xa;• Primary Key&#xa;• Schema Governance" style="rounded=1;whiteSpace=wrap;fillColor=#1b5e20;strokeColor=#a5d6a7;fontColor=#ffffff;fontSize=9;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="100" width="170" height="240" as="geometry"/>
+        </mxCell>
+        <!-- Persist -->
+        <mxCell id="persist" value="PERSIST PROFILE&#xa;gs://bucket/profiles/&#xa;{dataset}/latest.json" style="rounded=1;whiteSpace=wrap;fillColor=#311b92;strokeColor=#7c4dff;fontColor=#ffffff;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="250" y="350" width="160" height="60" as="geometry"/>
+        </mxCell>
+        <!-- LLM Box -->
+        <mxCell id="llm" value="LLM (Optional)&#xa;Stats only → Business DQ&#xa;No raw data" style="rounded=1;whiteSpace=wrap;fillColor=#880e4f;strokeColor=#f06292;fontColor=#ffffff;fontSize=9;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="480" y="360" width="160" height="50" as="geometry"/>
+        </mxCell>
+        <!-- Arrows -->
+        <mxCell id="a1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#42a5f5;strokeWidth=2;" edge="1" parent="1" source="input" target="step0">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#ab47bc;strokeWidth=2;" edge="1" parent="1" source="step0" target="step13">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#64b5f6;strokeWidth=2;" edge="1" parent="1" source="step13" target="step4">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#ff9800;strokeWidth=2;" edge="1" parent="1" source="step4" target="step5">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#66bb6a;strokeWidth=2;" edge="1" parent="1" source="step5" target="output">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#7c4dff;strokeWidth=1;dashed=1;" edge="1" parent="1" source="step0" target="persist">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#f06292;strokeWidth=1;dashed=1;" edge="1" parent="1" source="step0" target="llm">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
