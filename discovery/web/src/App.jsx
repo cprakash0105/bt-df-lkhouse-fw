@@ -299,7 +299,8 @@ function _isGlossaryQuestion(text) {
     'credit risk', 'customer management', 'marketing', 'billing', 'finance',
     'order management', 'product catalog', 'core banking', 'payments hub',
     'card management', 'loan origination', 'loan management', 'crm', 'aml',
-    'risk engine', 'credit score', 'customer id', 'pan number'
+    'risk engine', 'credit score', 'customer id', 'pan number',
+    'retail', 'commerce', 'pos', 'online orders', 'returns', 'inventory'
   ]
   return knownEntities.some(e => text.includes(e))
 }
@@ -314,6 +315,9 @@ async function _answerGlossaryQuestion(text) {
     const result = await api.askCatalog(text)
     return result.answer
   } catch (e) {
+    if (e.message?.includes('503') || e.message?.includes('unavailable')) {
+      return `LLM is temporarily unavailable. Try again shortly.`
+    }
     return `Could not query catalog: ${e.message}`
   }
 }
@@ -379,6 +383,9 @@ async function _askLLM(text) {
     const result = await api.askCatalog(text)
     return result.answer
   } catch (e) {
-    return `I couldn't process that: ${e.message}\n\nTry: "onboard fd maturity data", "show me all domains", or "which fields are PII?"`
+    if (e.message?.includes('503') || e.message?.includes('unavailable')) {
+      return `LLM is temporarily unavailable. Try again in a moment, or ask something specific like:\n\n• "What domains exist?"\n• "Show me all applications"\n• "Onboard pos_transactions"`
+    }
+    return `I couldn't process that: ${e.message}`
   }
 }
