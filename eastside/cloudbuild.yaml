@@ -1,0 +1,57 @@
+# ============================================================
+# EastSide CDH 2.0 — Cloud Build CI/CD
+# Uploads engine + config to GCS, optionally runs pipeline
+#
+# Usage:
+#   gcloud builds submit --config eastside/cloudbuild.yaml --project bt-df-lkhouse
+# ============================================================
+
+steps:
+  # Step 1: Upload engine files to GCS
+  - name: 'gcr.io/cloud-builders/gcloud'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "=== Uploading engine ==="
+        gcloud storage cp eastside/engine/*.py gs://${_BUCKET}/engine/
+        echo "=== Engine uploaded ==="
+
+  # Step 2: Upload pipeline config
+  - name: 'gcr.io/cloud-builders/gcloud'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "=== Uploading config ==="
+        gcloud storage cp eastside/config/pipeline.yaml gs://${_BUCKET}/config/pipeline.yaml
+        gcloud storage cp eastside/config/tables/*.yaml gs://${_BUCKET}/config/tables/
+        echo "=== Config uploaded ==="
+
+  # Step 3: Upload scripts
+  - name: 'gcr.io/cloud-builders/gcloud'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "=== Uploading scripts ==="
+        gcloud storage cp eastside/scripts/*.sh gs://${_BUCKET}/scripts/
+        echo "=== Scripts uploaded ==="
+
+  # Step 4: Upload datagen
+  - name: 'gcr.io/cloud-builders/gcloud'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "=== Uploading datagen ==="
+        gcloud storage cp eastside/datagen/generate.py gs://${_BUCKET}/datagen/generate.py
+        echo "=== Datagen uploaded ==="
+
+substitutions:
+  _BUCKET: 'eastside-lakehouse'
+  _PROJECT: 'bt-df-lkhouse'
+  _REGION: 'europe-west2'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

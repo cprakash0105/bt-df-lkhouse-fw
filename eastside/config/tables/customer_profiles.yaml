@@ -1,0 +1,35 @@
+table: customer_profiles
+description: "Loyalty programme members — demographics and preferences"
+source_format: json
+source_system: loyalty
+domain: customer
+business_application: loyalty
+is_cdc: false
+
+primary_key: customer_id
+dedup_order_by: signup_date DESC
+
+hash_fields: [customer_id, email, loyalty_tier]
+
+dq_rules:
+  not_null: [customer_id, first_name, last_name, email, signup_date]
+
+pii_fields: [first_name, last_name, email, phone, date_of_birth]
+
+masking:
+  email: sha256
+  phone: sha256
+  date_of_birth: sha256
+
+policy:
+  bronze: detective
+  silver: preventative
+
+late_arrival_window_days: 14
+
+schema_evolution:
+  bronze:
+    allowed: [add_column, type_widen, drop_column]
+  silver:
+    allowed: [add_column, type_widen]
+    blocked: [drop_column, type_narrow]

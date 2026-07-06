@@ -1,0 +1,29 @@
+# ============================================================
+# EastSide CDH 2.0 — Pipeline Configuration
+# ============================================================
+
+pipeline:
+  name: eastside
+  description: "EastSide Apparel — CDH 2.0 Lakehouse"
+  project_id: ${PROJECT_ID}
+  region: ${REGION}
+  bucket: eastside-lakehouse
+
+  # Iceberg catalog (BLMS)
+  catalog: eastside
+  bronze_namespace: bronze
+  silver_namespace: silver
+
+  # GCS paths
+  landing_path: gs://eastside-lakehouse/landing
+  bronze_path: gs://eastside-lakehouse/bronze
+  silver_path: gs://eastside-lakehouse/silver
+
+  # BigQuery (Gold)
+  dataproduct_dataset: eastside_dataproduct
+
+  # Late arrival default (days)
+  late_arrival_window_days: 7
+
+  # Reconciliation
+  reconciliation_mode: incremental

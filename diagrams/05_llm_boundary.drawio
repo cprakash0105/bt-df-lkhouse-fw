@@ -1,0 +1,70 @@
+<mxfile host="app.diagrams.net" modified="2026-06-30T00:00:00.000Z" agent="draw.io" version="21.0.0">
+  <diagram name="LLM Data Boundary" id="llm-boundary">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="800" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="title" value="LLM Role &amp; Data Boundary" style="text;html=1;align=center;verticalAlign=middle;fontSize=18;fontStyle=1;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="400" y="20" width="400" height="40" as="geometry"/>
+        </mxCell>
+        <!-- LLM Box -->
+        <mxCell id="llm-box" value="" style="rounded=1;whiteSpace=wrap;fillColor=#880e4f;strokeColor=#f06292;arcSize=5;" vertex="1" parent="1">
+          <mxGeometry x="440" y="80" width="340" height="360" as="geometry"/>
+        </mxCell>
+        <mxCell id="llm-title" value="SELF-HOSTED LLM&#xa;Gemma2 9B (Ollama on Azure VM)" style="text;html=1;align=center;fontSize=11;fontStyle=1;fontColor=#f8bbd0;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="460" y="90" width="300" height="35" as="geometry"/>
+        </mxCell>
+        <mxCell id="llm-does" value="WHAT LLM DOES (Reasoning)&#xa;&#xa;✓ Parse natural language → JSON&#xa;✓ Generate BigQuery SQL&#xa;✓ Validate/correct suggestions&#xa;✓ Generate business DQ from stats&#xa;✓ Infer SCD type from intent&#xa;✓ Classify business application" style="rounded=1;whiteSpace=wrap;fillColor=#ad1457;strokeColor=#f06292;fontColor=#ffffff;fontSize=9;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="460" y="135" width="300" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="llm-props" value="PROPERTIES&#xa;&#xa;• Stateless (no memory)&#xa;• Isolated (no infra access)&#xa;• Replaceable (any OpenAI API)&#xa;• Self-hosted (no data leaves)" style="rounded=1;whiteSpace=wrap;fillColor=#ad1457;strokeColor=#f06292;fontColor=#ffffff;fontSize=9;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="460" y="280" width="300" height="100" as="geometry"/>
+        </mxCell>
+        <!-- What LLM sees -->
+        <mxCell id="sees-box" value="" style="rounded=1;whiteSpace=wrap;fillColor=#1b5e20;strokeColor=#66bb6a;arcSize=5;" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="340" height="180" as="geometry"/>
+        </mxCell>
+        <mxCell id="sees-title" value="✓ WHAT LLM RECEIVES (Stats Only)" style="text;html=1;align=center;fontSize=11;fontStyle=1;fontColor=#a5d6a7;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="60" y="90" width="300" height="25" as="geometry"/>
+        </mxCell>
+        <mxCell id="sees-content" value="&quot;cibil_score: integer, min=302, max=898,&#xa; mean=701, null_pct=0.1%, distinct=587&quot;&#xa;&#xa;&quot;status: string, distinct=5,&#xa; cardinality=0.01, fingerprint=complaint_statuses&quot;&#xa;&#xa;&quot;pan_number: string, pattern=pan (95% match)&quot;" style="rounded=1;whiteSpace=wrap;fillColor=#2e7d32;strokeColor=#66bb6a;fontColor=#ffffff;fontSize=9;align=left;spacingLeft=10;fontFamily=Courier New;" vertex="1" parent="1">
+          <mxGeometry x="55" y="120" width="310" height="120" as="geometry"/>
+        </mxCell>
+        <!-- What LLM never sees -->
+        <mxCell id="never-box" value="" style="rounded=1;whiteSpace=wrap;fillColor=#b71c1c;strokeColor=#ef5350;arcSize=5;" vertex="1" parent="1">
+          <mxGeometry x="40" y="300" width="340" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="never-title" value="✗ WHAT LLM NEVER SEES (Raw Data)" style="text;html=1;align=center;fontSize=11;fontStyle=1;fontColor=#ef9a9a;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="60" y="310" width="300" height="25" as="geometry"/>
+        </mxCell>
+        <mxCell id="never-content" value="CUST001, ABCPD1234F, 750, 2024-01-15&#xa;CUST002, XYZPQ5678R, 680, 2024-01-16&#xa;Rajesh Kumar, rajesh@email.com&#xa;9876543210, 411028" style="rounded=1;whiteSpace=wrap;fillColor=#c62828;strokeColor=#ef5350;fontColor=#ffffff;fontSize=9;align=left;spacingLeft=10;fontFamily=Courier New;textDecoration=line-through;" vertex="1" parent="1">
+          <mxGeometry x="55" y="345" width="310" height="80" as="geometry"/>
+        </mxCell>
+        <!-- Deterministic Core -->
+        <mxCell id="det-box" value="" style="rounded=1;whiteSpace=wrap;fillColor=#1a237e;strokeColor=#5c6bc0;arcSize=5;" vertex="1" parent="1">
+          <mxGeometry x="840" y="80" width="320" height="360" as="geometry"/>
+        </mxCell>
+        <mxCell id="det-title" value="DETERMINISTIC CORE (Executes)" style="text;html=1;align=center;fontSize=11;fontStyle=1;fontColor=#b39ddb;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="860" y="90" width="280" height="25" as="geometry"/>
+        </mxCell>
+        <mxCell id="det-never" value="LLM NEVER DOES (Execution)&#xa;&#xa;✗ Write to GCS&#xa;✗ Create/alter BQ tables&#xa;✗ Submit Dataproc jobs&#xa;✗ Modify Iceberg schemas&#xa;✗ Write to Dataplex&#xa;✗ Set Policy Tags&#xa;✗ Push configs" style="rounded=1;whiteSpace=wrap;fillColor=#283593;strokeColor=#5c6bc0;fontColor=#ffffff;fontSize=9;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="860" y="125" width="280" height="145" as="geometry"/>
+        </mxCell>
+        <mxCell id="det-does" value="DETERMINISM DOES&#xa;&#xa;• Rules Engine validates AI output&#xa;• Config Generator writes YAML&#xa;• Approval Handler writes Dataplex&#xa;• Cloud Function runs pipeline&#xa;• DQ Engine enforces rules&#xa;• Schema Evolver gates changes" style="rounded=1;whiteSpace=wrap;fillColor=#283593;strokeColor=#5c6bc0;fontColor=#ffffff;fontSize=9;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="860" y="285" width="280" height="130" as="geometry"/>
+        </mxCell>
+        <!-- Arrows -->
+        <mxCell id="a1" value="stats only" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#66bb6a;strokeWidth=2;fontSize=9;fontColor=#66bb6a;" edge="1" parent="1" source="sees-box" target="llm-box">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a2" value="suggestions" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#f06292;strokeWidth=2;fontSize=9;fontColor=#f06292;" edge="1" parent="1" source="llm-box" target="det-box">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <!-- Validation gate -->
+        <mxCell id="gate" value="VALIDATION&#xa;GATE" style="rhombus;whiteSpace=wrap;fillColor=#ff6f00;strokeColor=#ffb300;fontColor=#ffffff;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="790" y="220" width="60" height="60" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

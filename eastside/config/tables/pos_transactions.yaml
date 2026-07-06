@@ -1,0 +1,29 @@
+table: pos_transactions
+description: "Point-of-sale line items from 50+ physical stores"
+source_format: json
+source_system: pos
+domain: sales
+business_application: retail_pos
+is_cdc: false
+
+primary_key: transaction_id
+dedup_order_by: transaction_datetime DESC
+
+hash_fields: [transaction_id, product_sku, transaction_datetime]
+
+dq_rules:
+  not_null: [transaction_id, store_id, product_sku, quantity, unit_price, transaction_datetime]
+  positive: [quantity, unit_price]
+
+pii_fields: []
+
+policy:
+  bronze: detective
+  silver: preventative
+
+schema_evolution:
+  bronze:
+    allowed: [add_column, type_widen, drop_column]
+  silver:
+    allowed: [add_column, type_widen]
+    blocked: [drop_column, type_narrow]

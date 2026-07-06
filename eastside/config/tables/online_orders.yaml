@@ -1,0 +1,32 @@
+table: online_orders
+description: "E-commerce orders from web and mobile app"
+source_format: json
+source_system: ecommerce
+domain: sales
+business_application: ecommerce
+is_cdc: false
+
+primary_key: order_id
+dedup_order_by: order_date DESC
+
+hash_fields: [order_id, customer_id, order_date]
+
+dq_rules:
+  not_null: [order_id, customer_id, order_date, status, total_amount]
+  positive: [total_amount]
+  accepted_values:
+    status: [confirmed, processing, shipped, delivered, cancelled, returned]
+    channel: [web, app]
+
+pii_fields: []
+
+policy:
+  bronze: detective
+  silver: preventative
+
+schema_evolution:
+  bronze:
+    allowed: [add_column, type_widen, drop_column]
+  silver:
+    allowed: [add_column, type_widen]
+    blocked: [drop_column, type_narrow]

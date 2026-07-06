@@ -1,0 +1,35 @@
+table: store_staff
+description: "Staff records from HR system — CDC feed with role/store changes"
+source_format: csv
+source_system: hr
+domain: hr
+business_application: hr
+is_cdc: true
+
+primary_key: staff_id
+dedup_order_by: _ingested_at DESC
+
+hash_fields: [staff_id, store_id, role, status]
+
+dq_rules:
+  not_null: [staff_id]
+  accepted_values:
+    status: [active, on_leave, terminated]
+
+pii_fields: [first_name, last_name, email]
+
+masking:
+  email: sha256
+
+sensitive_fields: [hourly_rate]
+
+policy:
+  bronze: detective
+  silver: preventative
+
+schema_evolution:
+  bronze:
+    allowed: [add_column, type_widen, drop_column]
+  silver:
+    allowed: [add_column, type_widen]
+    blocked: [drop_column, type_narrow]

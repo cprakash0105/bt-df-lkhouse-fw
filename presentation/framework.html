@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>bt_df_lkhouse_fw — Config-Driven Lakehouse Framework</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/reveal.min.css"/>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/theme/night.min.css"/>
+<style>
+.reveal h1,.reveal h2,.reveal h3{text-transform:none!important}
+.reveal pre{font-size:.5em;width:100%}
+.reveal table{font-size:.58em;margin:0 auto}
+.reveal table th,.reveal table td{padding:4px 10px;border:1px solid #444}
+.reveal .highlight{color:#4fc3f7}
+.reveal .warn{color:#ffb74d}
+.reveal .ok{color:#81c784}
+.reveal .small{font-size:.6em;color:#999}
+.flow-box{display:inline-block;background:#1a237e;border:1px solid #42a5f5;border-radius:8px;padding:8px 14px;margin:4px;font-size:.65em}
+.flow-arrow{display:inline-block;font-size:1.2em;margin:0 4px;color:#4fc3f7}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:20px;text-align:left}
+</style>
+</head>
+<body>
+<div class="reveal">
+<div class="slides">
+
+<!-- TITLE -->
+<section>
+<h1>bt_df_lkhouse_fw</h1>
+<h3>Config-Driven Lakehouse Framework</h3>
+<p class="small">GCP Native · Apache Iceberg · BigQuery · PySpark<br/>Chandra Prakash · BT Group · June 2026</p>
+</section>
+
+<!-- WHAT IS IT -->
+<section>
+<h2>What Is This Framework?</h2>
+<ul style="font-size:.8em">
+<li>A <strong>config-driven</strong> data pipeline framework on GCP</li>
+<li>Add a new dataset by dropping a <strong>YAML file</strong> — zero code changes</li>
+<li>Handles: ingestion, DQ, dedup, schema evolution, SCD, consumption</li>
+<li>Fully automated via Cloud Functions (event-driven)</li>
+<li>Open formats: Apache Iceberg + BigQuery</li>
+</ul>
+<p class="fragment warn" style="font-size:.8em">Think of it as: "Infrastructure from metadata"</p>
+</section>
+
+<!-- ARCHITECTURE -->
+<section>
+<h2>Architecture</h2>
+<div>
+<span class="flow-box">Source<br/><span class="small">JSONL on GCS</span></span>
+<span class="flow-arrow">→</span>
+<span class="flow-box">Landing<br/><span class="small">Raw, immutable</span></span>
+<span class="flow-arrow">→</span>
+<span class="flow-box">Reservoir<br/><span class="small">Parquet</span></span>
+<span class="flow-arrow">→</span>
+<span class="flow-box">CCN<br/><span class="small">Iceberg (governed)</span></span>
+<span class="flow-arrow">→</span>
+<span class="flow-box ok">Data Product<br/><span class="small">BigQuery</span></span>
+</div>
+<br/>
+<p style="font-size:.7em">Each layer has a clear gate: you can't reach CCN without passing DQ.<br/>You can't reach Data Product without passing schema governance.</p>
+</section>
+
+<!-- LAYERS DETAIL -->
+<section>
+<h2>Layer Design</h2>
+<table>
+<tr><th>Layer</th><th>Storage</th><th>Format</th><th>Catalog</th><th>What Happens</th></tr>
+<tr><td><strong>Landing</strong></td><td>GCS</td><td>JSONL</td><td>—</td><td>Raw from source. Never modified.</td></tr>
+<tr><td><strong>Reservoir</strong></td><td>GCS</td><td>Parquet</td><td>—</td><td>Add ingestion_ts. Schema-on-read.</td></tr>
+<tr><td><strong>CCN</strong></td><td>GCS</td><td>Iceberg</td><td>BLMS</td><td>DQ ✓ Dedup ✓ Schema governed ✓</td></tr>
+<tr><td><strong>Data Product</strong></td><td>BigQuery</td><td>Native</td><td>BQ</td><td>Materialised joins, SCD, policy tags</td></tr>
+</table>
+</section>
+
+<!-- CONFIG DRIVEN -->
+<section>
+<h2>Config-Driven: Add a Table</h2>
+<pre><code># config/tables/cibil_bureau_feed.yaml
+
+table: cibil_bureau_feed
+source: landing/cibil_bureau_feed
+primary_key: customer_id
+dedup_order_by: ingestion_ts DESC
+
+dq_rules:
+  not_null: [customer_id, cibil_score]
+  range:
+    cibil_score: [300, 900]
+  format:
+    pan_number: pan
+
+schema_evolution:
+  allowed: [add_column, type_widen]
+  blocked: [drop_column, type_narrow]
+
+pii_fields: [pan_number, mobile_number, email_address]</code></pre>
+<p class="fragment small">Drop this YAML in GCS → pipeline processes the table automatically. No code.</p>
+</section>
+
+<!-- ENGINE COMPONENTS -->
+<section>
+<h2>Engine Components</h2>
+<table>
+<tr><th>Engine</th><th>Input</th><th>Output</th><th>Technology</th></tr>
+<tr><td><strong>ingest.py</strong></td><td>Landing JSONL</td><td>Reservoir Parquet</td><td>PySpark (Dataproc)</td></tr>
+<tr><td><strong>curate.py</strong></td><td>Reservoir Parquet</td><td>CCN Iceberg</td><td>PySpark + BLMS</td></tr>
+<tr><td><strong>consume.py</strong></td><td>CCN (via BQ)</td><td>Data Product (BQ)</td><td>BigQuery SQL</td></tr>
+<tr><td><strong>scd.py</strong></td><td>CCN source</td><td>SCD dimensions</td><td>PySpark</td></tr>
+<tr><td><strong>schema_evolver.py</strong></td><td>New vs existing</td><td>Allow/Block</td><td>Pure Python</td></tr>
+</table>
+<p class="small">Each engine reads from the same YAML config. Single source of truth.</p>
+</section>
+
+<!-- INGEST -->
+<section>
+<h2>Ingest: Landing → Reservoir</h2>
+<pre><code># What ingest.py does:
+1. Read JSONL from gs://bucket/landing/{table}/
+2. Add ingestion_ts = current_timestamp()
+3. Infer schema from data (or use config overrides)
+4. Write as Parquet to gs://bucket/reservoir/{table}/
+5. Log to pipeline_monitor: records_in count</code></pre>
+<ul style="font-size:.7em">
+<li>Append mode — never overwrites history</li>
+<li>Type overrides from config (e.g., amount → DOUBLE)</li>
+<li>Handles schema-on-read: new columns just appear</li>
+</ul>
+</section>
+
+<!-- CURATE -->
+<section>
+<h2>Curate: Reservoir → CCN</h2>
+<pre><code># What curate.py does:
+1. Read Parquet from reservoir
+2. DQ Validation:
+   - not_null: reject rows where required fields are null
+   - range: reject rows outside bounds
+   - format: reject rows failing regex (PAN, email, etc.)
+   - accepted_values: reject rows with invalid codes
+   - positive: reject rows with negative amounts
+3. Deduplication:
+   - Window function on primary_key
+   - ORDER BY dedup_order_by (latest wins)
+4. Schema Evolution:
+   - Detect drift (new/changed/dropped columns)
+   - Check governance rules → allow or block
+5. Write to Iceberg (merge-schema mode)
+6. Log: records_in, records_out, records_rejected</code></pre>
+</section>
+
+<!-- DQ DETAIL -->
+<section>
+<h2>Data Quality Engine</h2>
+<table>
+<tr><th>Rule Type</th><th>Config</th><th>Behaviour</th></tr>
+<tr><td>not_null</td><td><code>[customer_id, score]</code></td><td>Reject row if field is null</td></tr>
+<tr><td>positive</td><td><code>[amount, balance]</code></td><td>Reject if value ≤ 0</td></tr>
+<tr><td>range</td><td><code>score: [300, 900]</code></td><td>Reject if outside bounds</td></tr>
+<tr><td>format</td><td><code>pan: pan</code></td><td>Reject if regex fails</td></tr>
+<tr><td>accepted_values</td><td><code>status: [a, b, c]</code></td><td>Reject if not in set</td></tr>
+<tr><td>unique</td><td><code>[id]</code></td><td>Flag duplicates</td></tr>
+</table>
+<br/>
+<p style="font-size:.7em">Rejected records are counted and logged. Pipeline continues with valid data.<br/>DQ rules <strong>inherited from BDE definitions</strong> — define once, apply everywhere.</p>
+</section>
+
+<!-- SCHEMA EVOLUTION -->
+<section>
+<h2>Schema Evolution Governance</h2>
+<pre><code>Incoming Data               Existing Iceberg Table
+     ↓                              ↓
+┌─────────────────────────────────────────────┐
+│  SchemaEvolver.detect_changes()             │
+│  • New columns?    → add_column             │
+│  • Type widened?   → type_widen             │
+│  • Type narrowed?  → type_narrow            │
+│  • Column gone?    → drop_column            │
+└─────────────────────┬───────────────────────┘
+                      ↓
+┌─────────────────────────────────────────────┐
+│  Config says:                               │
+│    allowed: [add_column, type_widen]        │
+│    blocked: [drop_column, type_narrow]      │
+│                                             │
+│    ✅ Allowed → ALTER TABLE + continue      │
+│    🚫 Blocked → Pipeline FAILS + alert     │
+└─────────────────────────────────────────────┘</code></pre>
+<p class="fragment small">Prevents breaking changes from silently reaching consumers.</p>
+</section>
+
+<!-- DEDUPLICATION -->
+<section>
+<h2>Deduplication</h2>
+<pre><code># Config:
+primary_key: customer_id
+dedup_order_by: ingestion_ts DESC
+
+# Execution (PySpark window function):
+SELECT *, ROW_NUMBER() OVER (
+    PARTITION BY customer_id
+    ORDER BY ingestion_ts DESC
+) AS _rn
+FROM reservoir_data
+WHERE _rn = 1</code></pre>
+<ul style="font-size:.7em">
+<li>Latest record wins (configurable order)</li>
+<li>Runs AFTER DQ — only valid records get deduped</li>
+<li>Primary key from config (set by SD during discovery)</li>
+</ul>
+</section>
+
+<!-- CONSUME -->
+<section>
+<h2>Consume: CCN → Data Product</h2>
+<pre><code># config/consumption/loan_eligibility_360.sql
+
+CREATE OR REPLACE TABLE
+  `bt-df-lkhouse.lakehouse_dataproduct.loan_eligibility_360` AS
+SELECT
+    c.customer_id, c.name, c.region,
+    b.cibil_score,
+    k.kyc_status,
+    CASE
+        WHEN b.cibil_score >= 750 AND k.kyc_status = 'verified'
+            THEN 'pre_approved'
+        WHEN b.cibil_score >= 650 AND k.kyc_status = 'verified'
+            THEN 'eligible'
+        ELSE 'not_eligible'
+    END AS loan_eligibility_status
+FROM `bt-df-lkhouse.lakehouse_ccn.customers` c
+JOIN `bt-df-lkhouse.lakehouse_ccn.cibil_bureau_feed` b
+    ON c.customer_id = b.customer_id
+JOIN `bt-df-lkhouse.lakehouse_ccn.ekyc_provider_feed` k
+    ON c.customer_id = k.customer_id</code></pre>
+<p class="small">Drop SQL in config → pipeline materialises it. Consumer queries BigQuery directly.</p>
+</section>
+
+<!-- SCD -->
+<section>
+<h2>Slowly Changing Dimensions (SCD)</h2>
+<table>
+<tr><th>Type</th><th>Behaviour</th><th>Use Case</th></tr>
+<tr><td><strong>1</strong></td><td>Overwrite</td><td>Reference data corrections (UPI)</td></tr>
+<tr><td><strong>2</strong></td><td>New row per change (effective_from/to)</td><td>KYC status history</td></tr>
+<tr><td><strong>3</strong></td><td>prev_value columns</td><td>CIBIL score (prev + current)</td></tr>
+<tr><td><strong>4</strong></td><td>Current table + history archive</td><td>KYC fast lookup + audit</td></tr>
+<tr><td><strong>6</strong></td><td>Hybrid (1+2+3)</td><td>Full tracking with prev values</td></tr>
+</table>
+<pre class="fragment"><code># Config-driven:
+dim_kyc_history:
+  scd_type: 2
+  primary_key: customer_id
+  tracked_columns: [kyc_status, verification_mode]
+  source_query: |
+    SELECT * FROM `project.lakehouse_ccn.ekyc_provider_feed`</code></pre>
+</section>
+
+<!-- AUTOMATION -->
+<section>
+<h2>Event-Driven Automation</h2>
+<pre><code>YAML config lands in GCS (pushed by SD or manually)
+        │
+        ▼  GCS Eventarc trigger
+Cloud Function (Gen2) fires:
+        │
+        ├── 1. Submit INGEST job → Dataproc cluster
+        │       └── Wait for completion
+        ├── 2. Submit CURATE job → Dataproc cluster
+        │       └── DQ + dedup + schema evolution
+        ├── 3. Create BQ external table (Iceberg via BLMS)
+        ├── 4. Ensure consumption SQL exists
+        ├── 5. Run CONSUME (materialise Data Product)
+        ├── 6. Apply column-level security (Policy Tags)
+        └── 7. Log everything to pipeline_monitor
+        
+Total time: ~3 minutes (1000 records)</code></pre>
+</section>
+
+<!-- PIPELINE MONITOR -->
+<section>
+<h2>Pipeline Observability</h2>
+<pre><code>SELECT dataset_name, stage, status,
+       records_in, records_out, records_rejected,
+       duration_seconds, event_time
+FROM `bt-df-lkhouse.lakehouse_dataproduct.pipeline_monitor`
+ORDER BY event_time DESC</code></pre>
+<table>
+<tr><th>Stage</th><th>What's Tracked</th></tr>
+<tr><td>discovery</td><td>SD ran, fields matched, confidence</td></tr>
+<tr><td>approval</td><td>Steward approved, config pushed</td></tr>
+<tr><td>ingest</td><td>Records landed, duration</td></tr>
+<tr><td>curate</td><td>Records in/out/rejected, DQ failures</td></tr>
+<tr><td>consume</td><td>Data product materialised</td></tr>
+</table>
+</section>
+
+<!-- COLUMN SECURITY -->
+<section>
+<h2>Column-Level Security</h2>
+<pre><code># From config:
+pii_fields: [pan_number, mobile_number, email_address]
+
+# Framework automatically:
+1. Creates Policy Tag taxonomy (if not exists)
+2. Attaches PII policy tag to each column
+3. Only users in "pii_reader" IAM group see values
+4. Others get: ACCESS DENIED on those columns</code></pre>
+<ul style="font-size:.7em">
+<li>One table, many policies — no masked copies</li>
+<li>Access controlled at query time via IAM</li>
+<li>PII fields identified by SD during discovery</li>
+</ul>
+</section>
+
+<!-- GCS LAYOUT -->
+<section>
+<h2>Storage Layout</h2>
+<pre><code>gs://bt-df-lkhouse-lakehouse/
+├── landing/
+│   ├── cibil_bureau_feed/    (JSONL — raw)
+│   ├── ekyc_provider_feed/
+│   └── upi_transactions/
+├── reservoir/
+│   ├── cibil_bureau_feed/    (Parquet — typed)
+│   └── ...
+├── ccn/
+│   ├── cibil_bureau_feed/    (Iceberg — governed)
+│   └── ...
+├── framework/
+│   └── config/
+│       ├── tables/*.yaml     (pipeline configs)
+│       └── consumption/*.sql (data product SQL)
+├── contracts/                (data contracts)
+└── profiles/                 (profiling audit trail)</code></pre>
+</section>
+
+<!-- DATA CONTRACTS -->
+<section>
+<h2>Data Contracts</h2>
+<pre><code>contract:
+  name: cibil_bureau_feed
+  version: "1.0.0"
+  owner:
+    team: Bureau Data Team
+    domain: Credit
+  schema:
+    primary_key: customer_id
+    fields:
+      - name: cibil_score
+        type: integer
+        business_term: Credit Score
+        nullable: false
+        range: [300, 900]
+  quality:
+    completeness: { target: 99.5% }
+    freshness: { max_delay: 24h }
+  governance:
+    pii_fields: [pan_number, mobile_number]
+    masking: required_in_non_prod
+  evolution:
+    allowed: [add_column]
+    blocked: [drop_column, type_narrow]</code></pre>
+<p class="small">Auto-generated by SD on approval. Pipeline enforces it.</p>
+</section>
+
+<!-- INFRASTRUCTURE -->
+<section>
+<h2>Infrastructure</h2>
+<table>
+<tr><th>Component</th><th>GCP Service</th><th>Config</th></tr>
+<tr><td>Storage</td><td>Cloud Storage</td><td>Single bucket, all layers</td></tr>
+<tr><td>Processing</td><td>Dataproc (dedicated)</td><td>4 vCPU, Spark 3.5</td></tr>
+<tr><td>Iceberg Catalog</td><td>BigLake Metastore</td><td>lakehouse.ccn</td></tr>
+<tr><td>Query Engine</td><td>BigQuery</td><td>Linked dataset + native tables</td></tr>
+<tr><td>Automation</td><td>Cloud Functions Gen2</td><td>GCS event trigger</td></tr>
+<tr><td>Governance</td><td>Dataplex KC</td><td>Glossary + custom entries</td></tr>
+<tr><td>Deployment</td><td>Cloud Build + Cloud Run</td><td>Docker multi-stage</td></tr>
+</table>
+<p class="small">Monthly cost: ~$250 (including Azure VM for LLM)</p>
+</section>
+
+<!-- HOW TO ADD A TABLE -->
+<section>
+<h2>Adding a New Dataset (Manual)</h2>
+<ol style="font-size:.75em">
+<li>Place source data in <code>gs://bucket/landing/{name}/</code></li>
+<li>Create <code>config/tables/{name}.yaml</code> with DQ + schema rules</li>
+<li>Create <code>config/consumption/{name}.sql</code> for data product</li>
+<li>Upload config to GCS → Cloud Function auto-triggers</li>
+<li>Data appears in BigQuery within ~3 minutes</li>
+</ol>
+<br/>
+<p class="fragment" style="font-size:.8em">Or: let <strong>Semantic Discovery</strong> generate steps 2-4 automatically from a natural language description.</p>
+</section>
+
+<!-- HOW SD GENERATES CONFIG -->
+<section>
+<h2>Adding a New Dataset (via SD)</h2>
+<ol style="font-size:.75em">
+<li>Steward: "I have a new CIBIL feed with customer_id, pan_number, cibil_score..."</li>
+<li>SD: profiles data, matches to BDEs, detects PII, suggests DQ</li>
+<li>Steward: clicks "Approve"</li>
+<li>SD auto-generates:
+  <ul>
+    <li>Pipeline YAML config (with inherited DQ from BDEs)</li>
+    <li>Data contract</li>
+    <li>Dataplex glossary entries + catalog links</li>
+    <li>SCD config (if applicable)</li>
+  </ul>
+</li>
+<li>Config pushed to GCS → pipeline runs → data in BQ</li>
+</ol>
+<p class="fragment ok" style="font-size:.8em">Total time: ~8 minutes (5 min human + 3 min pipeline)</p>
+</section>
+
+<!-- KEY DESIGN DECISIONS -->
+<section>
+<h2>Key Design Decisions</h2>
+<table>
+<tr><th>Decision</th><th>Choice</th><th>Why</th></tr>
+<tr><td>Reservoir format</td><td>Parquet (no catalog)</td><td>Fast writes, schema-on-read</td></tr>
+<tr><td>CCN format</td><td>Iceberg (BLMS)</td><td>Governance, time-travel, BQ linked</td></tr>
+<tr><td>Data Product</td><td>BQ native tables</td><td>Optimised for consumers, clustering</td></tr>
+<tr><td>Processing</td><td>Dedicated Dataproc</td><td>Trial quota (12 vCPU limit)</td></tr>
+<tr><td>DQ approach</td><td>Config rules + BDE inheritance</td><td>Define handful, not thousands</td></tr>
+<tr><td>Automation</td><td>Cloud Function (GCS trigger)</td><td>Cheapest, event-driven, no polling</td></tr>
+<tr><td>Security</td><td>Policy Tags</td><td>One table, role-based access</td></tr>
+</table>
+</section>
+
+<!-- PROVEN RESULTS -->
+<section>
+<h2>Proven Results</h2>
+<table>
+<tr><th>Dataset</th><th>Records</th><th>DQ Pass Rate</th><th>Time</th></tr>
+<tr><td>CIBIL Bureau Feed</td><td>1,000</td><td>99.8%</td><td>2.5 min</td></tr>
+<tr><td>e-KYC Provider</td><td>800</td><td>100%</td><td>2.1 min</td></tr>
+<tr><td>UPI Transactions</td><td>5,000</td><td>99.5%</td><td>3.2 min</td></tr>
+<tr><td>Customer Complaints</td><td>500</td><td>100%</td><td>1.8 min</td></tr>
+</table>
+<br/>
+<ul style="font-size:.7em">
+<li>All end-to-end: Landing → Reservoir → CCN → Data Product</li>
+<li>Schema evolution tested: added columns pass, dropped columns blocked</li>
+<li>SCD Types 1-6 demonstrated with banking use cases</li>
+</ul>
+</section>
+
+<!-- EXTENSIBILITY -->
+<section>
+<h2>Extensibility</h2>
+<ul style="font-size:.75em">
+<li><strong>New DQ rule type?</strong> Add handler in curate.py, reference in config YAML</li>
+<li><strong>New source format?</strong> Add reader in ingest.py (Avro, Parquet source, etc.)</li>
+<li><strong>New SCD type?</strong> Add logic in scd.py, reference in consumption YAML</li>
+<li><strong>New domain?</strong> Add BDEs to glossary → DQ rules auto-cascade to all tables</li>
+<li><strong>Cross-cloud?</strong> Add Trino for federation (planned)</li>
+</ul>
+<br/>
+<p class="fragment small">Framework grows via <strong>config</strong>, not code changes.</p>
+</section>
+
+<!-- SUMMARY -->
+<section>
+<h2>Summary</h2>
+<div class="two-col">
+<div>
+<h4 class="highlight">What You Get</h4>
+<ul style="font-size:.65em">
+<li>Config-driven pipeline (zero code)</li>
+<li>4-layer lakehouse (governed)</li>
+<li>DQ validation (6 rule types)</li>
+<li>Schema evolution governance</li>
+<li>SCD Types 1-6</li>
+<li>Event-driven automation</li>
+<li>Column-level security</li>
+<li>Pipeline observability</li>
+<li>Data contracts</li>
+</ul>
+</div>
+<div>
+<h4 class="highlight">What It Costs</h4>
+<ul style="font-size:.65em">
+<li>~$250/month (full stack)</li>
+<li>No vendor license fees</li>
+<li>Open formats (Iceberg)</li>
+<li>GCP credits cover 6+ months</li>
+<li>Zero vendor lock-in</li>
+</ul>
+<br/>
+<h4 class="highlight">Tech Stack</h4>
+<ul style="font-size:.65em">
+<li>Python + PySpark</li>
+<li>GCS + Iceberg + BigQuery</li>
+<li>Cloud Functions + Dataproc</li>
+<li>Dataplex + Cloud Run</li>
+</ul>
+</div>
+</div>
+</section>
+
+<!-- THANK YOU -->
+<section>
+<h1>Thank You</h1>
+<p class="highlight">Questions?</p>
+<br/>
+<p class="small">
+GitHub: github.com/cprakash0105/bt-df-lkhouse-fw<br/>
+Live SD: sd-web-978009776592.europe-west2.run.app<br/>
+Project: bt-df-lkhouse (GCP, europe-west2)
+</p>
+</section>
+
+</div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/reveal.min.js"></script>
+<script>Reveal.initialize({hash:true,slideNumber:true,transition:'slide'});</script>
+</body>
+</html>

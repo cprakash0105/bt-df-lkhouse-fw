@@ -1,0 +1,62 @@
+<mxfile host="app.diagrams.net" modified="2026-06-30T00:00:00.000Z" agent="draw.io" version="21.0.0">
+  <diagram name="Composite Confidence" id="composite-confidence">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="800" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="title" value="Composite Confidence Scoring (Ab Initio Parity)" style="text;html=1;align=center;verticalAlign=middle;fontSize=18;fontStyle=1;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="350" y="20" width="500" height="40" as="geometry"/>
+        </mxCell>
+        <!-- 4 Signals -->
+        <mxCell id="sig-keyword" value="KEYWORD SIGNAL (30%)&#xa;&#xa;Field name matches BDE synonym&#xa;&#xa;cibil_score → Credit Score = 100%&#xa;status → (no direct match) = 0%&#xa;complaint_id → Complaint ID = 100%" style="rounded=1;whiteSpace=wrap;fillColor=#1565c0;strokeColor=#64b5f6;fontColor=#ffffff;fontSize=9;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="100" width="280" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="sig-pattern" value="PATTERN SIGNAL (25%)&#xa;&#xa;Values match PII regex patterns&#xa;&#xa;pan_number values → PAN regex = 95%&#xa;email_address → email regex = 90%&#xa;csat_score → no pattern = 0%" style="rounded=1;whiteSpace=wrap;fillColor=#4a148c;strokeColor=#ab47bc;fontColor=#ffffff;fontSize=9;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="360" y="100" width="280" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="sig-fingerprint" value="FINGERPRINT SIGNAL (25%)&#xa;&#xa;Values match reference code sets&#xa;&#xa;status [open,closed...] →&#xa;  complaint_statuses = 100% ✓&#xa;  order_statuses = 0% ✗&#xa;&#xa;priority [low,medium,high,critical]&#xa;  → priority_levels = 100% ✓" style="rounded=1;whiteSpace=wrap;fillColor=#e65100;strokeColor=#ff9800;fontColor=#ffffff;fontSize=9;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="680" y="100" width="280" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="sig-stat" value="STATISTICAL SIGNAL (20%)&#xa;&#xa;Type + range + cardinality aligns&#xa;with matched BDE definition&#xa;&#xa;csat_score: int, range [1,5]&#xa;  matches CSAT Score BDE = 80%&#xa;&#xa;customer_id: string, 100% unique&#xa;  matches Customer ID (key) = 70%" style="rounded=1;whiteSpace=wrap;fillColor=#1b5e20;strokeColor=#66bb6a;fontColor=#ffffff;fontSize=9;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="1000" y="100" width="280" height="150" as="geometry"/>
+        </mxCell>
+        <!-- Combine -->
+        <mxCell id="combine" value="COMPOSITE FORMULA" style="text;html=1;align=center;fontSize=12;fontStyle=1;fontColor=#ffb74d;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="450" y="290" width="300" height="25" as="geometry"/>
+        </mxCell>
+        <mxCell id="formula" value="Score = 0.30 × keyword + 0.25 × pattern + 0.25 × fingerprint + 0.20 × stat" style="rounded=1;whiteSpace=wrap;fillColor=#263238;strokeColor=#78909c;fontColor=#ffffff;fontSize=11;fontFamily=Courier New;" vertex="1" parent="1">
+          <mxGeometry x="250" y="320" width="700" height="35" as="geometry"/>
+        </mxCell>
+        <!-- Examples -->
+        <mxCell id="ex-label" value="WORKED EXAMPLES" style="text;html=1;align=center;fontSize=12;fontStyle=1;fontColor=#90caf9;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="450" y="380" width="300" height="25" as="geometry"/>
+        </mxCell>
+        <mxCell id="ex1" value="csat_score&#xa;&#xa;keyword = 1.00 (exact synonym)&#xa;pattern = 0.00&#xa;fingerprint = 0.00&#xa;stat = 0.80 (int, range matches)&#xa;&#xa;composite = 0.30 + 0 + 0 + 0.16 = 46%" style="rounded=1;whiteSpace=wrap;fillColor=#1a237e;strokeColor=#42a5f5;fontColor=#ffffff;fontSize=9;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="420" width="240" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="ex2" value="pan_number&#xa;&#xa;keyword = 1.00 (exact synonym)&#xa;pattern = 0.95 (PAN regex 95%)&#xa;fingerprint = 0.00&#xa;stat = 0.50 (type matches)&#xa;&#xa;composite = 0.30 + 0.24 + 0 + 0.10 = 64%" style="rounded=1;whiteSpace=wrap;fillColor=#1a237e;strokeColor=#42a5f5;fontColor=#ffffff;fontSize=9;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="310" y="420" width="240" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="ex3" value="status (complaints)&#xa;&#xa;keyword = 0.00 (generic name)&#xa;pattern = 0.00&#xa;fingerprint = 1.00 (complaint_statuses!)&#xa;stat = 0.30 (reference field)&#xa;&#xa;composite = 0 + 0 + 0.25 + 0.06 = 31%&#xa;→ But fingerprint OVERRIDES wrong BDE" style="rounded=1;whiteSpace=wrap;fillColor=#1a237e;strokeColor=#42a5f5;fontColor=#ffffff;fontSize=9;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="580" y="420" width="260" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="ex4" value="complaint_id&#xa;&#xa;keyword = 1.00 (exact synonym)&#xa;pattern = 0.00&#xa;fingerprint = 0.00&#xa;stat = 0.70 (unique + not null)&#xa;&#xa;composite = 0.30 + 0 + 0 + 0.14 = 44%&#xa;→ Marked as PK candidate" style="rounded=1;whiteSpace=wrap;fillColor=#1a237e;strokeColor=#42a5f5;fontColor=#ffffff;fontSize=9;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="870" y="420" width="240" height="150" as="geometry"/>
+        </mxCell>
+        <!-- Arrows to formula -->
+        <mxCell id="c1" style="rounded=1;strokeColor=#64b5f6;strokeWidth=1;exitX=0.5;exitY=1;entryX=0.15;entryY=0;" edge="1" parent="1" source="sig-keyword" target="formula">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2" style="rounded=1;strokeColor=#ab47bc;strokeWidth=1;exitX=0.5;exitY=1;entryX=0.35;entryY=0;" edge="1" parent="1" source="sig-pattern" target="formula">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3" style="rounded=1;strokeColor=#ff9800;strokeWidth=1;exitX=0.5;exitY=1;entryX=0.65;entryY=0;" edge="1" parent="1" source="sig-fingerprint" target="formula">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c4" style="rounded=1;strokeColor=#66bb6a;strokeWidth=1;exitX=0.5;exitY=1;entryX=0.85;entryY=0;" edge="1" parent="1" source="sig-stat" target="formula">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

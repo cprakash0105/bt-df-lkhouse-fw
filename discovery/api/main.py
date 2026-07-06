@@ -58,6 +58,24 @@ except Exception as e:
     print(f"[API] KC Agent init failed: {e}")
     kc_agent = None
 
+# RAG Retriever
+try:
+    from discovery.engine.rag.retriever import get_retriever
+    rag_retriever = get_retriever()
+    print(f"[API] RAG retriever: {'ready' if rag_retriever.is_available else 'no index'}")
+except Exception as e:
+    print(f"[API] RAG init skipped: {e}")
+    rag_retriever = None
+
+# MCP Agent
+try:
+    from discovery.engine.mcp.agent import get_agent as get_mcp_agent
+    mcp_agent = get_mcp_agent()
+    print("[API] MCP agent ready")
+except Exception as e:
+    print(f"[API] MCP agent init skipped: {e}")
+    mcp_agent = None
+
 # Catalog Cache (Firestore)
 try:
     from discovery.engine.catalog_cache import CatalogCache
@@ -229,11 +247,45 @@ def get_domains():
 
 @app.post("/ask")
 def ask_catalog(req: SQLRequest):
-    """Ask any question about the data catalog. Uses LLM + KC APIs."""
-    if not kc_agent:
-        raise HTTPException(503, "KC Agent not available")
-    answer = kc_agent.answer(req.requirement)
-    return {"answer": answer}
+    """Ask any question about the data catalog. Uses MCP agent (if available) → RAG → KC Agent."""
+    # Priority: MCP agent (agentic, tool-calling) → RAG → KC agent (rule-based)
+    if mcp_agent:
+        answer = mcp_agent.run(req.requirement)
+        return {"answer": answer}
+    if rag_retriever and rag_retriever.is_available:
+        answer = rag_retriever.answer(req.requirement)
+        return {"answer": answer}
+    if kc_agent:
+        answer = kc_agent.answer(req.requirement)
+        return {"answer": answer}
+    raise HTTPException(503, "No agent available")
+
+
+@app.post("/rag/index")
+def rebuild_rag_index():
+    """Rebuild the RAG knowledge index from configs, glossary, and docs."""
+    try:
+        from discovery.engine.rag.indexer import build_index
+        count = build_index(
+            config_dir="discovery/config",
+            glossary_path="discovery/config/seed_glossary.yaml",
+            docs_paths=["DATA_CATALOGUE.md", "eastside/docs/DESIGN.md",
+                        "eastside/docs/OPERATIONAL_GUIDE.md"],
+            gcs_bucket=os.environ.get("CONFIG_BUCKET", "bt-df-lkhouse-lakehouse"),
+        )
+        return {"status": "indexed", "chunks": count}
+    except Exception as e:
+        raise HTTPException(500, f"Index build failed: {str(e)}")
+
+
+@app.get("/mcp/tools")
+def list_mcp_tools():
+    """List available MCP tools the agent can call."""
+    try:
+        from discovery.engine.mcp.tools import get_tool_definitions
+        return {"tools": get_tool_definitions()}
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 
 @app.get("/catalog/tree")

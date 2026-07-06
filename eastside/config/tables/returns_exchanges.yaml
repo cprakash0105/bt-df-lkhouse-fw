@@ -1,0 +1,33 @@
+table: returns_exchanges
+description: "Customer returns and exchanges from online and store channels"
+source_format: json
+source_system: returns_portal
+domain: sales
+business_application: ecommerce
+is_cdc: false
+
+primary_key: return_id
+dedup_order_by: return_date DESC
+
+hash_fields: [return_id, order_id, product_sku]
+
+dq_rules:
+  not_null: [return_id, order_id, customer_id, product_sku, return_reason, return_date]
+  positive: [refund_amount]
+  accepted_values:
+    return_reason: [too_small, too_large, wrong_item, defective, not_as_described, changed_mind, arrived_late]
+    channel: [online, store]
+    condition: [new_with_tags, new_without_tags, worn, damaged]
+
+pii_fields: []
+
+policy:
+  bronze: detective
+  silver: preventative
+
+schema_evolution:
+  bronze:
+    allowed: [add_column, type_widen, drop_column]
+  silver:
+    allowed: [add_column, type_widen]
+    blocked: [drop_column, type_narrow]

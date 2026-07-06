@@ -1,0 +1,60 @@
+<mxfile host="app.diagrams.net" modified="2026-06-30T00:00:00.000Z" agent="draw.io" version="21.0.0">
+  <diagram name="DQ Inheritance" id="dq-inheritance">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="800" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="title" value="DQ Inheritance — Define Once, Apply Everywhere" style="text;html=1;align=center;verticalAlign=middle;fontSize=18;fontStyle=1;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="350" y="20" width="500" height="40" as="geometry"/>
+        </mxCell>
+        <!-- BDE Level -->
+        <mxCell id="bde-label" value="GLOSSARY (BDE Level)" style="text;html=1;align=center;fontSize=12;fontStyle=1;fontColor=#ffb74d;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="250" height="30" as="geometry"/>
+        </mxCell>
+        <mxCell id="bde-credit" value="BDE: Credit Score&#xa;&#xa;dq_rules:&#xa;  not_null: true&#xa;  range: [300, 900]&#xa;&#xa;classification: Sensitive" style="rounded=1;whiteSpace=wrap;fillColor=#e65100;strokeColor=#ff9800;fontColor=#ffffff;fontSize=10;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="120" width="200" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="bde-custid" value="BDE: Customer ID&#xa;&#xa;dq_rules:&#xa;  not_null: true&#xa;  unique: true&#xa;&#xa;is_key_candidate: true" style="rounded=1;whiteSpace=wrap;fillColor=#e65100;strokeColor=#ff9800;fontColor=#ffffff;fontSize=10;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="270" y="120" width="200" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="bde-pan" value="BDE: PAN Number&#xa;&#xa;dq_rules:&#xa;  format: pan&#xa;&#xa;classification: PII&#xa;is_pii: true" style="rounded=1;whiteSpace=wrap;fillColor=#e65100;strokeColor=#ff9800;fontColor=#ffffff;fontSize=10;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="500" y="120" width="200" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="bde-csat" value="BDE: CSAT Score&#xa;&#xa;dq_rules:&#xa;  range: [1, 5]" style="rounded=1;whiteSpace=wrap;fillColor=#e65100;strokeColor=#ff9800;fontColor=#ffffff;fontSize=10;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="730" y="120" width="200" height="120" as="geometry"/>
+        </mxCell>
+        <!-- Arrow down -->
+        <mxCell id="inherit-label" value="INHERITS DOWN (automatic)" style="text;html=1;align=center;fontSize=11;fontStyle=1;fontColor=#66bb6a;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="350" y="270" width="250" height="30" as="geometry"/>
+        </mxCell>
+        <!-- Table Level -->
+        <mxCell id="table-label" value="TABLE CONFIG LEVEL (auto-generated)" style="text;html=1;align=center;fontSize=12;fontStyle=1;fontColor=#4fc3f7;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="40" y="320" width="350" height="30" as="geometry"/>
+        </mxCell>
+        <mxCell id="table1" value="cibil_bureau_feed.yaml&#xa;&#xa;cibil_score:&#xa;  → not_null ✓ (from Credit Score)&#xa;  → range [300,900] ✓ (from Credit Score)&#xa;&#xa;customer_id:&#xa;  → not_null ✓ (from Customer ID)&#xa;  → unique ✓ (is PK here)&#xa;&#xa;pan_number:&#xa;  → format: pan ✓ (from PAN Number)" style="rounded=1;whiteSpace=wrap;fillColor=#1565c0;strokeColor=#64b5f6;fontColor=#ffffff;fontSize=9;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="360" width="250" height="190" as="geometry"/>
+        </mxCell>
+        <mxCell id="table2" value="loan_repayment.yaml&#xa;&#xa;customer_id:&#xa;  → not_null ✓ (from Customer ID)&#xa;  → unique ✗ (NOT PK here — FK only)&#xa;&#xa;Smart: unique only on actual PK" style="rounded=1;whiteSpace=wrap;fillColor=#1565c0;strokeColor=#64b5f6;fontColor=#ffffff;fontSize=9;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="320" y="360" width="250" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="table3" value="customer_complaints.yaml&#xa;&#xa;csat_score:&#xa;  → range [1,5] ✓ (from CSAT Score)&#xa;  → NOT range [300,900]&#xa;    (correct BDE matched!)&#xa;&#xa;customer_id:&#xa;  → not_null ✓&#xa;  → unique ✗ (FK)" style="rounded=1;whiteSpace=wrap;fillColor=#1565c0;strokeColor=#64b5f6;fontColor=#ffffff;fontSize=9;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="600" y="360" width="250" height="160" as="geometry"/>
+        </mxCell>
+        <!-- Arrows from BDEs to tables -->
+        <mxCell id="i1" style="rounded=1;strokeColor=#ff9800;strokeWidth=1;dashed=1;exitX=0.5;exitY=1;entryX=0.3;entryY=0;" edge="1" parent="1" source="bde-credit" target="table1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="i2" style="rounded=1;strokeColor=#ff9800;strokeWidth=1;dashed=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="bde-custid" target="table2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="i3" style="rounded=1;strokeColor=#ff9800;strokeWidth=1;dashed=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="bde-csat" target="table3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <!-- Summary -->
+        <mxCell id="summary" value="Result: 4 BDEs → DQ applied to ALL tables automatically.&#xa;Steward defines rules ONCE at business level. Framework handles the rest." style="rounded=1;whiteSpace=wrap;fillColor=#1b5e20;strokeColor=#66bb6a;fontColor=#ffffff;fontSize=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="200" y="580" width="550" height="50" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

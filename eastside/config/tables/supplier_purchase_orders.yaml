@@ -1,0 +1,31 @@
+table: supplier_purchase_orders
+description: "Purchase orders from ERP — CDC feed with status updates"
+source_format: csv
+source_system: erp
+domain: procurement
+business_application: procurement
+is_cdc: true
+
+primary_key: po_number
+dedup_order_by: _ingested_at DESC
+
+hash_fields: [po_number, status, quantity_ordered]
+
+dq_rules:
+  not_null: [po_number, supplier_id, status]
+  positive: [quantity_ordered, unit_cost]
+  accepted_values:
+    status: [draft, confirmed, shipped, received, cancelled]
+
+pii_fields: []
+
+policy:
+  bronze: detective
+  silver: preventative
+
+schema_evolution:
+  bronze:
+    allowed: [add_column, type_widen, drop_column]
+  silver:
+    allowed: [add_column, type_widen]
+    blocked: [drop_column, type_narrow]

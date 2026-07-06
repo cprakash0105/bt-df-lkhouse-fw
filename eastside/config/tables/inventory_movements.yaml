@@ -1,0 +1,30 @@
+table: inventory_movements
+description: "Stock movements across warehouses and stores"
+source_format: csv
+source_system: wms
+domain: supply_chain
+business_application: warehouse_management
+is_cdc: false
+
+primary_key: movement_id
+dedup_order_by: movement_date DESC
+
+hash_fields: [movement_id, product_sku, movement_date]
+
+dq_rules:
+  not_null: [movement_id, product_sku, movement_type, quantity, movement_date]
+  accepted_values:
+    movement_type: [receipt, transfer_in, transfer_out, adjustment, sale]
+
+pii_fields: []
+
+policy:
+  bronze: detective
+  silver: preventative
+
+schema_evolution:
+  bronze:
+    allowed: [add_column, type_widen, drop_column]
+  silver:
+    allowed: [add_column, type_widen]
+    blocked: [drop_column, type_narrow]

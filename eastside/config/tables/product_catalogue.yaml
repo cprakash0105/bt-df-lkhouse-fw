@@ -1,0 +1,31 @@
+table: product_catalogue
+description: "Master product data from PLM — CDC feed with partial updates"
+source_format: json
+source_system: plm
+domain: product
+business_application: merchandising
+is_cdc: true
+
+primary_key: product_sku
+dedup_order_by: _ingested_at DESC
+
+hash_fields: [product_sku, rrp, status]
+
+dq_rules:
+  not_null: [product_sku]
+  positive: [rrp, cost_price]
+  accepted_values:
+    status: [active, discontinued, clearance]
+
+pii_fields: []
+
+policy:
+  bronze: detective
+  silver: preventative
+
+schema_evolution:
+  bronze:
+    allowed: [add_column, type_widen, drop_column]
+  silver:
+    allowed: [add_column, type_widen]
+    blocked: [drop_column, type_narrow]
