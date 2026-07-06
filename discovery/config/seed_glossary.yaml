@@ -3,6 +3,11 @@
 # The graph grows as stewards approve new discoveries.
 
 business_applications:
+  - id: retail_commerce
+    name: "Retail & Commerce"
+    description: "Point of sale, online orders, returns, inventory for retail/apparel"
+    keywords: [pos, transaction, retail, store, shop, purchase, sale, basket, receipt, till, checkout, online, ecommerce, apparel, fashion, garment, size, color, sku, returns, exchange, refund]
+
   - id: credit_risk
     name: "Credit Risk & Lending"
     description: "Credit scoring, loan origination, bureau data"
@@ -79,6 +84,10 @@ business_applications:
     keywords: [trade, portfolio, deal, isin, blotter, holdings, corporate_action, dividend, merger, acquisition, kyc, lei, counterparty, desk]
 
 data_domains:
+  - id: retail
+    name: "Retail & Sales"
+    description: "POS transactions, online orders, returns, store operations"
+
   - id: customer
     name: "Customer"
     description: "All customer-related data"
@@ -120,6 +129,61 @@ data_domains:
     description: "Trades, portfolios, deals, corporate actions"
 
 business_terms:
+  # --- Retail Domain ---
+  - id: transaction_id
+    name: "Transaction ID"
+    domain: retail
+    synonyms: [transaction_id, txn_id, receipt_id, pos_txn_id, sale_id]
+    data_type: string
+    information_type: Identifier
+    is_pii: false
+    is_key_candidate: true
+    dq_rules:
+      not_null: true
+      unique: true
+
+  - id: store_id
+    name: "Store ID"
+    domain: retail
+    synonyms: [store_id, shop_id, location_id, branch_id, outlet_id, store_code]
+    data_type: string
+    information_type: Reference
+    is_pii: false
+    dq_rules:
+      not_null: true
+
+  - id: quantity
+    name: "Quantity"
+    domain: retail
+    synonyms: [quantity, qty, units, item_count, num_items]
+    data_type: integer
+    information_type: Measure
+    is_pii: false
+    dq_rules:
+      not_null: true
+      positive: true
+
+  - id: discount_amount
+    name: "Discount Amount"
+    domain: retail
+    synonyms: [discount, discount_amount, discount_amt, promo_discount]
+    data_type: double
+    information_type: Measure
+    is_pii: false
+    dq_rules:
+      not_null: false
+
+  - id: return_reason
+    name: "Return Reason"
+    domain: retail
+    synonyms: [return_reason, reason, refund_reason, exchange_reason]
+    data_type: string
+    information_type: Reference
+    is_pii: false
+    reference_code_set: return_reasons
+    dq_rules:
+      not_null: false
+
   # --- Customer Domain ---
   - id: customer_identifier
     name: "Customer Identifier"
@@ -588,6 +652,7 @@ business_terms:
       not_null: true
 
 reference_code_sets:
+  return_reasons: [wrong_size, defective, not_as_described, changed_mind, too_late, duplicate_order]
   loyalty_tiers: [Bronze, Silver, Gold, Platinum, Diamond]
   bt_regions: [North, South, Midlands, London, Scotland, Wales, East, West]
   order_statuses: [delivered, shipped, processing, cancelled, returned]
