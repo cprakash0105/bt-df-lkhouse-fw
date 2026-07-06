@@ -247,22 +247,14 @@ def get_domains():
 
 @app.post("/ask")
 def ask_catalog(req: SQLRequest):
-    """Ask any question about the data catalog. Uses MCP agent → RAG → KC Agent → LLM direct."""
-    if mcp_agent:
-        answer = mcp_agent.run(req.requirement)
-        return {"answer": answer}
-    if rag_retriever and rag_retriever.is_available:
-        answer = rag_retriever.answer(req.requirement)
-        return {"answer": answer}
-    if kc_agent:
-        answer = kc_agent.answer(req.requirement)
-        return {"answer": answer}
-    # Fallback: direct LLM with glossary context
+    """Ask any question about the data catalog. Uses LLM direct → KC Agent → MCP."""
+    # Direct LLM with glossary context (fast, reliable)
     try:
         from discovery.engine.llm_client import get_llm
         domains = [d.name for d in kg.domains.values()]
         apps = [a.name for a in kg.applications.values()]
-        system = (f"You are a data catalog assistant. Available domains: {domains}. "
+        system = (f"You are Ontika, a data catalog assistant for EastSide retail. "
+                  f"Available domains: {domains}. "
                   f"Available business applications: {apps}. "
                   f"Answer questions about the catalog concisely.")
         answer = get_llm().generate(system=system, user=req.requirement, max_tokens=500)
@@ -270,6 +262,10 @@ def ask_catalog(req: SQLRequest):
             return {"answer": answer}
     except Exception:
         pass
+    # Fallback: KC agent (rule-based)
+    if kc_agent:
+        answer = kc_agent.answer(req.requirement)
+        return {"answer": answer}
     raise HTTPException(503, "LLM service is unavailable")
 
 
