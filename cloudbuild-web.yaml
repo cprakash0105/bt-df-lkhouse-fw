@@ -64,13 +64,15 @@ steps:
       - '--timeout'
       - '300'
       - '--set-env-vars'
-      - 'GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${_REGION},LLM_PROVIDER=bedrock,LLM_BASE_URL=${_LLM_BASE_URL},LLM_API_KEY=${_LLM_API_KEY},LLM_MODEL=${_LLM_MODEL},LLM_PROJECT=${_LLM_PROJECT},AWS_REGION=${_AWS_REGION},CONFIG_BUCKET=${_CONFIG_BUCKET},PROFILER_SERVICE_URL=${_PROFILER_URL}'
+      - 'GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${_REGION},LLM_PROVIDER=bedrock,LLM_BASE_URL=${_LLM_BASE_URL},LLM_MODEL=${_LLM_MODEL},LLM_PROJECT=${_LLM_PROJECT},AWS_REGION=${_AWS_REGION},CONFIG_BUCKET=${_CONFIG_BUCKET},PROFILER_SERVICE_URL=${_PROFILER_URL}'
+      - '--set-secrets'
+      - 'LLM_API_KEY=bedrock-api-key:latest'
 
 substitutions:
   _REGION: europe-west2
   _TAG: v1
   _LLM_BASE_URL: 'https://bedrock-mantle.eu-north-1.api.aws/v1'
-  _LLM_API_KEY: ''  # Set via: --substitutions=_LLM_API_KEY=ABSK...
+  # LLM_API_KEY loaded from Secret Manager (bedrock-api-key)
   _LLM_MODEL: 'openai.gpt-oss-120b'
   _LLM_PROJECT: 'default'
   _AWS_REGION: 'eu-north-1'
