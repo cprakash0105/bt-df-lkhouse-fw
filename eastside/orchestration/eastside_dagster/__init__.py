@@ -1,4 +1,4 @@
-from dagster import Definitions, ScheduleDefinition
+from dagster import Definitions, ScheduleDefinition, DefaultScheduleStatus
 from .assets import bronze_asset, silver_asset, gold_asset
 from .jobs import eastside_pipeline_job
 from .resources import dataproc_resource
@@ -6,7 +6,7 @@ from .resources import dataproc_resource
 daily_schedule = ScheduleDefinition(
     job=eastside_pipeline_job,
     cron_schedule="0 6 * * *",  # 06:00 UTC daily
-    default_status="RUNNING",
+    default_status=DefaultScheduleStatus.RUNNING,
 )
 
 defs = Definitions(
