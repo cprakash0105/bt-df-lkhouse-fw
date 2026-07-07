@@ -1,4 +1,5 @@
 import time
+from typing import ClassVar
 from dagster import ConfigurableResource
 from google.cloud import dataproc_v1
 
@@ -9,15 +10,15 @@ class DataprocResource(ConfigurableResource):
     cluster: str = "lakehouse-cluster"
     bucket: str = "eastside-lakehouse"
 
-    PY_FILES = [
+    PY_FILES: ClassVar[list] = [
         "gs://eastside-lakehouse/engine/base.py",
         "gs://eastside-lakehouse/engine/schema_evolver.py",
     ]
-    JARS = [
+    JARS: ClassVar[list] = [
         "gs://bt-df-lkhouse-lakehouse/spark/iceberg-spark-runtime.jar",
         "gs://bt-df-lkhouse-lakehouse/spark/biglake-catalog.jar",
     ]
-    SPARK_PROPS = {
+    SPARK_PROPS: ClassVar[dict] = {
         "spark.sql.catalog.eastside": "org.apache.iceberg.spark.SparkCatalog",
         "spark.sql.catalog.eastside.catalog-impl": "org.apache.iceberg.gcp.biglake.BigLakeCatalog",
         "spark.sql.catalog.eastside.gcp_project": "bt-df-lkhouse",
