@@ -76,6 +76,14 @@ except Exception as e:
     print(f"[API] MCP agent init skipped: {e}")
     mcp_agent = None
 
+# Response Cache
+try:
+    from discovery.engine.rag import cache as response_cache
+    print(f"[API] Response cache ready")
+except Exception as e:
+    print(f"[API] Response cache init skipped: {e}")
+    response_cache = None
+
 # Catalog Cache (Firestore)
 try:
     from discovery.engine.catalog_cache import CatalogCache
@@ -247,26 +255,68 @@ def get_domains():
 
 @app.post("/ask")
 def ask_catalog(req: SQLRequest):
-    """Ask any question about the data catalog. Uses LLM direct → KC Agent → MCP."""
-    # Direct LLM with glossary context (fast, reliable)
+    """Ask any question about the data catalog. ALWAYS goes to LLM.
+    Priority: Cache → LLM → KC Agent fallback."""
+    # 1. Check cache (exact hash + semantic similarity)
+    if response_cache:
+        cached = response_cache.get(req.requirement)
+        if cached:
+            return {"answer": cached, "cached": True}
+
+    # 2. LLM with full catalog context
     try:
         from discovery.engine.llm_client import get_llm
         domains = [d.name for d in kg.domains.values()]
         apps = [a.name for a in kg.applications.values()]
-        system = (f"You are Ontika, a data catalog assistant for EastSide retail. "
-                  f"Available domains: {domains}. "
-                  f"Available business applications: {apps}. "
-                  f"Answer questions about the catalog concisely.")
+        terms_sample = [t.name for t in list(kg.terms.values())[:30]]
+        system = (
+            f"You are Ontika, a data catalog assistant. "
+            f"Available domains: {domains}. "
+            f"Available business applications: {apps}. "
+            f"Sample glossary terms: {terms_sample}. "
+            f"Answer the user's question using this context. "
+            f"If the question is about data you don't have, say so clearly and suggest what IS available. "
+            f"Never say 'no results found' — always give a helpful, conversational answer."
+        )
         answer = get_llm().generate(system=system, user=req.requirement, max_tokens=500)
         if answer and answer != "__QUOTA_EXCEEDED__":
+            # Cache the response
+            if response_cache:
+                response_cache.put(req.requirement, answer)
             return {"answer": answer}
     except Exception:
         pass
-    # Fallback: KC agent (rule-based)
+
+    # 3. Fallback: KC agent (rule-based) — but never return dead-end search results
     if kc_agent:
         answer = kc_agent.answer(req.requirement)
-        return {"answer": answer}
+        if answer and "No results found" not in answer:
+            if response_cache:
+                response_cache.put(req.requirement, answer)
+            return {"answer": answer}
+        return {"answer": (
+            f"I don't have data about that topic. "
+            f"The datasets I can help with include: {', '.join(d.name for d in kg.domains.values())}. "
+            f"Try asking about one of these, or say **onboard** to add new data."
+        )}
     raise HTTPException(503, "LLM service is unavailable")
+
+
+@app.get("/cache/stats")
+def cache_stats():
+    """Get response cache statistics."""
+    if not response_cache:
+        return {"status": "disabled"}
+    return response_cache.stats()
+
+
+@app.post("/cache/clear")
+def cache_clear():
+    """Clear the response cache."""
+    if not response_cache:
+        raise HTTPException(503, "Cache not available")
+    count = response_cache.invalidate()
+    return {"status": "cleared", "entries_removed": count}
 
 
 @app.post("/rag/index")

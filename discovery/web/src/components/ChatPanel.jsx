@@ -16,32 +16,30 @@ export default function ChatPanel({ messages, onSend, loading }) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-[#0a0e1a]">
+    <div className="flex flex-col h-full bg-gray-50/50">
       {/* Header */}
-      <div className="p-3 border-b border-[#1e2a4a] bg-[#0f1524]">
+      <div className="px-4 py-3 border-b border-gray-100 bg-white">
         <div className="flex items-center gap-2">
-          <svg width="20" height="20" viewBox="0 0 64 64">
-            <ellipse cx="32" cy="32" rx="28" ry="10" fill="none" stroke="#DC143C" strokeWidth="2" transform="rotate(-30, 32, 32)" opacity="0.9"/>
-            <ellipse cx="32" cy="32" rx="28" ry="10" fill="none" stroke="#1E90FF" strokeWidth="2" transform="rotate(30, 32, 32)" opacity="0.9"/>
-            <ellipse cx="32" cy="32" rx="28" ry="10" fill="none" stroke="#FFD700" strokeWidth="2" transform="rotate(90, 32, 32)" opacity="0.9"/>
-            <circle cx="32" cy="32" r="6" fill="#1a237e"/>
-            <circle cx="32" cy="32" r="3" fill="#FFD700"/>
-          </svg>
-          <h2 className="text-sm font-bold text-white">Ontika</h2>
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-ontika-blue to-ontika-purple flex items-center justify-center">
+            <span className="text-white text-sm font-bold">O</span>
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold text-gray-800">Ontika Assistant</h2>
+            <p className="text-[10px] text-gray-400">Intelligent Data Discovery</p>
+          </div>
         </div>
-        <p className="text-xs text-gray-500 mt-0.5">Intelligent Data Discovery · BT Data Fabric</p>
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-auto p-3 space-y-3">
+      <div className="flex-1 overflow-auto px-4 py-4 space-y-3">
         {messages.filter(m => m.type !== 'loading').map((msg, i) => (
           <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[90%] px-3 py-2 rounded-lg text-sm whitespace-pre-wrap ${
+            <div className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
               msg.role === 'user'
-                ? 'bg-blue-600 text-white'
+                ? 'bg-ontika-blue text-white rounded-br-md shadow-sm'
                 : msg.type === 'error'
-                ? 'bg-red-900/50 text-red-200 border border-red-700'
-                : 'bg-gray-700 text-gray-100'
+                ? 'bg-red-50 text-red-700 border border-red-200 rounded-bl-md'
+                : 'bg-white text-gray-700 border border-gray-100 shadow-card rounded-bl-md'
             }`}>
               <MessageContent content={msg.content} />
             </div>
@@ -49,8 +47,12 @@ export default function ChatPanel({ messages, onSend, loading }) {
         ))}
         {loading && (
           <div className="flex justify-start">
-            <div className="bg-gray-700 text-gray-300 px-3 py-2 rounded-lg text-sm animate-pulse">
-              Thinking...
+            <div className="bg-white border border-gray-100 shadow-card text-gray-500 px-4 py-2.5 rounded-2xl rounded-bl-md text-sm">
+              <span className="inline-flex gap-1">
+                <span className="w-2 h-2 bg-ontika-blue/40 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="w-2 h-2 bg-ontika-purple/40 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="w-2 h-2 bg-ontika-gold/40 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+              </span>
             </div>
           </div>
         )}
@@ -58,30 +60,32 @@ export default function ChatPanel({ messages, onSend, loading }) {
       </div>
 
       {/* Input */}
-      <form onSubmit={handleSubmit} className="p-3 border-t border-[#1e2a4a] bg-[#0f1524]">
+      <form onSubmit={handleSubmit} className="p-3 border-t border-gray-100 bg-white shadow-chat">
         <div className="flex gap-2">
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ask anything or onboard a dataset..."
             disabled={loading}
-            className="flex-1 px-3 py-2 bg-[#1a2035] border border-[#2a3a5a] rounded-lg text-sm text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
+            className="flex-1 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-800 placeholder-gray-400 focus:ring-2 focus:ring-ontika-blue/20 focus:border-ontika-blue/40 focus:bg-white transition-all disabled:opacity-50 outline-none"
           />
           <button
             type="submit"
             disabled={loading || !input.trim()}
-            className="px-3 py-2 bg-gradient-to-r from-red-600 to-blue-600 text-white rounded-lg text-sm hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-4 py-2.5 bg-gradient-to-r from-ontika-blue to-ontika-purple text-white rounded-xl text-sm font-medium hover:shadow-md hover:-translate-y-0.5 transition-all disabled:opacity-40 disabled:hover:translate-y-0 disabled:hover:shadow-none"
           >
-            →
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
+            </svg>
           </button>
         </div>
-        <div className="mt-1 flex gap-1 flex-wrap">
+        <div className="mt-2 flex gap-1.5 flex-wrap">
           {['approve', 'show config', "what's available?"].map((q) => (
             <button
               key={q}
               type="button"
               onClick={() => { setInput(q); }}
-              className="px-1.5 py-0.5 text-xs text-gray-500 bg-[#1a2035] border border-[#2a3a5a] rounded hover:bg-[#1e2a4a] hover:text-white"
+              className="px-2.5 py-1 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg hover:bg-white hover:border-ontika-blue/30 hover:text-ontika-blue transition-all"
             >
               {q}
             </button>
@@ -93,18 +97,17 @@ export default function ChatPanel({ messages, onSend, loading }) {
 }
 
 function MessageContent({ content }) {
-  // Simple markdown-like rendering
   const lines = content.split('\n')
   return (
     <>
       {lines.map((line, i) => {
         // Bold
-        line = line.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        line = line.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold">$1</strong>')
         // Code
-        line = line.replace(/`(.+?)`/g, '<code class="bg-gray-600 px-1 rounded text-xs">$1</code>')
+        line = line.replace(/`(.+?)`/g, '<code class="bg-gray-100 text-indigo-600 px-1.5 py-0.5 rounded text-xs font-mono">$1</code>')
         // Bullet
         if (line.startsWith('• ') || line.startsWith('- ')) {
-          return <div key={i} className="ml-2" dangerouslySetInnerHTML={{ __html: line }} />
+          return <div key={i} className="ml-2 py-0.5" dangerouslySetInnerHTML={{ __html: line }} />
         }
         return <div key={i} dangerouslySetInnerHTML={{ __html: line }} />
       })}

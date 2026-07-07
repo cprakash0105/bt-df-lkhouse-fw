@@ -137,23 +137,10 @@ export default function App() {
           type: 'text'
         })
       }
-      // Catch-all — pass to LLM only if it looks like a question or request
+      // Catch-all — EVERYTHING else goes to the LLM
       else {
-        const looksLikeQuestion = lower.endsWith('?') || lower.startsWith('what') ||
-          lower.startsWith('which') || lower.startsWith('who') || lower.startsWith('how') ||
-          lower.startsWith('can you') || lower.startsWith('could you') || lower.startsWith('tell me') ||
-          lower.startsWith('show me') || lower.startsWith('find') || lower.startsWith('search') ||
-          lower.startsWith('is there') || lower.startsWith('do you') || lower.startsWith('does')
-        if (looksLikeQuestion) {
-          const answer = await _askLLM(text)
-          addMessage({ role: 'assistant', content: answer, type: 'text' })
-        } else {
-          // User is making a statement — acknowledge and guide
-          const guide = suggestion
-            ? `I have **${suggestion.asset_name}** ready. Say **approve**, correct a field, or ask me something.`
-            : `I'm not sure what to do with that. Try:\n\n• **Onboard data**: "onboard trade blotter"\n• **Ask a question**: "which datasets are linked to payments hub?"\n• **Browse catalog**: "show me all domains"`
-          addMessage({ role: 'assistant', content: guide, type: 'text' })
-        }
+        const answer = await _askLLM(text)
+        addMessage({ role: 'assistant', content: answer, type: 'text' })
       }
     } catch (e) {
       setMessages(prev => prev.filter(m => m.type !== 'loading'))
@@ -182,32 +169,34 @@ export default function App() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-[#0a0e1a]">
+    <div className="flex flex-col h-screen bg-ontika-light">
       {/* Top Nav */}
-      <header className="flex items-center justify-between px-4 py-2 border-b border-[#1e2a4a] bg-[#0f1524]">
+      <header className="flex items-center justify-between px-6 py-3 bg-white border-b border-gray-200 shadow-sm">
         <div className="flex items-center gap-3">
-          <AtomIcon />
-          <span className="text-lg font-bold text-white tracking-wider">ONTIKA</span>
-          <span className="text-[10px] text-gray-500 tracking-[2px] hidden sm:inline">INTELLIGENT DATA DISCOVERY</span>
+          <OntikaLogo />
+          <div>
+            <span className="text-lg font-semibold text-ontika-navy tracking-tight">Ontika</span>
+            <span className="text-[10px] text-gray-400 ml-2 tracking-wide hidden sm:inline">INTELLIGENT DATA DISCOVERY</span>
+          </div>
         </div>
 
         {/* Nav buttons */}
-        <nav className="flex items-center gap-1">
+        <nav className="flex items-center gap-1 bg-gray-50 rounded-lg p-1">
           {[
             { id: VIEWS.HOME, label: 'Home', icon: '🏠' },
             { id: VIEWS.DATA_PRODUCTS, label: 'Data Products', icon: '📦' },
-            { id: VIEWS.GLOSSARY, label: 'Business Glossary', icon: '📖' },
-            { id: VIEWS.TECHNICAL, label: 'Technical Assets', icon: '💾' },
+            { id: VIEWS.GLOSSARY, label: 'Glossary', icon: '📖' },
+            { id: VIEWS.TECHNICAL, label: 'Technical', icon: '💾' },
             { id: VIEWS.PROFILER, label: 'Profiler', icon: '📊' },
             { id: VIEWS.RESULTS, label: 'Results', icon: '🔍' },
           ].map(({ id, label, icon }) => (
             <button
               key={id}
               onClick={() => setView(id)}
-              className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-150 ${
                 view === id
-                  ? 'bg-gradient-to-r from-red-600/20 to-blue-600/20 text-white border border-blue-500/30'
-                  : 'text-gray-400 hover:text-white hover:bg-[#1a2035]'
+                  ? 'bg-white text-ontika-blue shadow-sm border border-indigo-100'
+                  : 'text-gray-500 hover:text-gray-700 hover:bg-white/60'
               }`}
             >
               {icon} {label}
@@ -216,8 +205,8 @@ export default function App() {
         </nav>
 
         <div className="text-right hidden sm:block">
-          <p className="text-xs text-gray-500">BT Data Fabric</p>
-          <p className="text-[10px] text-gray-600">GCP · europe-west2</p>
+          <p className="text-xs text-gray-500 font-medium">BT Data Fabric</p>
+          <p className="text-[10px] text-gray-400">GCP · europe-west2</p>
         </div>
       </header>
 
@@ -229,7 +218,7 @@ export default function App() {
         </div>
 
         {/* Right: Assistant (always visible) */}
-        <div className="w-[380px] border-l border-[#1e2a4a] flex flex-col">
+        <div className="w-[400px] border-l border-gray-200 flex flex-col bg-white">
           <ChatPanel messages={messages} onSend={handleSend} loading={loading} />
         </div>
       </div>
@@ -237,16 +226,32 @@ export default function App() {
   )
 }
 
-// --- Atom Icon ---
-function AtomIcon() {
+// --- Ontika Logo (stylised O with orbital ring + data node) ---
+function OntikaLogo() {
   return (
-    <svg width="28" height="28" viewBox="0 0 64 64">
-      <ellipse cx="32" cy="32" rx="28" ry="10" fill="none" stroke="#DC143C" strokeWidth="1.8" transform="rotate(-30, 32, 32)" opacity="0.9"/>
-      <ellipse cx="32" cy="32" rx="28" ry="10" fill="none" stroke="#1E90FF" strokeWidth="1.8" transform="rotate(30, 32, 32)" opacity="0.9"/>
-      <ellipse cx="32" cy="32" rx="28" ry="10" fill="none" stroke="#FFD700" strokeWidth="1.8" transform="rotate(90, 32, 32)" opacity="0.9"/>
-      <circle cx="32" cy="32" r="6" fill="#1a237e"/>
-      <circle cx="32" cy="32" r="3" fill="#FFD700"/>
-      <circle cx="32" cy="32" r="1.5" fill="#FFFFFF"/>
+    <svg width="32" height="32" viewBox="0 0 64 64" fill="none">
+      {/* Outer ring — indigo gradient */}
+      <circle cx="32" cy="32" r="26" stroke="url(#grad1)" strokeWidth="3" fill="none" />
+      {/* Inner orbital path */}
+      <ellipse cx="32" cy="32" rx="18" ry="8" stroke="#7C3AED" strokeWidth="1.5" fill="none" transform="rotate(-20, 32, 32)" opacity="0.7" />
+      {/* Core circle */}
+      <circle cx="32" cy="32" r="8" fill="url(#grad2)" />
+      {/* Data node accent (gold) */}
+      <circle cx="48" cy="22" r="4" fill="#F59E0B" />
+      <circle cx="48" cy="22" r="2" fill="#FFFFFF" />
+      {/* Small accent nodes */}
+      <circle cx="16" cy="40" r="2.5" fill="#7C3AED" opacity="0.6" />
+      <circle cx="44" cy="46" r="2" fill="#4F46E5" opacity="0.4" />
+      <defs>
+        <linearGradient id="grad1" x1="0" y1="0" x2="64" y2="64">
+          <stop offset="0%" stopColor="#4F46E5" />
+          <stop offset="100%" stopColor="#7C3AED" />
+        </linearGradient>
+        <linearGradient id="grad2" x1="24" y1="24" x2="40" y2="40">
+          <stop offset="0%" stopColor="#4F46E5" />
+          <stop offset="100%" stopColor="#7C3AED" />
+        </linearGradient>
+      </defs>
     </svg>
   )
 }
@@ -377,7 +382,7 @@ function _parseCorrection(text) {
   return null
 }
 
-// Catch-all: pass to LLM via KC agent
+// Catch-all: pass to LLM via /ask endpoint
 async function _askLLM(text) {
   try {
     const result = await api.askCatalog(text)

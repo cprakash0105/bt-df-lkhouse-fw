@@ -5,7 +5,7 @@ export default function HomePage() {
   const [tree, setTree] = useState(null)
   const [loading, setLoading] = useState(true)
   const [selectedNode, setSelectedNode] = useState(null)
-  const [viewMode, setViewMode] = useState('business') // business | technical
+  const [viewMode, setViewMode] = useState('business')
   const [techTree, setTechTree] = useState(null)
 
   useEffect(() => {
@@ -30,7 +30,6 @@ export default function HomePage() {
       await api.catalogSync()
       await loadCatalog()
     } catch (e) {
-      // Fallback reload
       loadCatalog()
     }
   }
@@ -39,19 +38,19 @@ export default function HomePage() {
     <div className="flex h-full">
       {/* Left: Hierarchy tree */}
       <div className="flex-1 p-6 overflow-auto">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-xl font-bold text-white">The Enterprise Catalog</h1>
-            <p className="text-xs text-gray-500 mt-0.5">Find, understand and explore data</p>
+            <h1 className="text-2xl font-bold text-gray-800">Enterprise Catalog</h1>
+            <p className="text-sm text-gray-500 mt-0.5">Find, understand and explore your data estate</p>
           </div>
-          <div className="flex gap-2 items-center">
-            <Stat label="BDEs" value="40+" />
-            <Stat label="BAs" value="14" />
-            <Stat label="Domains" value="9" />
+          <div className="flex gap-3 items-center">
+            <Stat label="BDEs" value="40+" color="blue" />
+            <Stat label="BAs" value="14" color="purple" />
+            <Stat label="Domains" value="9" color="gold" />
             <button
               onClick={handleRefresh}
               disabled={loading}
-              className="px-2 py-1 text-xs bg-[#1a2035] border border-[#2a3a5a] rounded text-gray-400 hover:text-white hover:border-blue-500/50 disabled:opacity-50"
+              className="px-3 py-2 text-xs bg-white border border-gray-200 rounded-lg text-gray-500 hover:text-ontika-blue hover:border-ontika-blue/30 hover:shadow-sm disabled:opacity-50 transition-all"
               title="Sync catalog from glossary"
             >
               {loading ? '⏳' : '🔄'} Refresh
@@ -59,19 +58,19 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Quick Links (like Resources panel in Ab Initio) */}
-        <div className="grid grid-cols-3 gap-3 mb-6">
-          <QuickLinkGroup title="Business Glossary" links={[
+        {/* Quick Links */}
+        <div className="grid grid-cols-3 gap-4 mb-8">
+          <QuickLinkGroup title="Business Glossary" icon="📖" color="blue" links={[
             'Find Business Terms',
             'Find BDEs with DQ Rules',
             'Find PII Fields',
           ]} />
-          <QuickLinkGroup title="Technical Assets" links={[
+          <QuickLinkGroup title="Technical Assets" icon="💾" color="purple" links={[
             'Find Datasets in Landing',
             'Find Data Products',
             'Find Tables in CCN',
           ]} />
-          <QuickLinkGroup title="Governance" links={[
+          <QuickLinkGroup title="Governance" icon="🛡️" color="gold" links={[
             'Show all Domains',
             'List Business Applications',
             'DQ Rules by Domain',
@@ -79,23 +78,23 @@ export default function HomePage() {
         </div>
 
         {/* View toggle */}
-        <div className="flex gap-1 mb-4 p-0.5 bg-[#0f1524] rounded-lg border border-[#1e2a4a] w-fit">
+        <div className="flex gap-1 mb-5 p-1 bg-gray-100 rounded-lg w-fit">
           <button
             onClick={() => setViewMode('business')}
-            className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+            className={`px-4 py-2 rounded-md text-xs font-medium transition-all ${
               viewMode === 'business'
-                ? 'bg-gradient-to-r from-blue-600/30 to-blue-500/20 text-blue-300 border border-blue-500/30'
-                : 'text-gray-500 hover:text-gray-300'
+                ? 'bg-white text-ontika-blue shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
             }`}
           >
             🏢 Business Semantic
           </button>
           <button
             onClick={() => setViewMode('technical')}
-            className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+            className={`px-4 py-2 rounded-md text-xs font-medium transition-all ${
               viewMode === 'technical'
-                ? 'bg-gradient-to-r from-green-600/30 to-green-500/20 text-green-300 border border-green-500/30'
-                : 'text-gray-500 hover:text-gray-300'
+                ? 'bg-white text-emerald-600 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
             }`}
           >
             💾 Technical Assets
@@ -103,23 +102,25 @@ export default function HomePage() {
         </div>
 
         {loading ? (
-          <div className="text-gray-500 text-sm">Loading catalog hierarchy...</div>
+          <div className="text-gray-400 text-sm p-4">Loading catalog hierarchy...</div>
         ) : viewMode === 'business' ? (
           tree && tree.length > 0 ? (
-            <div className="space-y-0.5">
+            <div className="card-static p-4">
               <OrgRoot tree={tree} onSelect={setSelectedNode} />
             </div>
           ) : (
             <FallbackView onSelect={setSelectedNode} />
           )
         ) : (
-          <TechnicalTree techTree={techTree} onSelect={setSelectedNode} />
+          <div className="card-static p-4">
+            <TechnicalTree techTree={techTree} onSelect={setSelectedNode} />
+          </div>
         )}
       </div>
 
       {/* Right: Detail panel */}
       {selectedNode && (
-        <div className="w-[320px] border-l border-[#1e2a4a] p-4 overflow-auto bg-[#0f1524]">
+        <div className="w-[340px] border-l border-gray-200 p-5 overflow-auto bg-white shadow-elevated">
           <DetailPanel node={selectedNode} onClose={() => setSelectedNode(null)} />
         </div>
       )}
@@ -133,13 +134,13 @@ function OrgRoot({ tree, onSelect }) {
   return (
     <div>
       <div
-        className="flex items-center gap-2 py-2 px-3 rounded cursor-pointer hover:bg-[#1a2035]"
+        className="flex items-center gap-2 py-2 px-3 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
-        <span className="text-xs text-gray-500 w-4">{expanded ? '▼' : '▶'}</span>
+        <span className="text-xs text-gray-400 w-4">{expanded ? '▼' : '▶'}</span>
         <span className="text-lg">🏛️</span>
-        <span className="text-sm font-bold text-white">BT Group</span>
-        <span className="text-[10px] text-gray-500 ml-2">Organization</span>
+        <span className="text-sm font-semibold text-gray-800">BT Group</span>
+        <span className="text-[10px] text-gray-400 ml-2">Organization</span>
       </div>
       {expanded && (
         <div className="ml-4">
@@ -157,62 +158,46 @@ function TreeNode({ node, depth, onSelect }) {
   const hasChildren = node.children && node.children.length > 0
 
   const config = {
-    cfu: { icon: '🏢', color: 'text-yellow-300', label: 'CFU' },
-    domain: { icon: '📁', color: 'text-blue-300', label: 'Domain' },
-    application: { icon: '⚙️', color: 'text-green-300', label: 'BA' },
-    term: { icon: '📖', color: 'text-gray-200', label: 'BDE' },
-    dataset: { icon: '📊', color: 'text-purple-300', label: 'Dataset' },
-    column: { icon: '▸', color: 'text-gray-400', label: 'Field' },
-  }[node.type] || { icon: '•', color: 'text-gray-400', label: '' }
+    cfu: { icon: '🏢', color: 'text-amber-600', label: 'CFU' },
+    domain: { icon: '📁', color: 'text-ontika-blue', label: 'Domain' },
+    application: { icon: '⚙️', color: 'text-emerald-600', label: 'BA' },
+    term: { icon: '📖', color: 'text-gray-700', label: 'BDE' },
+    dataset: { icon: '📊', color: 'text-ontika-purple', label: 'Dataset' },
+    column: { icon: '▸', color: 'text-gray-500', label: 'Field' },
+  }[node.type] || { icon: '•', color: 'text-gray-500', label: '' }
 
   return (
     <div>
       <div
-        className={`flex items-center gap-1.5 py-1.5 px-2 rounded cursor-pointer hover:bg-[#1a2035] group`}
+        className="flex items-center gap-1.5 py-1.5 px-2 rounded-lg cursor-pointer hover:bg-indigo-50/50 group transition-colors"
         style={{ paddingLeft: `${depth * 12}px` }}
       >
-        {/* Expand toggle */}
         {hasChildren ? (
-          <button onClick={() => setExpanded(!expanded)} className="text-xs text-gray-500 w-4 hover:text-white">
+          <button onClick={() => setExpanded(!expanded)} className="text-xs text-gray-400 w-4 hover:text-ontika-blue">
             {expanded ? '▼' : '▶'}
           </button>
         ) : (
           <span className="w-4" />
         )}
 
-        {/* Icon + Name (clickable for detail) */}
         <div className="flex items-center gap-1.5 flex-1" onClick={() => onSelect(node)}>
           <span className="text-sm">{config.icon}</span>
           <span className={`text-sm font-medium ${config.color}`}>{node.name}</span>
 
-          {/* Badges */}
-          {node.is_pii && <span className="text-[9px] bg-red-900/50 text-red-300 px-1 rounded">PII</span>}
+          {node.is_pii && <span className="badge-red text-[9px]">PII</span>}
           {node.dq_rules && Object.keys(node.dq_rules).length > 0 && (
-            <span className="text-[9px] bg-blue-900/50 text-blue-300 px-1 rounded">DQ</span>
+            <span className="badge-blue text-[9px]">DQ</span>
           )}
           {node.term_count > 0 && (
-            <span className="text-[9px] text-gray-500">({node.term_count})</span>
-          )}
-          {node.type === 'dataset' && node.field_count > 0 && (
-            <span className="text-[9px] text-gray-500">{node.field_count} fields</span>
-          )}
-          {node.type === 'column' && (
-            <>
-              <span className="text-[9px] text-gray-600 font-mono">{node.data_type}</span>
-              {node.is_pii && <span className="text-[9px] bg-red-900/50 text-red-300 px-1 rounded">PII</span>}
-              {node.is_key && <span className="text-[9px] text-yellow-400">KEY</span>}
-              {node.linked_bde && <span className="text-[9px] text-blue-400" title={node.linked_bde}>BDE</span>}
-            </>
+            <span className="text-[10px] text-gray-400">({node.term_count})</span>
           )}
         </div>
 
-        {/* Type label (on hover) */}
-        <span className="text-[9px] text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity">
+        <span className="text-[9px] text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity">
           {config.label}
         </span>
       </div>
 
-      {/* Children */}
       {expanded && hasChildren && (
         <div>
           {node.children.map(child => (
@@ -226,29 +211,28 @@ function TreeNode({ node, depth, onSelect }) {
 
 function DetailPanel({ node, onClose }) {
   const config = {
-    cfu: { title: 'Customer Facing Unit', color: 'text-yellow-300' },
-    domain: { title: 'Data Domain', color: 'text-blue-300' },
-    application: { title: 'Business Application', color: 'text-green-300' },
-    term: { title: 'Business Data Element', color: 'text-gray-200' },
-    dataset: { title: 'Dataset', color: 'text-purple-300' },
-    column: { title: 'Field', color: 'text-gray-400' },
-  }[node.type] || { title: 'Entity', color: 'text-gray-300' }
+    cfu: { title: 'Customer Facing Unit', color: 'text-amber-600' },
+    domain: { title: 'Data Domain', color: 'text-ontika-blue' },
+    application: { title: 'Business Application', color: 'text-emerald-600' },
+    term: { title: 'Business Data Element', color: 'text-gray-700' },
+    dataset: { title: 'Dataset', color: 'text-ontika-purple' },
+    column: { title: 'Field', color: 'text-gray-500' },
+  }[node.type] || { title: 'Entity', color: 'text-gray-600' }
 
   return (
     <div>
       <div className="flex justify-between items-start mb-4">
         <div>
           <p className={`text-xs font-medium ${config.color}`}>{config.title}</p>
-          <h3 className="text-lg font-bold text-white">{node.name}</h3>
+          <h3 className="text-lg font-bold text-gray-800">{node.name}</h3>
         </div>
-        <button onClick={onClose} className="text-gray-500 hover:text-white text-sm">✕</button>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-sm p-1 hover:bg-gray-100 rounded">✕</button>
       </div>
 
       {node.description && (
-        <p className="text-xs text-gray-400 mb-3">{node.description}</p>
+        <p className="text-xs text-gray-500 mb-4 leading-relaxed">{node.description}</p>
       )}
 
-      {/* Dataset specific */}
       {node.type === 'dataset' && (
         <div className="space-y-2">
           {node.domain && <Field label="Domain" value={node.domain} />}
@@ -256,39 +240,24 @@ function DetailPanel({ node, onClose }) {
           {node.field_count > 0 && <Field label="Fields" value={node.field_count} />}
           {node.pii_fields?.length > 0 && (
             <div>
-              <p className="text-[10px] text-gray-500 mb-1">PII Fields</p>
+              <p className="text-[10px] text-gray-400 mb-1 uppercase tracking-wider">PII Fields</p>
               {node.pii_fields.map(f => (
-                <div key={f} className="text-xs text-red-300 py-0.5">🔴 {f}</div>
+                <div key={f} className="text-xs text-red-600 py-0.5">🔴 {f}</div>
               ))}
             </div>
           )}
-          {node.onboarded_at && <Field label="Onboarded" value={new Date(node.onboarded_at).toLocaleDateString()} />}
         </div>
       )}
 
-      {/* Column specific */}
-      {node.type === 'column' && (
-        <div className="space-y-2">
-          <Field label="Data Type" value={node.data_type || 'string'} />
-          <Field label="PII" value={node.is_pii ? '🔴 Yes' : '🟢 No'} />
-          {node.is_key && <Field label="Role" value="Primary Key" />}
-          {node.linked_bde && <Field label="Linked BDE" value={node.linked_bde} />}
-          {node.confidence && <Field label="Confidence" value={`${Math.round(node.confidence * 100)}%`} />}
-        </div>
-      )}
-
-      {/* BDE specific */}
       {node.type === 'term' && (
         <div className="space-y-2">
-          {node.data_type && (
-            <Field label="Data Type" value={node.data_type} />
-          )}
+          {node.data_type && <Field label="Data Type" value={node.data_type} />}
           {node.is_pii && <Field label="Classification" value="🔴 PII" />}
           {node.dq_rules && Object.keys(node.dq_rules).length > 0 && (
             <div>
-              <p className="text-[10px] text-gray-500 mb-1">DQ Rules (inherited by all linked fields)</p>
+              <p className="text-[10px] text-gray-400 mb-1 uppercase tracking-wider">DQ Rules</p>
               {Object.entries(node.dq_rules).map(([k, v]) => (
-                <div key={k} className="text-xs text-blue-300 bg-blue-900/20 px-2 py-0.5 rounded mb-0.5">
+                <div key={k} className="text-xs text-ontika-blue bg-indigo-50 px-2 py-1 rounded-md mb-1">
                   {k}: {JSON.stringify(v)}
                 </div>
               ))}
@@ -297,40 +266,26 @@ function DetailPanel({ node, onClose }) {
         </div>
       )}
 
-      {/* BA specific */}
       {node.type === 'application' && node.children && (
         <div>
-          <p className="text-[10px] text-gray-500 mb-1">BDEs used ({node.children.filter(c => c.type === 'term').length})</p>
+          <p className="text-[10px] text-gray-400 mb-1 uppercase tracking-wider">BDEs ({node.children.filter(c => c.type === 'term').length})</p>
           {node.children.filter(c => c.type === 'term').map(t => (
-            <div key={t.id} className="text-xs text-gray-300 py-0.5 flex items-center gap-1">
+            <div key={t.id} className="text-xs text-gray-600 py-0.5 flex items-center gap-1">
               <span>📖</span> {t.name}
-              {t.is_pii && <span className="text-red-400 text-[9px]">PII</span>}
+              {t.is_pii && <span className="badge-red text-[9px]">PII</span>}
             </div>
           ))}
-          {node.children.filter(c => c.type === 'dataset').length > 0 && (
-            <>
-              <p className="text-[10px] text-gray-500 mt-3 mb-1">Datasets</p>
-              {node.children.filter(c => c.type === 'dataset').map(d => (
-                <div key={d.id} className="text-xs text-purple-300 py-0.5">
-                  📊 {d.name}
-                </div>
-              ))}
-            </>
-          )}
         </div>
       )}
 
-      {/* Domain specific */}
       {node.type === 'domain' && (
         <div>
           <Field label="Terms" value={`${node.term_count || 0} BDEs`} />
           {node.children && node.children.length > 0 && (
             <>
-              <p className="text-[10px] text-gray-500 mt-3 mb-1">Business Applications</p>
+              <p className="text-[10px] text-gray-400 mt-3 mb-1 uppercase tracking-wider">Business Applications</p>
               {node.children.map(a => (
-                <div key={a.id} className="text-xs text-green-300 py-0.5">
-                  ⚙️ {a.name}
-                </div>
+                <div key={a.id} className="text-xs text-emerald-600 py-0.5">⚙️ {a.name}</div>
               ))}
             </>
           )}
@@ -342,29 +297,42 @@ function DetailPanel({ node, onClose }) {
 
 function Field({ label, value }) {
   return (
-    <div className="flex justify-between text-xs py-0.5">
-      <span className="text-gray-500">{label}</span>
-      <span className="text-gray-300">{value}</span>
+    <div className="flex justify-between text-xs py-1 border-b border-gray-50">
+      <span className="text-gray-400">{label}</span>
+      <span className="text-gray-700 font-medium">{value}</span>
     </div>
   )
 }
 
-function Stat({ label, value }) {
+function Stat({ label, value, color }) {
+  const colors = {
+    blue: 'border-indigo-100 bg-indigo-50/50',
+    purple: 'border-purple-100 bg-purple-50/50',
+    gold: 'border-amber-100 bg-amber-50/50',
+  }
+  const textColors = {
+    blue: 'text-ontika-blue',
+    purple: 'text-ontika-purple',
+    gold: 'text-ontika-gold',
+  }
   return (
-    <div className="px-2 py-1 bg-[#0f1524] border border-[#1e2a4a] rounded text-center">
-      <p className="text-sm font-bold text-white">{value}</p>
-      <p className="text-[9px] text-gray-500">{label}</p>
+    <div className={`px-3 py-1.5 border rounded-lg text-center ${colors[color]}`}>
+      <p className={`text-sm font-bold ${textColors[color]}`}>{value}</p>
+      <p className="text-[9px] text-gray-400 uppercase tracking-wider">{label}</p>
     </div>
   )
 }
 
-function QuickLinkGroup({ title, links }) {
+function QuickLinkGroup({ title, icon, color, links }) {
+  const borderColors = { blue: 'hover:border-indigo-200', purple: 'hover:border-purple-200', gold: 'hover:border-amber-200' }
   return (
-    <div className="p-3 bg-[#0f1524] border border-[#1e2a4a] rounded-lg">
-      <h4 className="text-[10px] font-medium text-gray-400 mb-2 uppercase tracking-wider">{title}</h4>
+    <div className={`card p-4 ${borderColors[color]}`}>
+      <h4 className="text-xs font-semibold text-gray-600 mb-3 flex items-center gap-1.5">
+        <span>{icon}</span> {title}
+      </h4>
       {links.map((link, i) => (
-        <div key={i} className="text-xs text-blue-300 py-0.5 cursor-pointer hover:text-blue-200 hover:underline">
-          • {link}
+        <div key={i} className="text-xs text-ontika-blue py-1 cursor-pointer hover:text-ontika-purple transition-colors">
+          → {link}
         </div>
       ))}
     </div>
@@ -372,13 +340,12 @@ function QuickLinkGroup({ title, links }) {
 }
 
 function FallbackView({ onSelect }) {
-  // When Firestore isn't available, show a message
   return (
-    <div className="p-4 bg-[#0f1524] border border-[#1e2a4a] rounded-lg">
-      <p className="text-sm text-gray-400">
+    <div className="card p-6 text-center">
+      <p className="text-sm text-gray-500">
         Catalog tree not loaded. Use the assistant to ask:
       </p>
-      <ul className="mt-2 text-xs text-gray-500 space-y-1">
+      <ul className="mt-3 text-xs text-gray-400 space-y-1">
         <li>• "Show me the domains"</li>
         <li>• "List all business applications"</li>
         <li>• "What BDEs are in the Customer domain?"</li>
@@ -433,60 +400,22 @@ async function loadTechTree() {
     const result = await api.listLanding()
     const datasets = result.datasets || []
 
-    // Try to load profiles for each dataset
-    const layers = {
-      landing: [],
-      ccn: [],
-      dataproduct: [],
-    }
-
-    for (const ds of datasets) {
-      layers.landing.push({ id: ds, name: ds, type: 'table', children: [] })
-    }
-
-    // Build technical tree
-    return [
-      {
-        id: 'project',
-        name: 'bt-df-lkhouse',
-        type: 'project',
-        children: [
-          {
-            id: 'landing',
-            name: 'Landing Zone (GCS/JSONL)',
-            type: 'layer',
-            layer: 'landing',
-            children: layers.landing,
-          },
-          {
-            id: 'reservoir',
-            name: 'Reservoir (GCS/Parquet)',
-            type: 'layer',
-            layer: 'reservoir',
-            children: [], // populated after ingest
-          },
-          {
-            id: 'ccn',
-            name: 'CCN (Iceberg/BLMS)',
-            type: 'layer',
-            layer: 'ccn',
-            children: [], // populated after curate
-          },
-          {
-            id: 'dataproduct',
-            name: 'Data Products (BigQuery)',
-            type: 'layer',
-            layer: 'dataproduct',
-            children: [
-              { id: 'dp_loan', name: 'loan_eligibility_360', type: 'table', children: [] },
-              { id: 'dp_spend', name: 'customer_spend_360', type: 'table', children: [] },
-              { id: 'dp_health', name: 'customer_health_score', type: 'table', children: [] },
-              { id: 'dp_monitor', name: 'pipeline_monitor', type: 'table', children: [] },
-            ],
-          },
-        ],
-      },
-    ]
+    return [{
+      id: 'project',
+      name: 'bt-df-lkhouse',
+      type: 'project',
+      children: [
+        { id: 'landing', name: 'Landing Zone (GCS/JSONL)', type: 'layer', layer: 'landing', children: datasets.map(d => ({ id: d, name: d, type: 'table', children: [] })) },
+        { id: 'reservoir', name: 'Reservoir (GCS/Parquet)', type: 'layer', layer: 'reservoir', children: [] },
+        { id: 'ccn', name: 'CCN (Iceberg/BLMS)', type: 'layer', layer: 'ccn', children: [] },
+        { id: 'dataproduct', name: 'Data Products (BigQuery)', type: 'layer', layer: 'dataproduct', children: [
+          { id: 'dp_loan', name: 'loan_eligibility_360', type: 'table', children: [] },
+          { id: 'dp_spend', name: 'customer_spend_360', type: 'table', children: [] },
+          { id: 'dp_health', name: 'customer_health_score', type: 'table', children: [] },
+          { id: 'dp_monitor', name: 'pipeline_monitor', type: 'table', children: [] },
+        ]},
+      ],
+    }]
   } catch {
     return null
   }
@@ -494,9 +423,8 @@ async function loadTechTree() {
 
 function TechnicalTree({ techTree, onSelect }) {
   if (!techTree || techTree.length === 0) {
-    return <div className="text-gray-500 text-sm">Loading technical assets...</div>
+    return <div className="text-gray-400 text-sm">Loading technical assets...</div>
   }
-
   return (
     <div className="space-y-0.5">
       {techTree.map(node => (
@@ -511,42 +439,32 @@ function TechNode({ node, depth, onSelect }) {
   const hasChildren = node.children && node.children.length > 0
 
   const config = {
-    project: { icon: '☁️', color: 'text-white' },
+    project: { icon: '☁️', color: 'text-gray-800' },
     layer: { icon: '🗂️', color: layerColor(node.layer) },
-    table: { icon: '📊', color: 'text-gray-300' },
-    column: { icon: '│', color: 'text-gray-400' },
-  }[node.type] || { icon: '•', color: 'text-gray-400' }
+    table: { icon: '📊', color: 'text-gray-600' },
+  }[node.type] || { icon: '•', color: 'text-gray-500' }
 
   return (
     <div>
       <div
-        className={`flex items-center gap-1.5 py-1.5 px-2 rounded cursor-pointer hover:bg-[#1a2035] group`}
+        className="flex items-center gap-1.5 py-1.5 px-2 rounded-lg cursor-pointer hover:bg-gray-50 group transition-colors"
         style={{ paddingLeft: `${depth * 14}px` }}
       >
         {hasChildren ? (
-          <button onClick={() => setExpanded(!expanded)} className="text-xs text-gray-500 w-4 hover:text-white">
+          <button onClick={() => setExpanded(!expanded)} className="text-xs text-gray-400 w-4 hover:text-ontika-blue">
             {expanded ? '▼' : '▶'}
           </button>
         ) : (
           <span className="w-4" />
         )}
-
         <div className="flex items-center gap-1.5 flex-1" onClick={() => onSelect(node)}>
           <span className="text-sm">{config.icon}</span>
           <span className={`text-sm font-mono ${config.color}`}>{node.name}</span>
           {node.type === 'layer' && node.children && (
-            <span className="text-[9px] text-gray-500">({node.children.length})</span>
-          )}
-          {node.type === 'column' && (
-            <>
-              <span className="text-[9px] text-gray-600">{node.data_type}</span>
-              {node.is_pii && <span className="text-[9px] text-red-400">PII</span>}
-              {node.is_key && <span className="text-[9px] text-yellow-400">🔑</span>}
-            </>
+            <span className="text-[9px] text-gray-400">({node.children.length})</span>
           )}
         </div>
       </div>
-
       {expanded && hasChildren && (
         <div>
           {node.children.map(child => (
@@ -560,10 +478,10 @@ function TechNode({ node, depth, onSelect }) {
 
 function layerColor(layer) {
   switch (layer) {
-    case 'landing': return 'text-red-300'
-    case 'reservoir': return 'text-blue-300'
-    case 'ccn': return 'text-yellow-300'
-    case 'dataproduct': return 'text-green-300'
-    default: return 'text-gray-300'
+    case 'landing': return 'text-red-500'
+    case 'reservoir': return 'text-ontika-blue'
+    case 'ccn': return 'text-ontika-gold'
+    case 'dataproduct': return 'text-emerald-600'
+    default: return 'text-gray-500'
   }
 }
