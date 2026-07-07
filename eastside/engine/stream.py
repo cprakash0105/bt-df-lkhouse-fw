@@ -13,7 +13,7 @@ Usage:
 """
 import sys
 import argparse
-from eastside.engine.base import (
+from base import (
     get_spark, load_config, get_table_config,
     resolve_pipeline_vars, log, log_header,
     log_error, flush_logs_to_gcs, BANNER, LogLevel,

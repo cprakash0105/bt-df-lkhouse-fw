@@ -8,7 +8,7 @@ Applies rules per layer:
 Usage:
     Called internally by bronze.py and silver.py — not run standalone.
 """
-from eastside.engine.base import log, log_error, LogLevel
+from base import log, log_error, LogLevel
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.functions import lit
 

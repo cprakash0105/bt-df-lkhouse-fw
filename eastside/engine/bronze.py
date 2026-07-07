@@ -14,7 +14,7 @@ Usage:
 import sys
 import hashlib
 from datetime import datetime
-from eastside.engine.base import (
+from base import (
     get_spark, load_config, get_table_config, get_all_tables,
     parse_args, resolve_pipeline_vars, log, log_header,
     log_error, log_summary, flush_logs_to_gcs, BANNER, LogLevel,
@@ -216,7 +216,7 @@ def bronze_table(spark, config, table_name, version):
     df = run_detective_policies(df, table_config)
 
     # 6. Schema evolution (bronze = accept all)
-    from eastside.engine.schema_evolver import SchemaEvolver
+    from schema_evolver import SchemaEvolver
     evolver = SchemaEvolver(spark, table_config, "bronze")
     df = evolver.apply(df, target_table)
     df = evolver.align_to_table(df, target_table)

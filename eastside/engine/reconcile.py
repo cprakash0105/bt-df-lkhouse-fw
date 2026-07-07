@@ -11,7 +11,7 @@ Usage:
 """
 import sys
 from datetime import datetime
-from eastside.engine.base import (
+from base import (
     get_spark, load_config, get_table_config, get_all_tables,
     parse_args, resolve_pipeline_vars, log, log_header,
     log_error, log_summary, flush_logs_to_gcs, BANNER, LogLevel,

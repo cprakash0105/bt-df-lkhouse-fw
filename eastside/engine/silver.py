@@ -15,7 +15,7 @@ import sys
 import re
 import hashlib
 from datetime import datetime, timedelta
-from eastside.engine.base import (
+from base import (
     get_spark, load_config, get_table_config, get_all_tables,
     parse_args, resolve_pipeline_vars, log, log_header,
     log_error, log_summary, flush_logs_to_gcs, BANNER, LogLevel,
@@ -387,7 +387,7 @@ def silver_table(spark, config, table_name):
         return "SKIPPED"
 
     # 6. Schema evolution check (silver = non-breaking only)
-    from eastside.engine.schema_evolver import SchemaEvolver
+    from schema_evolver import SchemaEvolver
     evolver = SchemaEvolver(spark, table_config, "silver")
     df = evolver.apply(df, target_table)
     df = evolver.align_to_table(df, target_table)
