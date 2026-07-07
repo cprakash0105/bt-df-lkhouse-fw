@@ -39,66 +39,11 @@ provider "google" {
 
 resource "google_storage_bucket" "lakehouse" {
   name          = var.bucket_name
-  location      = var.region
+  location      = "US-EAST1"
   force_destroy = false
-
-  uniform_bucket_level_access = true
-
-  versioning {
-    enabled = true
-  }
-
-  lifecycle_rule {
-    condition {
-      age = 90
-    }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "NEARLINE"
-    }
-  }
-
-  lifecycle_rule {
-    condition {
-      age = 365
-    }
-    action {
-      type          = "SetStorageClass"
-      storage_class = "COLDLINE"
-    }
-  }
-
-  labels = {
-    environment = "dev"
-    team        = "data-engineering"
-    project     = "eastside"
-  }
 }
 
-# Landing, bronze, silver folder markers
-resource "google_storage_bucket_object" "landing_marker" {
-  name    = "landing/.keep"
-  bucket  = google_storage_bucket.lakehouse.name
-  content = ""
-}
 
-resource "google_storage_bucket_object" "bronze_marker" {
-  name    = "bronze/.keep"
-  bucket  = google_storage_bucket.lakehouse.name
-  content = ""
-}
-
-resource "google_storage_bucket_object" "silver_marker" {
-  name    = "silver/.keep"
-  bucket  = google_storage_bucket.lakehouse.name
-  content = ""
-}
-
-resource "google_storage_bucket_object" "config_marker" {
-  name    = "config/.keep"
-  bucket  = google_storage_bucket.lakehouse.name
-  content = ""
-}
 
 # ============================================================
 # BigLake Metastore (BLMS) — Iceberg Catalog
