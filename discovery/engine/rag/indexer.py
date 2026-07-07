@@ -16,7 +16,6 @@ from pathlib import Path
 
 try:
     import chromadb
-    from chromadb.config import Settings
     HAS_CHROMA = True
 except ImportError:
     HAS_CHROMA = False
@@ -32,21 +31,22 @@ CHUNK_OVERLAP = 200
 CHROMA_DIR = os.environ.get("CHROMA_PERSIST_DIR", "/tmp/ontika_rag_db")
 
 
+# Singleton client
+_chroma_client = None
+
 def get_collection():
     """Get or create the ChromaDB collection."""
+    global _chroma_client
     if not HAS_CHROMA:
         raise ImportError("chromadb not installed. Run: pip install chromadb")
 
-    client = chromadb.Client(Settings(
-        chroma_db_impl="duckdb+parquet",
-        persist_directory=CHROMA_DIR,
-        anonymized_telemetry=False,
-    ))
-    collection = client.get_or_create_collection(
+    if _chroma_client is None:
+        _chroma_client = chromadb.Client()
+    collection = _chroma_client.get_or_create_collection(
         name="ontika_knowledge",
         metadata={"hnsw:space": "cosine"},
     )
-    return client, collection
+    return _chroma_client, collection
 
 
 def chunk_text(text: str, source: str, metadata: dict = None) -> List[Dict]:
@@ -237,6 +237,5 @@ def build_index(config_dir: str = None, glossary_path: str = None,
             metadatas=[{**c.get("metadata", {}), "source": c["source"]} for c, _ in batch],
         )
 
-    client.persist()
     print(f"[RAG] Index built: {len(valid)} chunks stored in ChromaDB")
     return len(valid)
