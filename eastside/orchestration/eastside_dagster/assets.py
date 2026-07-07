@@ -1,6 +1,6 @@
 from dagster import asset, AssetExecutionContext, Config
 from google.cloud import storage
-import yaml
+from .resources import DataprocResource
 
 
 class TableConfig(Config):
@@ -18,7 +18,7 @@ def get_all_tables() -> list:
 
 
 @asset(group_name="eastside")
-def bronze_asset(context: AssetExecutionContext, config: TableConfig, dataproc: "DataprocResource"):
+def bronze_asset(context: AssetExecutionContext, config: TableConfig, dataproc: DataprocResource):
     tables = get_all_tables() if config.table == "all" else [config.table]
     for table in tables:
         context.log.info(f"Bronze: {table}")
@@ -27,7 +27,7 @@ def bronze_asset(context: AssetExecutionContext, config: TableConfig, dataproc: 
 
 
 @asset(group_name="eastside", deps=[bronze_asset])
-def silver_asset(context: AssetExecutionContext, config: TableConfig, dataproc: "DataprocResource"):
+def silver_asset(context: AssetExecutionContext, config: TableConfig, dataproc: DataprocResource):
     tables = get_all_tables() if config.table == "all" else [config.table]
     for table in tables:
         context.log.info(f"Silver: {table}")
@@ -36,7 +36,7 @@ def silver_asset(context: AssetExecutionContext, config: TableConfig, dataproc: 
 
 
 @asset(group_name="eastside", deps=[silver_asset])
-def gold_asset(context: AssetExecutionContext, config: TableConfig, dataproc: "DataprocResource"):
+def gold_asset(context: AssetExecutionContext, config: TableConfig, dataproc: DataprocResource):
     tables = get_all_tables() if config.table == "all" else [config.table]
     for table in tables:
         context.log.info(f"Gold: {table}")
