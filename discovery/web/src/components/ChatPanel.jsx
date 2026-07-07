@@ -42,6 +42,7 @@ export default function ChatPanel({ messages, onSend, loading }) {
                 : 'bg-white text-gray-700 border border-gray-100 shadow-card rounded-bl-md'
             }`}>
               <MessageContent content={msg.content} />
+              {msg.chart && <ChartView chart={msg.chart} />}
             </div>
           </div>
         ))}
@@ -112,5 +113,48 @@ function MessageContent({ content }) {
         return <div key={i} dangerouslySetInnerHTML={{ __html: line }} />
       })}
     </>
+  )
+}
+
+function ChartView({ chart }) {
+  if (!chart || !chart.labels || !chart.values) return null
+
+  const maxVal = Math.max(...chart.values)
+
+  const colors = [
+    'bg-ontika-blue', 'bg-ontika-purple', 'bg-ontika-gold',
+    'bg-emerald-500', 'bg-rose-500', 'bg-cyan-500',
+    'bg-indigo-400', 'bg-amber-400', 'bg-teal-400', 'bg-pink-400',
+  ]
+
+  return (
+    <div className="mt-3 pt-3 border-t border-gray-100">
+      <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-2 font-semibold">
+        {chart.value_axis || 'Value'} by {chart.label_axis || 'Category'}
+      </p>
+      <div className="space-y-1.5">
+        {chart.labels.map((label, i) => {
+          const pct = maxVal > 0 ? (chart.values[i] / maxVal) * 100 : 0
+          return (
+            <div key={i} className="flex items-center gap-2">
+              <span className="text-[10px] text-gray-600 w-24 truncate text-right" title={label}>{label}</span>
+              <div className="flex-1 h-5 bg-gray-50 rounded-md overflow-hidden relative">
+                <div
+                  className={`h-full ${colors[i % colors.length]} rounded-md transition-all duration-500`}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+              <span className="text-[10px] text-gray-700 font-semibold w-14 text-right">
+                {typeof chart.values[i] === 'number'
+                  ? chart.values[i] >= 1000
+                    ? `${(chart.values[i] / 1000).toFixed(1)}k`
+                    : chart.values[i].toLocaleString()
+                  : chart.values[i]}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }

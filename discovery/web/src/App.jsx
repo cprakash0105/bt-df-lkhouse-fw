@@ -139,8 +139,12 @@ export default function App() {
       }
       // Catch-all — EVERYTHING else goes to the LLM
       else {
-        const answer = await _askLLM(text)
-        addMessage({ role: 'assistant', content: answer, type: 'text' })
+        const result = await _askLLM(text)
+        if (typeof result === 'object' && result.chart) {
+          addMessage({ role: 'assistant', content: result.text, type: 'text', chart: result.chart })
+        } else {
+          addMessage({ role: 'assistant', content: result, type: 'text' })
+        }
       }
     } catch (e) {
       setMessages(prev => prev.filter(m => m.type !== 'loading'))
@@ -386,6 +390,10 @@ function _parseCorrection(text) {
 async function _askLLM(text) {
   try {
     const result = await api.askCatalog(text)
+    // If chart data is returned, format it for display
+    if (result.chart) {
+      return { text: result.answer, chart: result.chart }
+    }
     return result.answer
   } catch (e) {
     if (e.message?.includes('503') || e.message?.includes('unavailable')) {

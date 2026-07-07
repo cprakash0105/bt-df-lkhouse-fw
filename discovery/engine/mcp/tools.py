@@ -72,45 +72,46 @@ def execute_tool(name: str, arguments: Dict) -> str:
 
 @tool(
     name="query_table",
-    description="Execute a SQL query against an Iceberg table in bronze or silver layer. Returns up to 20 rows.",
+    description="Execute a SQL query against a BigQuery table or Iceberg table. Returns actual rows (up to 100). Use this for any 'show me data', 'pull records', 'top N', 'count' requests.",
     parameters={
         "type": "object",
         "properties": {
-            "layer": {"type": "string", "enum": ["bronze", "silver"], "description": "Which layer to query"},
-            "table_name": {"type": "string", "description": "Table name (e.g. pos_transactions)"},
-            "sql_where": {"type": "string", "description": "Optional WHERE clause (without the WHERE keyword)"},
-            "columns": {"type": "array", "items": {"type": "string"}, "description": "Columns to select (empty = all)"},
-            "limit": {"type": "integer", "description": "Max rows to return (default 20, max 100)"},
+            "sql": {"type": "string", "description": "Full SQL query to execute. Use project bt-df-lkhouse, datasets: eastside_dataproduct (gold), lakehouse_dataproduct (original). Example: SELECT * FROM `bt-df-lkhouse.eastside_dataproduct.loan_eligibility_360` LIMIT 10"},
         },
-        "required": ["layer", "table_name"],
+        "required": ["sql"],
     }
 )
-def query_table(layer: str, table_name: str, sql_where: str = None,
-                columns: List[str] = None, limit: int = 20) -> Dict:
-    """Query an Iceberg table. Returns rows as list of dicts."""
+def query_table(sql: str) -> Dict:
+    """Execute SQL against BigQuery and return results."""
     try:
         from google.cloud import bigquery
-        # Use BigQuery's Iceberg read capability via external tables
-        # Or fall back to reading from GCS directly
-        catalog = os.environ.get("ICEBERG_CATALOG", "eastside")
-        full_table = f"{catalog}.{layer}.{table_name}"
+        client = bigquery.Client(project=os.environ.get("PROJECT_ID", "bt-df-lkhouse"))
 
-        # For now, read via GCS parquet (Iceberg metadata)
-        # In production, this would use Spark or BigQuery BLMS integration
-        bucket = os.environ.get("EASTSIDE_BUCKET", "eastside-lakehouse")
-        path = f"gs://{bucket}/{layer}/{table_name}/data/*.parquet"
+        # Safety: enforce LIMIT
+        sql_upper = sql.strip().upper()
+        if "LIMIT" not in sql_upper:
+            sql = sql.rstrip(";") + " LIMIT 100"
 
-        # Simplified: return table metadata
+        # Safety: block destructive operations
+        if any(kw in sql_upper for kw in ["DROP", "DELETE", "TRUNCATE", "INSERT", "UPDATE", "ALTER", "CREATE"]):
+            return {"error": "Only SELECT queries are allowed."}
+
+        query_job = client.query(sql)
+        results = query_job.result()
+
+        rows = []
+        columns = [field.name for field in results.schema]
+        for row in results:
+            rows.append({col: row[col] for col in columns})
+
         return {
-            "table": full_table,
-            "query": f"SELECT {', '.join(columns) if columns else '*'} FROM {full_table}"
-                     + (f" WHERE {sql_where}" if sql_where else "")
-                     + f" LIMIT {min(limit, 100)}",
-            "note": "Query prepared. Execute via Dataproc or BigQuery BLMS connection.",
-            "status": "ready",
+            "columns": columns,
+            "rows": rows,
+            "row_count": len(rows),
+            "sql": sql,
         }
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": str(e), "sql": sql}
 
 
 @tool(

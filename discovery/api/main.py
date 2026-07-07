@@ -256,14 +256,31 @@ def get_domains():
 @app.post("/ask")
 def ask_catalog(req: SQLRequest):
     """Ask any question about the data catalog. ALWAYS goes to LLM.
-    Priority: Cache → LLM → KC Agent fallback."""
+    Priority: Cache → MCP Agent (data queries) → LLM (general) → KC Agent fallback."""
     # 1. Check cache (exact hash + semantic similarity)
     if response_cache:
         cached = response_cache.get(req.requirement)
         if cached:
             return {"answer": cached, "cached": True}
 
-    # 2. LLM with full catalog context
+    # 2. MCP Agent for data-access questions (query, pull, show, count, top N, stats)
+    if mcp_agent and _needs_data_access(req.requirement):
+        try:
+            print(f"[ASK] Routing to MCP agent: {req.requirement[:80]}")
+            result = mcp_agent.run(req.requirement)
+            if result and "unable to process" not in result.lower():
+                # Check if result contains tabular data for charting
+                response = {"answer": result}
+                chart = _extract_chart_data(result, req.requirement)
+                if chart:
+                    response["chart"] = chart
+                if response_cache:
+                    response_cache.put(req.requirement, result)
+                return response
+        except Exception as e:
+            print(f"[ASK] MCP agent failed: {e}")
+
+    # 3. LLM with full catalog context
     try:
         from discovery.engine.llm_client import get_llm
         llm = get_llm()
@@ -289,7 +306,7 @@ def ask_catalog(req: SQLRequest):
     except Exception as e:
         print(f"[ASK] LLM call failed: {e}")
 
-    # 3. Fallback: KC agent (rule-based) — but never return dead-end search results
+    # 4. Fallback: KC agent (rule-based) — but never return dead-end search results
     if kc_agent:
         answer = kc_agent.answer(req.requirement)
         if answer and "No results found" not in answer:
@@ -302,6 +319,101 @@ def ask_catalog(req: SQLRequest):
             f"Try asking about one of these, or say **onboard** to add new data."
         )}
     raise HTTPException(503, "LLM service is unavailable")
+
+
+def _needs_data_access(text: str) -> bool:
+    """Detect if the question needs actual data access (MCP agent with tools)."""
+    lower = text.lower()
+    data_keywords = [
+        'pull', 'fetch', 'query', 'select', 'show me records', 'show me data',
+        'top ', 'bottom ', 'count ', 'how many records', 'how many rows',
+        'from the table', 'from bigquery', 'from bq',
+        'get records', 'get data', 'get rows',
+        'run a query', 'execute', 'sql',
+        'average', 'sum of', 'total of', 'max ', 'min ',
+        'group by', 'aggregate', 'breakdown',
+        'chart', 'graph', 'plot', 'visuali', 'distribution',
+        'top 3', 'top 5', 'top 10', 'top 20', 'top 50', 'top 100',
+        'categories', 'spend by', 'revenue by', 'sales by',
+    ]
+    # Also match "top N" pattern
+    import re
+    if re.search(r'top\s+\d+', lower):
+        return True
+    return any(kw in lower for kw in data_keywords)
+
+
+def _extract_chart_data(result: str, question: str) -> Optional[dict]:
+    """If the result contains tabular/aggregate data, extract chart-ready format."""
+    lower = question.lower()
+    chart_triggers = ['top', 'chart', 'graph', 'plot', 'visuali', 'breakdown',
+                      'distribution', 'by category', 'by region', 'spend',
+                      'categories', 'compare']
+    if not any(t in lower for t in chart_triggers):
+        return None
+
+    # Try to parse JSON data from the result (MCP agent returns structured data)
+    try:
+        import re
+        # Look for JSON array in the result
+        json_match = re.search(r'\[\s*\{.*?\}\s*\]', result, re.DOTALL)
+        if json_match:
+            data = json.loads(json_match.group())
+            if data and len(data) >= 2:
+                keys = list(data[0].keys())
+                # First string column = labels, first numeric column = values
+                label_col = next((k for k in keys if isinstance(data[0][k], str)), keys[0])
+                value_col = next((k for k in keys if isinstance(data[0][k], (int, float)) and k != label_col), None)
+                if value_col:
+                    return {
+                        "type": "bar",
+                        "title": question,
+                        "labels": [row.get(label_col, '') for row in data[:20]],
+                        "values": [row.get(value_col, 0) for row in data[:20]],
+                        "label_axis": label_col,
+                        "value_axis": value_col,
+                    }
+    except Exception:
+        pass
+
+    # Try to extract from markdown table in the response
+    try:
+        import re
+        lines = result.split('\n')
+        table_lines = [l for l in lines if '|' in l and not l.strip().startswith('|-')]
+        if len(table_lines) >= 3:  # header + separator + at least 1 row
+            headers = [h.strip() for h in table_lines[0].split('|') if h.strip()]
+            rows = []
+            for line in table_lines[1:]:
+                if set(line.strip().replace('|', '').replace('-', '').replace(' ', '')) == set():
+                    continue
+                cells = [c.strip() for c in line.split('|') if c.strip()]
+                if len(cells) == len(headers):
+                    rows.append(dict(zip(headers, cells)))
+            if rows and len(rows) >= 2:
+                label_col = headers[0]
+                value_col = headers[-1]
+                # Try to parse numeric values
+                values = []
+                for r in rows:
+                    try:
+                        v = float(re.sub(r'[^\d.]', '', r[value_col]))
+                        values.append(v)
+                    except (ValueError, KeyError):
+                        values.append(0)
+                if any(v > 0 for v in values):
+                    return {
+                        "type": "bar",
+                        "title": question,
+                        "labels": [r.get(label_col, '') for r in rows[:20]],
+                        "values": values[:20],
+                        "label_axis": label_col,
+                        "value_axis": value_col,
+                    }
+    except Exception:
+        pass
+
+    return None
 
 
 @app.get("/cache/stats")
