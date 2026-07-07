@@ -268,7 +268,7 @@ def ask_catalog(req: SQLRequest):
         try:
             print(f"[ASK] Routing to MCP agent: {req.requirement[:80]}")
             result = mcp_agent.run(req.requirement)
-            if result and "unable to process" not in result.lower():
+            if result and "unable to process" not in result.lower() and "unable to retrieve" not in result.lower() and "error" not in result.lower()[:50]:
                 # Check if result contains tabular data for charting
                 response = {"answer": result}
                 chart = _extract_chart_data(result, req.requirement)
