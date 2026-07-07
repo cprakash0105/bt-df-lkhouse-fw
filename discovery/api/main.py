@@ -266,6 +266,7 @@ def ask_catalog(req: SQLRequest):
     # 2. LLM with full catalog context
     try:
         from discovery.engine.llm_client import get_llm
+        llm = get_llm()
         domains = [d.name for d in kg.domains.values()]
         apps = [a.name for a in kg.applications.values()]
         terms_sample = [t.name for t in list(kg.terms.values())[:30]]
@@ -278,14 +279,15 @@ def ask_catalog(req: SQLRequest):
             f"If the question is about data you don't have, say so clearly and suggest what IS available. "
             f"Never say 'no results found' — always give a helpful, conversational answer."
         )
-        answer = get_llm().generate(system=system, user=req.requirement, max_tokens=500)
+        print(f"[ASK] Calling LLM: base_url={llm.base_url}, model={llm.model}, has_key={bool(llm.api_key)}")
+        answer = llm.generate(system=system, user=req.requirement, max_tokens=500)
+        print(f"[ASK] LLM response: {repr(answer[:100]) if answer else 'None'}")
         if answer and answer != "__QUOTA_EXCEEDED__":
-            # Cache the response
             if response_cache:
                 response_cache.put(req.requirement, answer)
             return {"answer": answer}
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[ASK] LLM call failed: {e}")
 
     # 3. Fallback: KC agent (rule-based) — but never return dead-end search results
     if kc_agent:
@@ -317,6 +319,30 @@ def cache_clear():
         raise HTTPException(503, "Cache not available")
     count = response_cache.invalidate()
     return {"status": "cleared", "entries_removed": count}
+
+
+@app.get("/debug/llm")
+def debug_llm():
+    """Test LLM connectivity directly."""
+    from discovery.engine.llm_client import get_llm
+    llm = get_llm()
+    info = {
+        "provider": llm.provider,
+        "model": llm.model,
+        "base_url": llm.base_url,
+        "has_api_key": bool(llm.api_key),
+        "api_key_prefix": llm.api_key[:8] + "..." if llm.api_key else "NONE",
+        "project": llm.project,
+    }
+    # Try a simple call
+    try:
+        result = llm.generate(system="Say hello.", user="Hi", max_tokens=20)
+        info["test_response"] = result
+        info["status"] = "connected" if result else "no_response"
+    except Exception as e:
+        info["status"] = "error"
+        info["error"] = str(e)
+    return info
 
 
 @app.post("/rag/index")
