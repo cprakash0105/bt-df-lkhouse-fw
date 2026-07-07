@@ -240,9 +240,12 @@ gcloud builds submit --config cloudbuild-web.yaml --project bt-df-lkhouse
 ### API Endpoints
 | Endpoint | Method | Purpose |
 |---|---|---|
-| `/ask` | POST | Main Q&A — MCP agent → RAG → KC agent (priority chain) |
+| `/ask` | POST | Main Q&A — Cache → MCP agent → LLM → KC agent (priority chain) |
 | `/rag/index` | POST | Rebuild RAG knowledge index |
 | `/mcp/tools` | GET | List available MCP tools |
+| `/cache/stats` | GET | Response cache statistics |
+| `/cache/clear` | POST | Clear response cache |
+| `/debug/llm` | GET | Test LLM connectivity |
 | `/discover` | POST | Run discovery on a dataset |
 | `/approve` | POST | Approve current suggestion |
 | `/landing/datasets` | GET | List datasets in GCS landing |
@@ -251,9 +254,10 @@ gcloud builds submit --config cloudbuild-web.yaml --project bt-df-lkhouse
 | `/health` | GET | Health check |
 
 ### `/ask` Priority Chain
-1. **MCP Agent** — agentic LLM with tool-calling (queries tables, reads configs, checks pipeline status)
-2. **RAG Retriever** — context-augmented LLM (retrieves relevant chunks from ChromaDB)
-3. **KC Agent** — rule-based intent classification + structured handlers
+1. **Response Cache** — exact MD5 hash match OR semantic similarity > 0.92 (ChromaDB cosine)
+2. **MCP Agent** — triggered for data-access questions (query, pull, top N, count, chart). Executes real SQL against BigQuery via `query_table` tool. Returns inline charts for aggregate results.
+3. **LLM (Bedrock Mantle)** — general questions answered with full catalog context (domains, BAs, terms)
+4. **KC Agent** — rule-based fallback (never returns dead-end "no results found")
 
 ### Activating RAG
 After deploy, build the index once:
@@ -379,8 +383,8 @@ Priority chain:
 Ontika now has a full RAG pipeline that grounds LLM answers in real platform data.
 
 **Architecture**:
-- **Vector store**: ChromaDB (in-memory, persisted to disk) — zero cost
-- **Embeddings**: Ollama `/api/embeddings` endpoint using Gemma2 on existing Azure VM — zero cost
+- **Vector store**: ChromaDB (in-memory, ephemeral per Cloud Run instance) — zero cost
+- **Embeddings**: AWS Bedrock Mantle (Titan Embed v2) via OpenAI-compatible API
 - **Documents indexed**: table configs, seed glossary, DATA_CATALOGUE.md, DESIGN.md, OPERATIONAL_GUIDE.md, pipeline logs from GCS
 - **Chunk size**: ~1500 chars with 200 char overlap
 - **Retrieval**: Top-5 chunks by cosine similarity
@@ -410,7 +414,7 @@ Ontika now has an agentic LLM with tool-calling capability — the Ab Initio Age
 **Available tools**:
 | Tool | Description |
 |---|---|
-| `query_table` | SQL query against bronze/silver Iceberg tables |
+| `query_table` | Execute real SQL against BigQuery — returns actual rows (up to 100) |
 | `get_table_stats` | Row count, columns, last modified for any table |
 | `get_table_config` | Read full YAML config (DQ rules, PII, schema evolution) |
 | `list_tables` | List all configured tables with domain and format |
@@ -420,16 +424,47 @@ Ontika now has an agentic LLM with tool-calling capability — the Ab Initio Age
 | `trigger_pipeline` | Generate pipeline trigger command (with confirmation) |
 | `refresh_rag_index` | Rebuild the RAG knowledge index |
 
+**BigQuery tables available to the agent**:
+- `bt-df-lkhouse.lakehouse_dataproduct.*` (loan_eligibility_360, customer_spend_360, etc.)
+- `bt-df-lkhouse.eastside_dataproduct.*` (pos_transactions, online_orders, etc.)
+
+### Response Cache
+
+All LLM responses are cached to avoid repeated calls for same/similar questions.
+
+- **Exact match**: MD5 hash of normalised question → instant hit
+- **Semantic match**: ChromaDB cosine similarity > 0.92 → near-match hit
+- **Persistence**: Firestore (`qa_cache` collection) survives Cloud Run restarts
+- **TTL**: 24 hours (configurable via `CACHE_TTL` env var)
+- **Management**: `GET /cache/stats`, `POST /cache/clear`
+- **Smart caching**: Failed/error responses are never cached
+
+### Inline Charts
+
+When the MCP agent returns aggregate/tabular data and the question contains chart triggers
+("top", "breakdown", "by category", "distribution"), the API extracts chart-ready JSON
+and the frontend renders inline horizontal bar charts with the Ontika colour palette.
+
+### UI Design
+
+Light theme with Google Material-style cards:
+- **Font**: Inter (Google Fonts)
+- **Colours**: Indigo (#4F46E5), Purple (#7C3AED), Gold (#F59E0B), White
+- **Cards**: Rounded corners, subtle shadows, hover elevation (-translate-y-0.5)
+- **Logo**: Stylised orbital O with gradient ring and gold data-node accent
+- **Chat**: Card-style message bubbles, animated typing indicator, send icon button
+
 **Files**:
 - `discovery/engine/mcp/tools.py` — Tool definitions and handlers
 - `discovery/engine/mcp/agent.py` — Agentic loop (LLM + tool execution)
 
 **API priority chain** (`/ask` endpoint):
-1. MCP Agent (agentic, tool-calling) — if available
-2. RAG Retriever (context-augmented) — if index exists
-3. KC Agent (rule-based) — fallback
+1. Response Cache (exact hash + semantic similarity)
+2. MCP Agent (agentic, tool-calling, BigQuery execution) — for data-access questions
+3. LLM (Bedrock Mantle GPT-OSS 120B) — for general questions
+4. KC Agent (rule-based) — fallback, never returns dead-ends
 
-**Cost: ~$3-5/month** — Bedrock pay-per-token, ChromaDB is open-source. No VM to manage.
+**Cost: Pay-per-token** — Bedrock Mantle, ChromaDB is open-source. No VM to manage.
 
 **Example flow**:
 ```

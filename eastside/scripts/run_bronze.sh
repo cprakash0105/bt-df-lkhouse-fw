@@ -1,51 +1,46 @@
 #!/bin/bash
-# EastSide CDH 2.0 — Run Bronze Engine on Dataproc Serverless
-# Usage: bash eastside/scripts/run_bronze.sh bt-df-lkhouse europe-west2 [all|table_name] [v1]
+# EastSide CDH 2.0 — Run Bronze Engine on Dataproc (lakehouse-cluster)
+# Usage: bash eastside/scripts/run_bronze.sh [all|table_name] [v1]
 
-PROJECT=${1:-bt-df-lkhouse}
-REGION=${2:-europe-west2}
-TARGET=${3:-all}
-VERSION=${4:-v1}
+PROJECT="bt-df-lkhouse"
+REGION="europe-west2"
+CLUSTER="lakehouse-cluster"
 BUCKET="eastside-lakehouse"
+TARGET=${1:-all}
+VERSION=${2:-v1}
 CONFIG="gs://${BUCKET}/config/pipeline.yaml"
 
 echo "============================================================"
-echo "  EastSide Bronze — Dataproc Serverless"
-echo "============================================================"
-echo "  Project: ${PROJECT}"
-echo "  Region:  ${REGION}"
-echo "  Target:  ${TARGET}"
-echo "  Version: ${VERSION}"
-echo "  Config:  ${CONFIG}"
+echo "  EastSide Bronze — lakehouse-cluster"
+echo "  Target: ${TARGET} | Version: ${VERSION}"
 echo "============================================================"
 
-# Upload engine to GCS
-echo "Uploading engine..."
-gcloud storage cp eastside/engine/*.py gs://${BUCKET}/engine/
-gcloud storage cp eastside/config/pipeline.yaml gs://${BUCKET}/config/pipeline.yaml
-gcloud storage cp eastside/config/tables/*.yaml gs://${BUCKET}/config/tables/
+# Upload engine + config to GCS
+gsutil -m cp eastside/engine/*.py gs://${BUCKET}/engine/
+gsutil -m cp eastside/config/pipeline.yaml gs://${BUCKET}/config/pipeline.yaml
+gsutil -m cp eastside/config/tables/*.yaml gs://${BUCKET}/config/tables/
 
-# Build args
 if [ "$TARGET" == "all" ]; then
     TABLE_ARG="--all"
 else
     TABLE_ARG="--table ${TARGET}"
 fi
 
-# Submit Dataproc Serverless batch
-gcloud dataproc batches submit pyspark \
-    gs://${BUCKET}/engine/bronze.py \
+gcloud dataproc jobs submit pyspark gs://${BUCKET}/engine/bronze.py \
+    --cluster=${CLUSTER} \
     --project=${PROJECT} \
     --region=${REGION} \
-    --batch="eastside-bronze-$(date +%Y%m%d-%H%M%S)" \
-    --deps-bucket=gs://${BUCKET}/deps \
-    --py-files=gs://${BUCKET}/engine/base.py \
-    --properties="spark.sql.catalog.eastside=org.apache.iceberg.spark.SparkCatalog,spark.sql.catalog.eastside.type=rest,spark.sql.catalog.eastside.uri=https://biglake.googleapis.com/v1,spark.sql.catalog.eastside.warehouse=gs://${BUCKET},spark.sql.catalog.eastside.gcp_project=${PROJECT},spark.sql.catalog.eastside.gcp_location=${REGION}" \
+    --py-files=gs://${BUCKET}/engine/base.py,gs://${BUCKET}/engine/schema_evolver.py \
+    --jars=gs://bt-df-lkhouse-lakehouse/spark/iceberg-spark-runtime.jar,gs://bt-df-lkhouse-lakehouse/spark/biglake-catalog.jar \
+    --properties="\
+spark.sql.catalog.eastside=org.apache.iceberg.spark.SparkCatalog,\
+spark.sql.catalog.eastside.catalog-impl=org.apache.iceberg.gcp.biglake.BigLakeCatalog,\
+spark.sql.catalog.eastside.gcp_project=${PROJECT},\
+spark.sql.catalog.eastside.gcp_location=${REGION},\
+spark.sql.catalog.eastside.blms_catalog=eastside,\
+spark.sql.catalog.eastside.warehouse=gs://${BUCKET}" \
     -- \
     --config ${CONFIG} \
     ${TABLE_ARG} \
     --version ${VERSION} \
     --project ${PROJECT}
-
-echo ""
-echo "Done. Check logs: gs://${BUCKET}/logs/bronze/"

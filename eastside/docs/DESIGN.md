@@ -41,9 +41,9 @@
 │                                                                         │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  │
 │  │ Ontika      │  │ RAG         │  │ MCP Agent   │  │ LLM         │  │
-│  │ Discovery   │  │ ChromaDB    │  │ Tool-calling│  │ Gemma2      │  │
-│  │ + Onboard   │  │ + Ollama    │  │ 9 tools     │  │ (Ollama)    │  │
-│  │ + Glossary  │  │ embeddings  │  │ + guardrails│  │ Azure VM    │  │
+│  │ Discovery   │  │ ChromaDB    │  │ Tool-calling│  │ GPT-OSS 120B│  │
+│  │ + Onboard   │  │ + Bedrock   │  │ 9 tools     │  │ (Bedrock    │  │
+│  │ + Glossary  │  │ embeddings  │  │ + guardrails│  │  Mantle)    │  │
 │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘  │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -354,10 +354,11 @@ eastside/
 | Streaming | Spark Structured Streaming on Dataproc |
 | Encryption keys | Cloud KMS |
 | Column security | Dataplex / BigQuery column-level security |
-| RAG vector store | ChromaDB (in-process, zero cost) |
-| RAG embeddings | Ollama Gemma2 `/api/embeddings` (zero cost) |
+| RAG vector store | ChromaDB (in-memory, ephemeral) |
+| RAG embeddings | AWS Bedrock Mantle (Titan Embed v2) |
 | MCP agent | Agentic LLM with tool-calling (9 tools) |
-| LLM | Gemma2 on Azure VM via Ollama |
+| Response cache | Hybrid exact-hash + semantic (ChromaDB + Firestore) |
+| LLM | OpenAI GPT-OSS 120B on AWS Bedrock Mantle |
 | CI/CD | Cloud Build |
 | IaC | Terraform |
 
@@ -503,9 +504,10 @@ For EastSide, we'll extend the seed glossary with apparel-specific BAs, domains,
 | Session state | Firestore (`sessions/default`) | Survives scale-to-zero |
 | Knowledge Graph | In-memory from `seed_glossary.yaml` | Loaded on startup |
 | LLM | Gemma2 (latest) | Azure VM `4.242.19.167:11434` via Ollama |
-| RAG Vector Store | ChromaDB (in-memory, disk-persisted) | Same Cloud Run container |
-| RAG Embeddings | Ollama `/api/embeddings` (Gemma2) | Same Azure VM — zero cost |
+| RAG Vector Store | ChromaDB (in-memory, ephemeral) | Same Cloud Run container |
+| RAG Embeddings | AWS Bedrock Mantle (Titan Embed v2) | `https://bedrock-mantle.eu-north-1.api.aws/v1` |
 | MCP Agent | Agentic loop with tool-calling | Same Cloud Run container |
+| Response Cache | ChromaDB (semantic) + Firestore (persistence) | Same Cloud Run + Firestore |
 | Profiler | PySpark | Separate Cloud Run (`sd-profiler`) |
 | Config storage | GCS | `gs://{bucket}/framework/config/tables/` |
 | CI/CD | Cloud Build | `cloudbuild-web.yaml` |
@@ -555,6 +557,10 @@ Ontika uses Retrieval-Augmented Generation to ground LLM answers in real platfor
 
 The MCP layer turns Ontika from a Q&A tool into an autonomous data operations agent.
 This is the equivalent of Ab Initio's Agentic AI platform.
+
+The MCP agent can **execute real SQL queries against BigQuery** and return actual data,
+render results as **inline charts** in the UI, and chain multiple tool calls to answer
+complex questions.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -629,4 +635,9 @@ These are config changes only — no code changes to Ontika.
 - [ ] Gold layer: Confirm consumption views / data products required
 - [ ] Compaction: Confirm Iceberg compaction strategy (time-based vs file-count threshold)
 - [ ] RAG: Tune chunk size and top-K retrieval for best answer quality
-- [ ] MCP: Add more tools as needed (e.g. query_bigquery, get_lineage, get_schema_history)
+- [x] MCP: query_table tool now executes real SQL against BigQuery
+- [ ] MCP: Add lineage and schema history tools
+- [x] Response cache: Hybrid exact + semantic (ChromaDB + Firestore)
+- [x] UI: Light theme redesign with Google-style cards, Inter font, new logo
+- [x] Charts: Inline bar chart rendering for aggregate/top-N query results
+- [ ] Charts: Add pie chart and line chart support

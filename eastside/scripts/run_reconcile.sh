@@ -1,21 +1,18 @@
 #!/bin/bash
-# EastSide CDH 2.0 — Run Reconciliation on Dataproc Serverless
-# Usage: bash eastside/scripts/run_reconcile.sh bt-df-lkhouse europe-west2 [all|table_name] [incremental|full]
+# EastSide CDH 2.0 — Run Reconciliation on Dataproc (lakehouse-cluster)
+# Usage: bash eastside/scripts/run_reconcile.sh [all|table_name] [incremental|full]
 
-PROJECT=${1:-bt-df-lkhouse}
-REGION=${2:-europe-west2}
-TARGET=${3:-all}
-MODE=${4:-incremental}
+PROJECT="bt-df-lkhouse"
+REGION="europe-west2"
+CLUSTER="lakehouse-cluster"
 BUCKET="eastside-lakehouse"
+TARGET=${1:-all}
+MODE=${2:-incremental}
 CONFIG="gs://${BUCKET}/config/pipeline.yaml"
 
 echo "============================================================"
-echo "  EastSide Reconciliation — Dataproc Serverless"
-echo "============================================================"
-echo "  Project: ${PROJECT}"
-echo "  Region:  ${REGION}"
-echo "  Target:  ${TARGET}"
-echo "  Mode:    ${MODE}"
+echo "  EastSide Reconciliation — lakehouse-cluster"
+echo "  Target: ${TARGET} | Mode: ${MODE}"
 echo "============================================================"
 
 if [ "$TARGET" == "all" ]; then
@@ -24,19 +21,21 @@ else
     TABLE_ARG="--table ${TARGET}"
 fi
 
-gcloud dataproc batches submit pyspark \
-    gs://${BUCKET}/engine/reconcile.py \
+gcloud dataproc jobs submit pyspark gs://${BUCKET}/engine/reconcile.py \
+    --cluster=${CLUSTER} \
     --project=${PROJECT} \
     --region=${REGION} \
-    --batch="eastside-recon-$(date +%Y%m%d-%H%M%S)" \
-    --deps-bucket=gs://${BUCKET}/deps \
-    --py-files=gs://${BUCKET}/engine/base.py \
-    --properties="spark.sql.catalog.eastside=org.apache.iceberg.spark.SparkCatalog,spark.sql.catalog.eastside.type=rest,spark.sql.catalog.eastside.uri=https://biglake.googleapis.com/v1,spark.sql.catalog.eastside.warehouse=gs://${BUCKET},spark.sql.catalog.eastside.gcp_project=${PROJECT},spark.sql.catalog.eastside.gcp_location=${REGION}" \
+    --py-files=gs://${BUCKET}/engine/base.py,gs://${BUCKET}/engine/schema_evolver.py \
+    --jars=gs://bt-df-lkhouse-lakehouse/spark/iceberg-spark-runtime.jar,gs://bt-df-lkhouse-lakehouse/spark/biglake-catalog.jar \
+    --properties="\
+spark.sql.catalog.eastside=org.apache.iceberg.spark.SparkCatalog,\
+spark.sql.catalog.eastside.catalog-impl=org.apache.iceberg.gcp.biglake.BigLakeCatalog,\
+spark.sql.catalog.eastside.gcp_project=${PROJECT},\
+spark.sql.catalog.eastside.gcp_location=${REGION},\
+spark.sql.catalog.eastside.blms_catalog=eastside,\
+spark.sql.catalog.eastside.warehouse=gs://${BUCKET}" \
     -- \
     --config ${CONFIG} \
     ${TABLE_ARG} \
     --mode ${MODE} \
     --project ${PROJECT}
-
-echo ""
-echo "Done. Check: SELECT * FROM eastside.silver.reconciliation_log"
