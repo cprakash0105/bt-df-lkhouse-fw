@@ -8,16 +8,13 @@ Runtime: Python 3.12, 540s timeout, 1GB memory
 """
 import os
 import re
-import sys
 import time
 import yaml
 import functions_framework
-from pathlib import Path
 from google.cloud import storage, bigquery, dataproc_v1
 from monitor import PipelineMonitor
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 from logger import get_logger, flush_logs
+
 _log = get_logger("functions.pipeline_trigger")
 
 
