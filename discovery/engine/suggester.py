@@ -545,6 +545,19 @@ class Suggester:
             ds.fields.append(fp)
         return ds
 
+    # BDE patterns: if a BDE implies a specific data pattern, map it here
+    _BDE_EXPECTED_PATTERNS = {
+        "customer_email": {"patterns": ["email"], "type": "string"},
+        "customer_phone": {"patterns": ["phone"], "type": "string"},
+        "pan_number": {"patterns": ["pan"], "type": "string"},
+        "aadhaar_number": {"patterns": ["aadhaar"], "type": "string"},
+        "credit_score": {"type": "integer", "min_distinct_pct": 0.05},
+        "emi_amount": {"type": "decimal"},
+        "transaction_amount": {"type": "decimal"},
+        "premium_amount": {"type": "decimal"},
+        "product_price": {"type": "decimal"},
+    }
+
     def _enhance_with_profile(self, suggestion: DiscoverySuggestion, profile: DatasetProfile):
         """Enhance field suggestions with profiling evidence from actual data."""
         profile_map = {fp.name: fp for fp in profile.fields}
@@ -553,6 +566,12 @@ class Suggester:
             fp = profile_map.get(fs.field_name)
             if not fp:
                 continue
+
+            # --- Contradiction check: reject BDE match if data doesn't fit ---
+            if fs.linked_term and fs.confidence < 0.8:
+                rejected = self._check_profile_contradiction(fs, fp)
+                if rejected:
+                    continue  # skip further enhancement, field is now unlinked
 
             # Store signal breakdown for UI display
             if fp.signals:
@@ -631,6 +650,62 @@ class Suggester:
             if fp.inferred_type in ("integer", "decimal") and fp.min_val is not None:
                 if float(fp.min_val) >= 0 and "positive" not in fs.dq_rules:
                     fs.dq_rules["positive"] = True
+
+    def _check_profile_contradiction(self, fs: 'FieldSuggestion', fp: 'FieldProfile') -> bool:
+        """Check if profile data contradicts the linked BDE. If so, unlink and propose new term.
+        Returns True if the match was rejected."""
+        bde_id = fs.linked_term
+        expected = self._BDE_EXPECTED_PATTERNS.get(bde_id)
+
+        contradiction = False
+        reason = ""
+
+        if expected:
+            # Check pattern contradiction (e.g., linked to email BDE but no email pattern in data)
+            expected_patterns = expected.get("patterns", [])
+            if expected_patterns:
+                if not any(p in fp.detected_patterns for p in expected_patterns):
+                    contradiction = True
+                    reason = (f"PROFILE CONTRADICTION: linked to '{fs.linked_term_name}' "
+                              f"(expects {expected_patterns}) but data shows "
+                              f"patterns={fp.detected_patterns or 'none'}")
+
+            # Check type contradiction (e.g., linked to decimal BDE but data is string)
+            expected_type = expected.get("type")
+            if expected_type and not contradiction:
+                if fp.inferred_type != expected_type:
+                    # Allow string→integer/decimal (could be stored as string)
+                    if not (expected_type in ("integer", "decimal") and fp.inferred_type == "string"):
+                        contradiction = True
+                        reason = (f"PROFILE CONTRADICTION: linked to '{fs.linked_term_name}' "
+                                  f"(expects type={expected_type}) but data is {fp.inferred_type}")
+
+        # General check: if BDE name contains a pattern keyword but data doesn't match
+        if not contradiction and fs.confidence < 0.6:
+            bde_lower = (fs.linked_term or "").lower()
+            if "email" in bde_lower and "email" not in fp.detected_patterns:
+                contradiction = True
+                reason = f"PROFILE CONTRADICTION: BDE '{fs.linked_term_name}' implies email but data has no email pattern"
+            elif "phone" in bde_lower and "phone" not in fp.detected_patterns:
+                contradiction = True
+                reason = f"PROFILE CONTRADICTION: BDE '{fs.linked_term_name}' implies phone but data has no phone pattern"
+            elif "aadhaar" in bde_lower and "aadhaar" not in fp.detected_patterns:
+                contradiction = True
+                reason = f"PROFILE CONTRADICTION: BDE '{fs.linked_term_name}' implies aadhaar but data has no aadhaar pattern"
+
+        if contradiction:
+            fs.reasoning.append(reason)
+            fs.reasoning.append(f"UNLINKED: '{fs.linked_term_name}' rejected — proposing new term")
+            fs.linked_term = None
+            fs.linked_term_name = None
+            fs.confidence = 0.0
+            fs.new_term_proposed = True
+            fs.is_pii = fp.is_pii  # reset PII to what profile says
+            if not fp.is_pii:
+                fs.classification = "Internal"
+            return True
+
+        return False
 
     def _values_overlap(self, expected: list, actual: list) -> bool:
         """Check if expected values overlap with actual values (case-insensitive)."""
