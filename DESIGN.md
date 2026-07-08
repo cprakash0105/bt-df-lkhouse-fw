@@ -172,8 +172,29 @@ gs://{project}-lakehouse/
 │   ├── orders/
 │   ├── payments/
 │   └── pipeline_audit/       (Iceberg — audit trail)
+├── logs/
+│   └── app/                  (JSONL — structured application logs)
+│       ├── discovery/        (API & discovery engine logs)
+│       ├── approval/         (approval handler logs)
+│       ├── pipeline/         (Cloud Function pipeline logs)
+│       ├── ingest/           (Spark ingest stage logs)
+│       ├── curate/           (Spark curate stage logs)
+│       └── stream/           (Spark streaming logs)
 └── framework/
     ├── config/               (pipeline.yaml, tables/, consumption/)
     ├── engine/               (Python modules)
     └── bt_df_lkhouse_fw.zip  (packaged for Dataproc)
 ```
+
+## Structured Logging
+
+All components write structured JSON logs to GCS (`logs/` prefix). Two logging systems coexist:
+
+| System | Modules | Flush Trigger |
+|--------|---------|---------------|
+| `logger.py` (project root) | Discovery API, LLM client, Suggester, Approval Handler, Cloud Functions | End of request or `flush_logs()` call |
+| `base.py` (per-framework) | bt_df_lkhouse_fw engines, EastSide engines | End of Spark job via `flush_logs_to_gcs()` |
+
+Both produce the same JSONL format — one JSON object per line with `timestamp`, `level`, `module`/`stage`, `message`, and optional metadata. A BigQuery external table (`lakehouse_logs.app_logs`) is defined over `gs://{BUCKET}/logs/app/*/*.jsonl` for SQL-based analysis.
+
+See [docs/LOGGING.md](docs/LOGGING.md) for usage, configuration, and query examples.

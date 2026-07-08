@@ -7,7 +7,14 @@ On approval:
   5. Generates pipeline config YAML
 """
 import os
+import sys
 from typing import Optional
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from logger import get_logger
+_log = get_logger("discovery.approval_handler")
+
 from discovery.engine.suggester import DiscoverySuggestion, FieldSuggestion
 
 try:
@@ -56,6 +63,9 @@ class ApprovalHandler:
     def process_approval(self, suggestion: DiscoverySuggestion, config_yaml: str = None) -> dict:
         """Process a full approval — create terms, link BA, set policies, push config.
         Returns a summary of what was done."""
+        _log.info("Processing approval", asset_name=suggestion.asset_name,
+                  business_app=suggestion.business_application_name,
+                  new_terms=len(suggestion.new_term_proposals))
         results = {
             "new_terms_created": [],
             "ba_linked": None,
@@ -101,6 +111,11 @@ class ApprovalHandler:
         # 5. Create EntryLinks (dataset->BDEs, dataset->BA)
         self._create_entry_links(suggestion)
 
+        _log.info("Approval processed", asset_name=suggestion.asset_name,
+                  new_terms_created=results["new_terms_created"],
+                  ba_linked=results["ba_linked"],
+                  config_path=results["config_gcs_path"],
+                  errors=results["errors"])
         return results
 
     def _create_bde_term(self, proposal: dict, suggestion: DiscoverySuggestion) -> bool:

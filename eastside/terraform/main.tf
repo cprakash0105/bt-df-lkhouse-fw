@@ -1,6 +1,7 @@
 # ============================================================
 # EastSide CDH 2.0 — Terraform Infrastructure
-# GCS bucket, BigLake Metastore catalog, BigQuery dataset, IAM
+# GCS bucket, BigLake Metastore catalog, BigQuery dataset, IAM,
+# Dagster orchestration VM
 # ============================================================
 
 terraform {
@@ -21,6 +22,11 @@ variable "project_id" {
 variable "region" {
   description = "GCP region"
   default     = "europe-west2"
+}
+
+variable "zone" {
+  description = "GCP zone for VM"
+  default     = "europe-west2-a"
 }
 
 variable "bucket_name" {
@@ -189,4 +195,85 @@ output "dataproc_sa_email" {
 
 output "kms_key_id" {
   value = google_kms_crypto_key.pii_encryption.id
+}
+
+# ============================================================
+# Dagster Orchestration VM
+# e2-small (2GB RAM), static IP, nginx reverse proxy, systemd
+# ============================================================
+
+resource "google_compute_address" "dagster_ip" {
+  name   = "dagster-static-ip"
+  region = var.region
+}
+
+resource "google_service_account" "dagster_sa" {
+  account_id   = "eastside-dagster"
+  display_name = "EastSide Dagster VM Service Account"
+}
+
+resource "google_project_iam_member" "dagster_dataproc" {
+  project = var.project_id
+  role    = "roles/dataproc.editor"
+  member  = "serviceAccount:${google_service_account.dagster_sa.email}"
+}
+
+resource "google_storage_bucket_iam_member" "dagster_gcs" {
+  bucket = google_storage_bucket.lakehouse.name
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${google_service_account.dagster_sa.email}"
+}
+
+resource "google_compute_firewall" "dagster_http" {
+  name    = "allow-dagster-http"
+  network = "default"
+
+  allow {
+    protocol = "tcp"
+    ports    = ["80"]
+  }
+
+  source_ranges = ["0.0.0.0/0"]
+  target_tags   = ["dagster"]
+}
+
+resource "google_compute_instance" "dagster" {
+  name         = "eastside-dagster"
+  machine_type = "e2-small"
+  zone         = var.zone
+  tags         = ["dagster"]
+
+  boot_disk {
+    initialize_params {
+      image = "debian-cloud/debian-12"
+      size  = 20
+    }
+  }
+
+  network_interface {
+    network = "default"
+    access_config {
+      nat_ip = google_compute_address.dagster_ip.address
+    }
+  }
+
+  service_account {
+    email  = google_service_account.dagster_sa.email
+    scopes = ["cloud-platform"]
+  }
+
+  metadata_startup_script = file("${path.module}/dagster_startup.sh")
+
+  labels = {
+    component = "orchestration"
+    team      = "data-engineering"
+  }
+}
+
+output "dagster_url" {
+  value = "http://${google_compute_address.dagster_ip.address}"
+}
+
+output "dagster_ip" {
+  value = google_compute_address.dagster_ip.address
 }

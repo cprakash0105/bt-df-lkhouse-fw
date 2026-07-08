@@ -7,6 +7,9 @@ from pathlib import Path
 # Ensure discovery package is importable
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from logger import get_logger, flush_logs
+_log = get_logger("discovery.api")
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -205,7 +208,15 @@ class MultiDiscoverRequest(BaseModel):
 
 @app.get("/health")
 def health():
+    _log.info("Health check")
     return {"status": "ok", "glossary_terms": len(kg.terms)}
+
+
+@app.post("/logs/flush")
+def flush_app_logs():
+    """Manually flush accumulated logs to GCS."""
+    path = flush_logs("discovery")
+    return {"status": "flushed", "gcs_path": path}
 
 
 @app.get("/glossary")
@@ -257,6 +268,7 @@ def get_domains():
 def ask_catalog(req: SQLRequest):
     """Ask any question about the data catalog. ALWAYS goes to LLM.
     Priority: Cache → MCP Agent (data queries) → LLM (general) → KC Agent fallback."""
+    _log.info("Ask request", question=req.requirement[:200])
     # 1. Check cache (exact hash + semantic similarity)
     if response_cache:
         cached = response_cache.get(req.requirement)
@@ -318,6 +330,7 @@ def ask_catalog(req: SQLRequest):
             f"The datasets I can help with include: {', '.join(d.name for d in kg.domains.values())}. "
             f"Try asking about one of these, or say **onboard** to add new data."
         )}
+    _log.error("LLM service unavailable", question=req.requirement[:100])
     raise HTTPException(503, "LLM service is unavailable")
 
 
@@ -522,6 +535,8 @@ def trigger_catalog_sync():
 def discover(req: DiscoverRequest):
     """Run full discovery on a dataset definition.
     Supports: dataset name, natural language, YAML, or direct fields."""
+    _log.info("Discover request", text=req.text[:200] if req.text else None,
+              name=req.name, discover_from_landing=req.discover_from_landing)
     asset_def = None
 
     # Mode 1: Explicit discover from landing
@@ -564,6 +579,10 @@ def discover(req: DiscoverRequest):
         pass
 
     _session_set("suggestion", suggestion)
+    _log.info("Discovery complete", asset_name=suggestion.asset_name,
+              fields=len(suggestion.fields), domain=suggestion.data_domain,
+              business_app=suggestion.business_application_name)
+    flush_logs("discovery")
     return _serialize_suggestion(suggestion)
 
 
@@ -654,6 +673,8 @@ def approve(req: ApproveRequest):
     suggestion = _session_get("suggestion")
     if not suggestion:
         raise HTTPException(400, "No active discovery to approve")
+    _log.info("Approval request", asset_name=suggestion.asset_name,
+              approved_fields=req.fields)
 
     config_yaml = config_gen.generate(suggestion, approved_fields=req.fields)
 
@@ -680,6 +701,10 @@ def approve(req: ApproveRequest):
         scd_type = scd_gen.infer_scd_type("", suggestion.data_domain)
         scd_path = scd_gen.generate_and_push(suggestion, scd_type=scd_type)
 
+    _log.info("Approval complete", asset_name=suggestion.asset_name,
+              new_terms=results["new_terms_created"], ba_linked=results["ba_linked"],
+              config_path=results["config_gcs_path"], errors=results["errors"])
+    flush_logs("approval")
     return {
         "status": "approved",
         "new_terms_created": results["new_terms_created"],

@@ -148,3 +148,13 @@ GROUP BY 1, 2, 3
 # Generate 1% of full data (fast iteration)
 python datagen/generate.py --project=bt-df-lkhouse --version=v1 --scale=0.01
 ```
+
+## Structured Logging
+
+All application logs are written as JSONL to GCS for analysis. See [docs/LOGGING.md](docs/LOGGING.md) for full details.
+
+```bash
+# Query logs in BigQuery (after running scripts/setup_log_table.sql)
+bq query --use_legacy_sql=false \
+  'SELECT * FROM `bt-df-lkhouse.lakehouse_logs.app_logs` WHERE level = "ERROR" ORDER BY timestamp DESC LIMIT 20'
+```

@@ -1,9 +1,15 @@
 """Suggester — Core orchestration engine.
 Combines Rules Engine + Embedder + Knowledge Graph to produce discovery suggestions.
 Supports two modes: Full Discovery (new asset) and Delta Discovery (schema change)."""
+import sys
 from dataclasses import dataclass, field
 from typing import Optional
 from datetime import datetime, timezone
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from logger import get_logger
+_log = get_logger("discovery.suggester")
 
 from discovery.engine.knowledge_graph import KnowledgeGraph, BusinessTerm
 from discovery.engine.rules_engine import RulesEngine
@@ -80,6 +86,8 @@ class Suggester:
         fields = asset_definition.get("fields", [])
         field_names = [f.get("name", "") for f in fields]
 
+        _log.info("Full discovery started", asset_name=asset_name, field_count=len(fields))
+
         suggestion = DiscoverySuggestion(
             asset_name=asset_name,
             mode="full",
@@ -116,6 +124,13 @@ class Suggester:
 
         # Step 8: Default schema evolution governance
         self._suggest_schema_evolution(suggestion)
+
+        matched = sum(1 for f in suggestion.fields if f.linked_term)
+        _log.info("Full discovery complete", asset_name=asset_name,
+                  fields_matched=matched, fields_total=len(suggestion.fields),
+                  primary_key=suggestion.primary_key,
+                  business_app=suggestion.business_application_name,
+                  domain=suggestion.data_domain)
 
         return suggestion
 

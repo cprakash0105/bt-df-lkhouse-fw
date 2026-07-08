@@ -2,11 +2,17 @@
 Falls back to simple TF-IDF hashing if Bedrock unavailable.
 """
 import os
+import sys
 import json
+import time
 import urllib.request
 import hashlib
 from typing import List
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
+from logger import get_logger
+_log = get_logger("discovery.rag.embedder")
 
 try:
     from dotenv import load_dotenv
@@ -31,13 +37,15 @@ def embed_text(text: str) -> List[float]:
     if LLM_PROJECT:
         headers["OpenAI-Project"] = LLM_PROJECT
 
+    t0 = time.time()
     try:
         req = urllib.request.Request(url, data=payload.encode(), headers=headers)
         with urllib.request.urlopen(req, timeout=60) as resp:
             result = json.loads(resp.read().decode())
+        _log.debug("Embedding generated", model=EMBED_MODEL, duration_ms=int((time.time()-t0)*1000))
         return result["data"][0]["embedding"]
     except Exception as e:
-        print(f"[RAG] Bedrock embedding failed: {e}, using fallback hash")
+        _log.warn("Bedrock embedding failed, using fallback", error=str(e), model=EMBED_MODEL)
         return _fallback_embed(text)
 
 
@@ -48,7 +56,7 @@ def embed_batch(texts: List[str]) -> List[List[float]]:
         emb = embed_text(text)
         embeddings.append(emb)
         if (i + 1) % 50 == 0:
-            print(f"[RAG] Embedded {i + 1}/{len(texts)}")
+            _log.info("Batch embedding progress", completed=i+1, total=len(texts))
     return embeddings
 
 

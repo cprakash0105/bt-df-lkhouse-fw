@@ -3,9 +3,15 @@ Supports: AWS Bedrock Mantle (OpenAI-compatible) or any OpenAI-compatible API.
 Loads config from .env file via python-dotenv."""
 import os
 import json
+import time
 import urllib.request
 from pathlib import Path
 from typing import Optional
+
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from logger import get_logger
+_log = get_logger("discovery.llm_client")
 
 # Load .env from discovery/ directory
 try:
@@ -29,7 +35,7 @@ class LLMClient:
     def generate(self, system: str, user: str, max_tokens: int = 2048, temperature: float = 0.1) -> Optional[str]:
         """Send a request to the LLM. Returns text response or None."""
         if not self.api_key:
-            print("[LLM] No LLM_API_KEY set. Check your .env file.")
+            _log.warn("No LLM_API_KEY set")
             return None
 
         url = f"{self.base_url}/chat/completions"
@@ -50,23 +56,32 @@ class LLMClient:
         if self.project:
             headers["OpenAI-Project"] = self.project
 
+        t0 = time.time()
         try:
             req = urllib.request.Request(url, data=payload.encode(), headers=headers)
             with urllib.request.urlopen(req, timeout=300) as resp:
                 result = json.loads(resp.read().decode())
             msg = result["choices"][0]["message"]
-            # Reasoning models put output in 'reasoning' when content is null
             text = msg.get("content") or msg.get("reasoning") or ""
+            duration_ms = int((time.time() - t0) * 1000)
+            usage = result.get("usage", {})
+            _log.info("LLM call succeeded", model=self.model, duration_ms=duration_ms,
+                      prompt_tokens=usage.get("prompt_tokens"),
+                      completion_tokens=usage.get("completion_tokens"),
+                      user_prompt_preview=user[:100])
             return self._strip_fences(text.strip())
         except urllib.error.HTTPError as e:
             body = e.read().decode() if e.readable() else ""
+            duration_ms = int((time.time() - t0) * 1000)
             if e.code == 429 or "quota" in body.lower() or "rate" in body.lower():
-                print("[LLM] Rate limit / quota exceeded.")
+                _log.warn("Rate limit / quota exceeded", model=self.model, duration_ms=duration_ms)
                 return "__QUOTA_EXCEEDED__"
-            print(f"[LLM] HTTP {e.code}: {body[:200]}")
+            _log.error("LLM HTTP error", status=e.code, body=body[:200],
+                       model=self.model, duration_ms=duration_ms)
             return None
         except Exception as e:
-            print(f"[LLM] Failed: {e}")
+            duration_ms = int((time.time() - t0) * 1000)
+            _log.error("LLM call failed", error=str(e), model=self.model, duration_ms=duration_ms)
             return None
 
     @staticmethod

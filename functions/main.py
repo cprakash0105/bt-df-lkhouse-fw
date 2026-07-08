@@ -8,11 +8,17 @@ Runtime: Python 3.12, 540s timeout, 1GB memory
 """
 import os
 import re
+import sys
 import time
 import yaml
 import functions_framework
+from pathlib import Path
 from google.cloud import storage, bigquery, dataproc_v1
 from monitor import PipelineMonitor
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from logger import get_logger, flush_logs
+_log = get_logger("functions.pipeline_trigger")
 
 
 PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "bt-df-lkhouse")
@@ -45,15 +51,10 @@ def pipeline_trigger(cloud_event):
 
     # Only trigger for table configs
     if not file_name.startswith("framework/config/tables/") or not file_name.endswith(".yaml"):
-        print(f"Ignoring non-config file: {file_name}")
         return
 
-    # Extract table name
     table_name = file_name.split("/")[-1].replace(".yaml", "")
-    print(f"{'=' * 60}")
-    print(f"  PIPELINE TRIGGERED: {table_name}")
-    print(f"  Config: gs://{bucket_name}/{file_name}")
-    print(f"{'=' * 60}")
+    _log.info("Pipeline triggered", table_name=table_name, config_path=f"gs://{bucket_name}/{file_name}")
 
     # Load the config to verify it's valid
     gcs = storage.Client(project=PROJECT_ID)
@@ -136,9 +137,14 @@ def pipeline_trigger(cloud_event):
         print(f"  PIPELINE COMPLETE: {table_name}")
         print(f"  Data Product: {PROJECT_ID}.lakehouse_dataproduct.{table_name}")
         print(f"{'=' * 60}")
+        _log.info("Pipeline complete", table_name=table_name,
+                  data_product=f"{PROJECT_ID}.lakehouse_dataproduct.{table_name}")
+        flush_logs("pipeline")
 
     except Exception as e:
         monitor.log_error(table_name, "pipeline", str(e))
+        _log.error("Pipeline failed", table_name=table_name, error=str(e))
+        flush_logs("pipeline")
         print(f"\nPIPELINE FAILED for {table_name}: {e}")
         raise
 

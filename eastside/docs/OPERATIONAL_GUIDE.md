@@ -20,6 +20,7 @@
 | Bronze Namespace | `eastside.bronze` |
 | Silver Namespace | `eastside.silver` |
 | Gold Dataset | `bt-df-lkhouse.eastside_dataproduct` |
+| Dagster UI | `http://<dagster-static-ip>` (port 80, nginx) |
 | Ontika URL | `https://sd-web-978009776592.europe-west2.run.app` |
 | LLM | OpenAI GPT-OSS 120B on AWS Bedrock Mantle `https://bedrock-mantle.eu-north-1.api.aws/v1` |
 | GitHub | `cprakash0105/bt-df-lkhouse-fw` (main branch) |
@@ -164,6 +165,47 @@ bash eastside/scripts/run_reconcile.sh bt-df-lkhouse europe-west2 all
 bash eastside/scripts/run_bronze.sh bt-df-lkhouse europe-west2 pos_transactions v1
 bash eastside/scripts/run_silver.sh bt-df-lkhouse europe-west2 pos_transactions
 bash eastside/scripts/run_gold.sh bt-df-lkhouse europe-west2 pos_transactions
+```
+
+### 6. Dagster VM (Orchestration)
+
+The Dagster VM is provisioned by Terraform and auto-starts on boot — no SSH required.
+
+```bash
+# Deploy infrastructure (creates VM, static IP, firewall)
+cd eastside/terraform
+terraform apply -var="project_id=bt-df-lkhouse"
+
+# Get the Dagster URL
+terraform output dagster_url
+# → http://34.89.x.x
+```
+
+**VM Spec**: `e2-small` (2 vCPU, 2GB RAM) — sufficient for Dagster daemon + webserver.
+
+**What happens on boot**:
+1. Installs Python, nginx, creates dagster user
+2. Creates virtualenv, installs dagster + GCP SDKs
+3. Pulls workspace code from `gs://eastside-lakehouse/orchestration/`
+4. Starts `dagster-daemon` (schedules, sensors) via systemd
+5. Starts `dagster-webserver` on `127.0.0.1:3000` via systemd
+6. nginx reverse-proxies port 80 → 3000 (no `:3000` in URL)
+
+**After code changes**:
+```bash
+# Upload new code to GCS
+bash eastside/deploy_dagster.sh
+
+# Restart services on the VM (no SSH needed if using gcloud)
+gcloud compute ssh eastside-dagster --zone=europe-west2-a -- \
+  'sudo systemctl restart dagster-daemon dagster-webserver'
+```
+
+**Service management** (if SSH'd into the VM):
+```bash
+sudo systemctl status dagster-daemon dagster-webserver nginx
+sudo journalctl -u dagster-daemon -f   # live daemon logs
+sudo journalctl -u dagster-webserver -f # live webserver logs
 ```
 
 ---
@@ -371,8 +413,9 @@ Priority chain:
 - [ ] Confirm: which EastSide datasets (if any) need real-time streaming
 - [ ] Confirm: gold layer consumption views / data products required
 - [ ] Iceberg compaction strategy (time-based vs file-count threshold)
-- [ ] RAG pipeline for LLM (see below)
-- [ ] MCP (Model Context Protocol) integration
+- [x] ~~RAG pipeline for LLM~~ (done)
+- [x] ~~MCP (Model Context Protocol) integration~~ (done)
+- [x] ~~Dagster VM: e2-small, systemd, static IP, nginx~~ (done)
 
 ---
 
