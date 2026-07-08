@@ -83,6 +83,31 @@ business_applications:
     description: "Trade execution, portfolio management, deal pipeline, corporate actions"
     keywords: [trade, portfolio, deal, isin, blotter, holdings, corporate_action, dividend, merger, acquisition, kyc, lei, counterparty, desk]
 
+  - id: warehouse_management
+    name: "Warehouse Management"
+    description: "Inventory movements, stock receipts, transfers, warehouse operations"
+    keywords: [warehouse, inventory, stock, movement, receipt, transfer, adjustment, wms, bin, location, pick, pack, dispatch]
+
+  - id: loyalty_platform
+    name: "Loyalty Platform"
+    description: "Customer loyalty programme, tiers, points, rewards"
+    keywords: [loyalty, tier, points, reward, member, programme, signup, opt_in, preferred_store]
+
+  - id: merchandising
+    name: "Merchandising & PLM"
+    description: "Product lifecycle, catalogue, seasons, sizing, colours"
+    keywords: [merchandise, plm, catalogue, season, colour, size, rrp, cost_price, clearance, discontinued, apparel, fashion, garment]
+
+  - id: procurement
+    name: "Procurement & Suppliers"
+    description: "Purchase orders, supplier management, goods receipt"
+    keywords: [procurement, supplier, purchase_order, po, vendor, goods_receipt, delivery, sourcing]
+
+  - id: hr_system
+    name: "HR System"
+    description: "Staff records, roles, departments, payroll"
+    keywords: [staff, employee, hr, role, department, payroll, hourly_rate, start_date, terminated, on_leave]
+
 data_domains:
   - id: retail
     name: "Retail & Sales"
@@ -127,6 +152,18 @@ data_domains:
   - id: investment
     name: "Investment Banking"
     description: "Trades, portfolios, deals, corporate actions"
+
+  - id: supply_chain
+    name: "Supply Chain"
+    description: "Inventory, warehouse, logistics, stock movements"
+
+  - id: procurement
+    name: "Procurement"
+    description: "Purchase orders, supplier management, sourcing"
+
+  - id: hr
+    name: "Human Resources"
+    description: "Staff, roles, departments, payroll"
 
 business_terms:
   # --- Retail Domain ---

@@ -165,7 +165,8 @@ def sync_from_glossary(cache: CatalogCache, glossary_path: Optional[str] = None)
 
 
 def sync_dataset_on_approval(cache: CatalogCache, suggestion) -> str:
-    """Called when SD approves a dataset — immediately update cache."""
+    """Called when SD approves a dataset — immediately update cache.
+    Creates new BAs and domains if they don't already exist."""
     dataset_id = suggestion.asset_name.replace("_", "-")
     fields = []
     for f in suggestion.fields:
@@ -176,6 +177,40 @@ def sync_dataset_on_approval(cache: CatalogCache, suggestion) -> str:
             "is_pii": f.is_pii,
             "confidence": round(f.confidence, 2),
         })
+
+    # Create domain if new
+    if suggestion.data_domain:
+        existing_domain = cache.get_domain(suggestion.data_domain)
+        if not existing_domain:
+            cache.upsert_domain(suggestion.data_domain, {
+                "name": suggestion.data_domain.replace("_", " ").title(),
+                "description": f"Auto-created during onboarding of {suggestion.asset_name}",
+                "applications": [suggestion.business_application] if suggestion.business_application else [],
+                "term_count": 0,
+            })
+            print(f"[CatalogSync] New domain created: {suggestion.data_domain}")
+
+    # Create BA if new
+    if suggestion.business_application:
+        existing_app = cache.get_application(suggestion.business_application)
+        if not existing_app:
+            cache.upsert_application(suggestion.business_application, {
+                "name": suggestion.business_application_name or suggestion.business_application.replace("_", " ").title(),
+                "description": f"Auto-created during onboarding of {suggestion.asset_name}",
+                "keywords": suggestion.asset_name.replace("_", " ").split(),
+                "bdes": [f.linked_term for f in suggestion.fields if f.linked_term],
+            })
+            print(f"[CatalogSync] New BA created: {suggestion.business_application}")
+
+        # Link domain → BA if both exist
+        if suggestion.data_domain:
+            cache.upsert_link(f"domain-{suggestion.data_domain}-to-app-{suggestion.business_application}", {
+                "source_id": suggestion.data_domain,
+                "target_id": suggestion.business_application,
+                "link_type": "related",
+                "source_type": "domain",
+                "target_type": "application",
+            })
 
     cache.upsert_dataset(dataset_id, {
         "name": suggestion.asset_name,
@@ -188,7 +223,7 @@ def sync_dataset_on_approval(cache: CatalogCache, suggestion) -> str:
         "onboarded_at": datetime.now(timezone.utc).isoformat(),
     })
 
-    # Also create link: dataset → BA
+    # Link dataset → BA
     if suggestion.business_application:
         cache.upsert_link(f"dataset-{dataset_id}-to-app-{suggestion.business_application}", {
             "source_id": dataset_id,

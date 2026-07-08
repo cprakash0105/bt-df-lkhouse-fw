@@ -683,6 +683,23 @@ def approve(req: ApproveRequest):
 
     results = approval_handler.process_approval(suggestion, config_yaml=config_yaml)
 
+    # Update in-memory knowledge graph with new BA/domain
+    if suggestion.business_application and suggestion.business_application not in kg.applications:
+        from discovery.engine.knowledge_graph import BusinessApplication
+        kg.applications[suggestion.business_application] = BusinessApplication(
+            id=suggestion.business_application,
+            name=suggestion.business_application_name or suggestion.business_application.replace("_", " ").title(),
+            description=f"Created during onboarding of {suggestion.asset_name}",
+            keywords=suggestion.asset_name.replace("_", " ").split(),
+        )
+    if suggestion.data_domain and suggestion.data_domain not in kg.domains:
+        from discovery.engine.knowledge_graph import DataDomain
+        kg.domains[suggestion.data_domain] = DataDomain(
+            id=suggestion.data_domain,
+            name=suggestion.data_domain.replace("_", " ").title(),
+            description=f"Created during onboarding of {suggestion.asset_name}",
+        )
+
     # Update catalog cache immediately
     if catalog_cache:
         try:
@@ -802,8 +819,8 @@ def _trigger_dagster_job(table_name: str) -> Optional[str]:
     import urllib.request
     graphql_url = f"{DAGSTER_URL}/graphql"
     query = """
-    mutation($runConfigData: RunConfigData, $selector: JobSubsetSelector!) {
-      launchRun(executionParams: {runConfigData: $runConfigData, selector: $selector}) {
+    mutation($executionParams: ExecutionParams!) {
+      launchRun(executionParams: $executionParams) {
         __typename
         ... on LaunchRunSuccess { run { runId } }
         ... on PythonError { message }
@@ -813,16 +830,20 @@ def _trigger_dagster_job(table_name: str) -> Optional[str]:
     }
     """
     variables = {
-        "selector": {"repositoryLocationName": "eastside_dagster",
-                     "repositoryName": "__repository__",
-                     "jobName": "eastside_pipeline_job"},
-        "runConfigData": {
-            "ops": {
-                "bronze_asset": {"config": {"table": table_name}},
-                "silver_asset": {"config": {"table": table_name}},
-                "gold_asset": {"config": {"table": table_name}},
-            }
-        },
+        "executionParams": {
+            "selector": {
+                "repositoryLocationName": "eastside_dagster",
+                "repositoryName": "__repository__",
+                "jobName": "eastside_pipeline_job",
+            },
+            "runConfigData": json.dumps({
+                "ops": {
+                    "bronze_asset": {"config": {"table": table_name}},
+                    "silver_asset": {"config": {"table": table_name}},
+                    "gold_asset": {"config": {"table": table_name}},
+                }
+            }),
+        }
     }
     payload = json.dumps({"query": query, "variables": variables}).encode()
     try:

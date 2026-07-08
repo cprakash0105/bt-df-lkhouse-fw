@@ -210,6 +210,20 @@ class CatalogCache:
         terms = self._get_all("glossary/terms")
         return [t for t in terms.values() if t.get("domain") == domain_id]
 
+    def get_domain(self, domain_id: str) -> Optional[dict]:
+        try:
+            doc = self.db.collection(f"{COLLECTION_PREFIX}/hierarchy/domains").document(domain_id).get()
+            return doc.to_dict() if doc.exists else None
+        except Exception:
+            return None
+
+    def get_application(self, app_id: str) -> Optional[dict]:
+        try:
+            doc = self.db.collection(f"{COLLECTION_PREFIX}/hierarchy/applications").document(app_id).get()
+            return doc.to_dict() if doc.exists else None
+        except Exception:
+            return None
+
     def get_datasets_by_app(self, app_id: str) -> list:
         datasets = self._get_all("datasets/entries")
         return [d for d in datasets.values() if d.get("business_application") == app_id]
