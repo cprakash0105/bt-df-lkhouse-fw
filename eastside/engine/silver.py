@@ -155,7 +155,15 @@ def standardise_fields(df):
 # ============================================================
 
 def handle_late_arrivals(spark, df, table_config, config, target_table):
-    """Split records into on-time and late. Quarantine late records outside window."""
+    """Split records into on-time and late. Quarantine late records outside window.
+    On first load (silver table doesn't exist), skip — no concept of 'late'."""
+    # Skip late arrival check on initial load
+    try:
+        spark.read.table(target_table).limit(1).count()
+    except Exception:
+        log("late", "First load — skipping late arrival check")
+        return df, None
+
     window_days = table_config.get("late_arrival_window_days",
                                    config["pipeline"].get("late_arrival_window_days", 7))
 
