@@ -460,7 +460,8 @@ class Suggester:
 
     def _auto_profile(self, asset_name: str) -> Optional[DatasetProfile]:
         """Call the Profiler Service to profile landing data.
-        Falls back to local lightweight profiler if service unavailable."""
+        Falls back to local lightweight profiler if service unavailable.
+        Checks both default and EastSide buckets."""
         import os
         import json
         import urllib.request
@@ -483,16 +484,21 @@ class Suggester:
             except Exception as e:
                 print(f"[Suggester] Profiler service call failed: {e}, falling back to local")
 
-        # Strategy 2: Fallback to local profiler (lightweight, no GE)
-        try:
-            profile = self.profiler.profile_from_gcs(asset_name)
-            if profile and profile.fields:
-                self.profiler.persist_profile(profile)
-                print(f"[Suggester] Local profiled {asset_name}: {profile.row_count} rows")
-            return profile
-        except Exception as e:
-            print(f"[Suggester] Local profile failed: {e}")
-            return None
+        # Strategy 2: Fallback to local profiler (try both buckets)
+        buckets = [
+            os.environ.get("CONFIG_BUCKET", "bt-df-lkhouse-lakehouse"),
+            "eastside-lakehouse",
+        ]
+        for bucket in buckets:
+            try:
+                profile = self.profiler.profile_from_gcs(asset_name, bucket_name=bucket)
+                if profile and profile.fields:
+                    self.profiler.persist_profile(profile, bucket_name=bucket)
+                    print(f"[Suggester] Local profiled {asset_name} from {bucket}: {profile.row_count} rows")
+                    return profile
+            except Exception as e:
+                print(f"[Suggester] Local profile failed for {bucket}: {e}")
+        return None
 
     def _service_response_to_profile(self, result: dict) -> DatasetProfile:
         """Convert profiler service JSON response to DatasetProfile."""

@@ -701,6 +701,13 @@ def approve(req: ApproveRequest):
         scd_type = scd_gen.infer_scd_type("", suggestion.data_domain)
         scd_path = scd_gen.generate_and_push(suggestion, scd_type=scd_type)
 
+    # Trigger first pipeline run via Dagster (EastSide datasets only)
+    dagster_run_id = None
+    if results.get("config_gcs_path") and "eastside-lakehouse" in (results["config_gcs_path"] or ""):
+        dagster_run_id = _trigger_dagster_job(suggestion.asset_name)
+        if dagster_run_id:
+            _log.info("Dagster job triggered", run_id=dagster_run_id, table=suggestion.asset_name)
+
     _log.info("Approval complete", asset_name=suggestion.asset_name,
               new_terms=results["new_terms_created"], ba_linked=results["ba_linked"],
               config_path=results["config_gcs_path"], errors=results["errors"])
@@ -712,6 +719,7 @@ def approve(req: ApproveRequest):
         "config_gcs_path": results["config_gcs_path"],
         "contract_path": contract_path,
         "scd_path": scd_path,
+        "dagster_run_id": dagster_run_id,
         "errors": results["errors"],
         "config_yaml": config_yaml,
     }
@@ -785,6 +793,51 @@ def generate_sql(req: SQLRequest):
 
 
 # --- Helpers ---
+
+DAGSTER_URL = os.environ.get("DAGSTER_URL", "http://34.89.76.230")
+
+
+def _trigger_dagster_job(table_name: str) -> Optional[str]:
+    """Trigger the eastside_pipeline_job on Dagster for a specific table."""
+    import urllib.request
+    graphql_url = f"{DAGSTER_URL}/graphql"
+    query = """
+    mutation($runConfigData: RunConfigData, $selector: JobSubsetSelector!) {
+      launchRun(executionParams: {runConfigData: $runConfigData, selector: $selector}) {
+        __typename
+        ... on LaunchRunSuccess { run { runId } }
+        ... on PythonError { message }
+        ... on InvalidSubsetError { message }
+        ... on RunConfigValidationInvalid { errors { message } }
+      }
+    }
+    """
+    variables = {
+        "selector": {"repositoryLocationName": "eastside_dagster",
+                     "repositoryName": "__repository__",
+                     "jobName": "eastside_pipeline_job"},
+        "runConfigData": {
+            "ops": {
+                "bronze_asset": {"config": {"table": table_name}},
+                "silver_asset": {"config": {"table": table_name}},
+                "gold_asset": {"config": {"table": table_name}},
+            }
+        },
+    }
+    payload = json.dumps({"query": query, "variables": variables}).encode()
+    try:
+        req = urllib.request.Request(graphql_url, data=payload,
+                                    headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            result = json.loads(resp.read().decode())
+        launch = result.get("data", {}).get("launchRun", {})
+        if launch.get("__typename") == "LaunchRunSuccess":
+            return launch["run"]["runId"]
+        print(f"[API] Dagster launch failed: {launch}")
+    except Exception as e:
+        print(f"[API] Dagster trigger failed: {e}")
+    return None
+
 
 def _list_landing_datasets() -> list[str]:
     """List all dataset folders in GCS landing zones (both default and EastSide)."""
