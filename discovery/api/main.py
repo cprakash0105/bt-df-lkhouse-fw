@@ -787,22 +787,27 @@ def generate_sql(req: SQLRequest):
 # --- Helpers ---
 
 def _list_landing_datasets() -> list[str]:
-    """List all dataset folders in the GCS landing zone."""
+    """List all dataset folders in GCS landing zones (both default and EastSide)."""
     import os
-    bucket_name = os.environ.get("CONFIG_BUCKET", "bt-df-lkhouse-lakehouse")
+    buckets = [
+        os.environ.get("CONFIG_BUCKET", "bt-df-lkhouse-lakehouse"),
+        "eastside-lakehouse",
+    ]
+    datasets = []
     try:
         from google.cloud import storage as gcs_storage
         client = gcs_storage.Client()
-        bucket = client.bucket(bucket_name)
-        # List prefixes (folders) under landing/
-        blobs = client.list_blobs(bucket, prefix="landing/", delimiter="/")
-        # Consume the iterator to get prefixes
-        list(blobs)  # must consume
-        datasets = []
-        for prefix in blobs.prefixes:
-            name = prefix.replace("landing/", "").strip("/")
-            if name:
-                datasets.append(name)
+        for bucket_name in buckets:
+            try:
+                bucket = client.bucket(bucket_name)
+                blobs = client.list_blobs(bucket, prefix="landing/", delimiter="/")
+                list(blobs)  # consume to get prefixes
+                for prefix in blobs.prefixes:
+                    name = prefix.replace("landing/", "").strip("/")
+                    if name and name not in datasets:
+                        datasets.append(name)
+            except Exception as e:
+                print(f"[API] Failed to list landing in {bucket_name}: {e}")
         return sorted(datasets)
     except Exception as e:
         print(f"[API] Failed to list landing datasets: {e}")
@@ -924,16 +929,25 @@ def _resolve_from_text(text: str) -> Optional[dict]:
 
 
 def _fetch_schema_from_landing(dataset_name: str) -> Optional[dict]:
-    """Fetch schema from landing data in GCS. Returns asset_def dict or None."""
+    """Fetch schema from landing data in GCS. Checks both default and EastSide buckets."""
     import os
-    bucket_name = os.environ.get("CONFIG_BUCKET", "bt-df-lkhouse-lakehouse")
+    buckets = [
+        os.environ.get("CONFIG_BUCKET", "bt-df-lkhouse-lakehouse"),
+        "eastside-lakehouse",
+    ]
     prefix = f"landing/{dataset_name}/"
 
     try:
         from google.cloud import storage as gcs_storage
         client = gcs_storage.Client()
-        bucket = client.bucket(bucket_name)
-        blobs = list(bucket.list_blobs(prefix=prefix, max_results=5))
+
+        blobs = None
+        for bucket_name in buckets:
+            bucket = client.bucket(bucket_name)
+            found = list(bucket.list_blobs(prefix=prefix, max_results=5))
+            if found:
+                blobs = found
+                break
 
         if not blobs:
             return None

@@ -35,6 +35,10 @@ ENTRY_GROUP_ID = "enterprise-hierarchy"
 CONFIG_BUCKET = os.environ.get("CONFIG_BUCKET", f"{PROJECT_ID}-lakehouse")
 CONFIG_PREFIX = "framework/config/tables"
 
+# EastSide routing — datasets in this bucket go to eastside-specific path
+EASTSIDE_BUCKET = "eastside-lakehouse"
+EASTSIDE_CONFIG_PREFIX = "config/tables"
+
 
 class ApprovalHandler:
     """Handles post-approval actions: writes to Dataplex, generates configs."""
@@ -263,20 +267,31 @@ class ApprovalHandler:
                 return False
 
     def _push_config_to_gcs(self, asset_name: str, config_yaml: str) -> Optional[str]:
-        """Push pipeline config YAML to GCS. Overwrites if exists (re-onboard)."""
+        """Push pipeline config YAML to GCS. Routes to EastSide bucket if dataset exists there."""
         if not GCS_AVAILABLE:
             print("[ApprovalHandler] GCS not available")
             return None
 
-        gcs_path = f"gs://{CONFIG_BUCKET}/{CONFIG_PREFIX}/{asset_name}.yaml"
-        blob_name = f"{CONFIG_PREFIX}/{asset_name}.yaml"
-
         try:
             client = storage.Client(project=PROJECT_ID)
-            bucket = client.bucket(CONFIG_BUCKET)
+
+            # Route: check if dataset exists in EastSide landing zone
+            target_bucket, target_prefix = CONFIG_BUCKET, CONFIG_PREFIX
+            try:
+                es_bucket = client.bucket(EASTSIDE_BUCKET)
+                blobs = list(es_bucket.list_blobs(prefix=f"landing/{asset_name}/", max_results=1))
+                if blobs:
+                    target_bucket = EASTSIDE_BUCKET
+                    target_prefix = EASTSIDE_CONFIG_PREFIX
+            except Exception:
+                pass
+
+            blob_name = f"{target_prefix}/{asset_name}.yaml"
+            gcs_path = f"gs://{target_bucket}/{blob_name}"
+            bucket = client.bucket(target_bucket)
             blob = bucket.blob(blob_name)
             blob.upload_from_string(config_yaml, content_type="application/x-yaml")
-            print(f"[ApprovalHandler] Config pushed to: {gcs_path} (overwrite={blob.exists()})")
+            print(f"[ApprovalHandler] Config pushed to: {gcs_path}")
             return gcs_path
         except Exception as e:
             print(f"[ApprovalHandler] Failed to push config to GCS: {e}")
