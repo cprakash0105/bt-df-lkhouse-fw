@@ -15,6 +15,7 @@ COPY discovery/requirements-web.txt ./
 RUN pip install --no-cache-dir -r requirements-web.txt
 
 # Copy engine, config, API
+COPY logger.py ./
 COPY discovery/__init__.py ./discovery/
 COPY discovery/engine/ ./discovery/engine/
 COPY discovery/config/ ./discovery/config/
