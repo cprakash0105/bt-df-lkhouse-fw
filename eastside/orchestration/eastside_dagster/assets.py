@@ -8,7 +8,7 @@ PROJECT_ID = "bt-df-lkhouse"
 REGION = "europe-west2"
 CATALOG = "lkhouse_eastside"
 CONNECTION = f"projects/{PROJECT_ID}/locations/{REGION}/connections/biglake-conn"
-BQ_JAR = "gs://spark-lib/bigquery/spark-bigquery-with-dependencies_2.12-0.36.1.jar"
+# Dataproc 2.2 has built-in BQ connector — no extra JAR needed
 
 
 class TableConfig(Config):
@@ -117,7 +117,7 @@ def gold_asset(context: AssetExecutionContext, config: TableConfig, dataproc: Da
     tables = get_all_tables() if config.table == "all" else [config.table]
     for table in tables:
         context.log.info(f"Gold: {table}")
-        job_id = dataproc.submit_and_wait("gold", table, extra_jars=[BQ_JAR])
+        job_id = dataproc.submit_and_wait("gold", table)
         context.log.info(f"Gold complete: {job_id}")
 
         # Tag columns with metadata
