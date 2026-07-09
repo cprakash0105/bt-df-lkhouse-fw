@@ -26,6 +26,48 @@ from pyspark.sql.functions import (
 from pyspark.sql.types import StringType, ArrayType
 
 
+def check_watermark(config, table_name, version):
+    """Check if this version was already processed. Returns True if already done."""
+    import json
+    from google.cloud import storage as gcs_storage
+    pipeline = config["pipeline"]
+    bucket_name = pipeline["bucket"]
+    wm_path = f"bronze/_watermarks/{table_name}.json"
+    try:
+        client = gcs_storage.Client(project=pipeline.get("project_id", "bt-df-lkhouse"))
+        blob = client.bucket(bucket_name).blob(wm_path)
+        if not blob.exists():
+            return False
+        wm = json.loads(blob.download_as_text())
+        processed = wm.get("processed_versions", [])
+        return version in processed
+    except Exception:
+        return False
+
+
+def write_watermark(config, table_name, version):
+    """Record that this version has been processed."""
+    import json
+    from google.cloud import storage as gcs_storage
+    pipeline = config["pipeline"]
+    bucket_name = pipeline["bucket"]
+    wm_path = f"bronze/_watermarks/{table_name}.json"
+    client = gcs_storage.Client(project=pipeline.get("project_id", "bt-df-lkhouse"))
+    blob = client.bucket(bucket_name).blob(wm_path)
+    try:
+        wm = json.loads(blob.download_as_text()) if blob.exists() else {}
+    except Exception:
+        wm = {}
+    processed = wm.get("processed_versions", [])
+    if version not in processed:
+        processed.append(version)
+    wm["processed_versions"] = processed
+    wm["last_version"] = version
+    wm["last_processed_at"] = datetime.now().isoformat()
+    blob.upload_from_string(json.dumps(wm), content_type="application/json")
+    log("bronze", f"Watermark updated: {version} → {wm_path}")
+
+
 def read_landing(spark, config, table_name, table_config, version):
     """Read raw files from landing, auto-detecting format."""
     pipeline = config["pipeline"]
@@ -194,6 +236,11 @@ def bronze_table(spark, config, table_name, version):
     log_header(f"BRONZE: {table_name.upper()}")
     log("bronze", f"Target: {target_table}")
 
+    # 0. Watermark check
+    if check_watermark(config, table_name, version):
+        log("bronze", f"Version '{version}' already processed — skipping")
+        return "SKIPPED"
+
     # 1. Read landing
     df = read_landing(spark, config, table_name, table_config, version)
     source_count = df.count()
@@ -235,7 +282,10 @@ def bronze_table(spark, config, table_name, version):
             log_error("bronze", f"Failed to write: {target_table}", e)
             raise
 
-    # 7. Reconciliation log
+    # 8. Write watermark
+    write_watermark(config, table_name, version)
+
+    # 9. Reconciliation log
     final_count = spark.read.table(target_table).count()
     log("bronze", f"Reconciliation: source={source_count}, bronze_total={final_count}")
 
