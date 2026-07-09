@@ -22,7 +22,7 @@ class DataprocResource(ConfigurableResource):
         "spark.sql.catalog.lkhouse_eastside": "org.apache.iceberg.spark.SparkCatalog",
         "spark.sql.catalog.lkhouse_eastside.catalog-impl": "org.apache.iceberg.gcp.biglake.BigLakeCatalog",
         "spark.sql.catalog.lkhouse_eastside.gcp_project": "bt-df-lkhouse",
-        "spark.sql.catalog.lkhouse_eastside.gcp_location": "us-east1",
+        "spark.sql.catalog.lkhouse_eastside.gcp_location": "europe-west2",
         "spark.sql.catalog.lkhouse_eastside.blms_catalog": "lkhouse_eastside",
         "spark.sql.catalog.lkhouse_eastside.warehouse": "gs://eastside-lakehouse",
         "spark.sql.extensions": "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
