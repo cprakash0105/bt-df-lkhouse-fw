@@ -10,7 +10,7 @@ pipeline:
   bucket: eastside-lakehouse
 
   # Iceberg catalog (BLMS)
-  catalog: eastside
+  catalog: lkhouse_eastside
   bronze_namespace: bronze
   silver_namespace: silver
 
