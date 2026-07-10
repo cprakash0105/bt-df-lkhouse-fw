@@ -198,17 +198,22 @@ def run_detective_policies(df, table_config):
             flag_expr = when(col(col_name).isNull(), lit(f"NULL_{col_name.upper()}"))
             flags.append(flag_expr)
 
-    # POSITIVE checks
+    # POSITIVE checks (only for numeric columns)
     for col_name in dq_rules.get("positive", []):
         if col_name in df.columns:
-            flag_expr = when(col(col_name) <= 0, lit(f"NON_POSITIVE_{col_name.upper()}"))
-            flags.append(flag_expr)
+            dtype = str(df.schema[col_name].dataType).lower()
+            if any(t in dtype for t in ["int", "long", "float", "double", "decimal", "short"]):
+                flag_expr = when(col(col_name) <= 0, lit(f"NON_POSITIVE_{col_name.upper()}"))
+                flags.append(flag_expr)
 
-    # ACCEPTED VALUES checks
+    # ACCEPTED VALUES checks (cast to string to handle type mismatches)
     for col_name, values in dq_rules.get("accepted_values", {}).items():
         if col_name in df.columns:
-            flag_expr = when(~col(col_name).isin(values) & col(col_name).isNotNull(),
-                            lit(f"INVALID_{col_name.upper()}"))
+            str_values = [str(v) for v in values]
+            flag_expr = when(
+                ~col(col_name).cast("string").isin(str_values) & col(col_name).isNotNull(),
+                lit(f"INVALID_{col_name.upper()}")
+            )
             flags.append(flag_expr)
 
     if flags:

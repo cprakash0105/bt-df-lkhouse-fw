@@ -79,21 +79,24 @@ def apply_preventative_dq(df, table_config):
                 log("dq", f"NOT_NULL({col_name}): rejected {rej}")
                 rejected_total += rej
 
-    # POSITIVE
+    # POSITIVE (only for numeric columns)
     for col_name in dq_rules.get("positive", []):
         if col_name in df.columns:
-            before = df.count()
-            df = df.filter((col(col_name) > 0) | col(col_name).isNull())
-            rej = before - df.count()
-            if rej > 0:
-                log("dq", f"POSITIVE({col_name}): rejected {rej}")
-                rejected_total += rej
+            dtype = str(df.schema[col_name].dataType).lower()
+            if any(t in dtype for t in ["int", "long", "float", "double", "decimal", "short"]):
+                before = df.count()
+                df = df.filter((col(col_name) > 0) | col(col_name).isNull())
+                rej = before - df.count()
+                if rej > 0:
+                    log("dq", f"POSITIVE({col_name}): rejected {rej}")
+                    rejected_total += rej
 
-    # ACCEPTED VALUES
+    # ACCEPTED VALUES (cast to string to handle type mismatches)
     for col_name, values in dq_rules.get("accepted_values", {}).items():
         if col_name in df.columns:
+            str_values = [str(v) for v in values]
             before = df.count()
-            df = df.filter(col(col_name).isin(values) | col(col_name).isNull())
+            df = df.filter(col(col_name).cast("string").isin(str_values) | col(col_name).isNull())
             rej = before - df.count()
             if rej > 0:
                 log("dq", f"ACCEPTED_VALUES({col_name}): rejected {rej}")
