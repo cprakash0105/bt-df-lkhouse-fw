@@ -22,7 +22,7 @@ from base import (
 )
 from pyspark.sql.functions import (
     col, lit, current_timestamp, when, coalesce, sha2, concat_ws,
-    regexp_replace, trim, upper, to_timestamp, row_number,
+    regexp_replace, trim, upper, lower, to_timestamp, row_number,
 )
 from pyspark.sql.window import Window
 from pyspark.sql.types import TimestampType
@@ -91,12 +91,12 @@ def apply_preventative_dq(df, table_config):
                     log("dq", f"POSITIVE({col_name}): rejected {rej}")
                     rejected_total += rej
 
-    # ACCEPTED VALUES (cast to string to handle type mismatches)
+    # ACCEPTED VALUES (case-insensitive, cast to string for type safety)
     for col_name, values in dq_rules.get("accepted_values", {}).items():
         if col_name in df.columns:
-            str_values = [str(v) for v in values]
+            lower_values = [str(v).lower() for v in values]
             before = df.count()
-            df = df.filter(col(col_name).cast("string").isin(str_values) | col(col_name).isNull())
+            df = df.filter(lower(col(col_name).cast("string")).isin(lower_values) | col(col_name).isNull())
             rej = before - df.count()
             if rej > 0:
                 log("dq", f"ACCEPTED_VALUES({col_name}): rejected {rej}")

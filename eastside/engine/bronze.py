@@ -21,7 +21,7 @@ from base import (
 )
 from pyspark.sql.functions import (
     col, lit, current_timestamp, input_file_name, sha2, concat_ws,
-    when, array, array_compact, coalesce,
+    when, array, array_compact, coalesce, lower,
 )
 from pyspark.sql.types import StringType, ArrayType
 
@@ -206,12 +206,12 @@ def run_detective_policies(df, table_config):
                 flag_expr = when(col(col_name) <= 0, lit(f"NON_POSITIVE_{col_name.upper()}"))
                 flags.append(flag_expr)
 
-    # ACCEPTED VALUES checks (cast to string to handle type mismatches)
+    # ACCEPTED VALUES checks (case-insensitive, cast to string for type safety)
     for col_name, values in dq_rules.get("accepted_values", {}).items():
         if col_name in df.columns:
-            str_values = [str(v) for v in values]
+            lower_values = [str(v).lower() for v in values]
             flag_expr = when(
-                ~col(col_name).cast("string").isin(str_values) & col(col_name).isNotNull(),
+                ~lower(col(col_name).cast("string")).isin(lower_values) & col(col_name).isNotNull(),
                 lit(f"INVALID_{col_name.upper()}")
             )
             flags.append(flag_expr)
