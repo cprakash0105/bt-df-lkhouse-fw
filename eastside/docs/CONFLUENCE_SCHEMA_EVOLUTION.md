@@ -593,19 +593,377 @@ This is the exact sequence of operations when the `eastside_pipeline_job` is tri
 
 ---
 
-## 14. Configuration Reference
+## 14. Alias Mapping (Column Rename Handling)
 
-Full schema evolution config block for a table:
+### Problem
+
+Source systems rename columns without notice. Example: `customer_name` becomes `cust_name`. The engine detects this as an add + drop, which blocks silver.
+
+### Solution
+
+Declare aliases in the table config. The SchemaEvolver renames incoming columns to their canonical names before detection runs:
 
 ```yaml
 schema_evolution:
-  bronze:
-    allowed: [add_column, type_widen, drop_column]
-    # blocked: []  — bronze blocks nothing by default
+  aliases:
+    cust_name: customer_name
+    txn_id: transaction_id
+    txn_datetime: transaction_datetime
+    sku: product_sku
+```
+
+**Behaviour:**
+1. Incoming data has column `cust_name`
+2. SchemaEvolver calls `apply_aliases()` → renames to `customer_name`
+3. Detection sees no change (column exists with correct name)
+4. Pipeline proceeds without failure
+
+This eliminates manual intervention for known renames. Unknown renames still trigger the add + drop detection.
+
+---
+
+## 15. Externalised Type Widening Rules
+
+### Problem
+
+The original hardcoded widening map only covered 5 type pairs. Real-world sources (SAP, Salesforce, Oracle CDC) produce many more: `decimal(10,2) → decimal(20,2)`, `date → timestamp`, `int → decimal`.
+
+### Solution
+
+Type rules are defined in `config/type_rules.yaml` and loaded at runtime:
+
+```yaml
+widen:
+  - "short -> int"
+  - "int -> bigint"
+  - "int -> long"
+  - "int -> double"
+  - "int -> decimal"
+  - "bigint -> double"
+  - "bigint -> decimal"
+  - "float -> double"
+  - "decimal(10,2) -> decimal(20,2)"
+  - "decimal(18,2) -> decimal(38,2)"
+  - "date -> timestamp"
+  - "int -> string"
+  - "bigint -> string"
+```
+
+Adding a new rule requires editing this YAML file. No code change needed.
+
+---
+
+## 16. Graceful Mode (Strict vs Available)
+
+### Problem
+
+Strict enforcement means a source dropping a column on Friday evening stops the entire data product until Monday.
+
+### Solution
+
+Two modes per layer, configured per table:
+
+```yaml
+schema_evolution:
   silver:
     allowed: [add_column, type_widen]
     blocked: [drop_column, type_narrow]
-  # gold: not configured here — enforced via contract validation in gold.py
+    on_drop: fail               # strict (default)
+    on_narrow: fail             # strict (default)
+```
+
+Alternative:
+```yaml
+    on_drop: null_fill_and_alert    # graceful — NULL-fill, continue, send alert
+    on_narrow: cast_and_alert       # graceful — cast, continue, send alert
+```
+
+**Strict mode (default):** Pipeline fails. Data product unavailable until resolved. Zero risk of silent data corruption.
+
+**Graceful mode:** Pipeline continues. Missing column is NULL-filled. Alert fires immediately. Data product remains available but with degraded quality on the affected column.
+
+The choice is per-table. Critical tables (financial, regulatory) use strict. Non-critical tables (marketing, analytics) can use graceful.
+
+---
+
+## 17. Schema Audit Table
+
+### Problem
+
+Logs are useful but difficult to query. No way to answer: "How many schema changes happened last month?" or "Which tables have the most drift?"
+
+### Solution
+
+Every schema change is written to a structured Iceberg audit table:
+
+```
+{catalog}.{namespace}.schema_change_audit
+```
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `table_name` | string | Table that changed |
+| `layer` | string | bronze / silver / gold |
+| `change_type` | string | add_column / drop_column / type_widen / type_narrow |
+| `column_name` | string | Affected column |
+| `old_type` | string | Previous type (empty for adds) |
+| `new_type` | string | New type (empty for drops) |
+| `event_timestamp` | string | When the change was detected |
+| `run_id` | string | Pipeline run identifier |
+| `status` | string | applied / blocked / graceful_null_fill / graceful_cast |
+| `_recorded_at` | timestamp | When the audit record was written |
+
+Query examples:
+```sql
+-- Tables with most schema drift
+SELECT table_name, COUNT(*) as changes
+FROM schema_change_audit
+WHERE event_timestamp > '2026-07-01'
+GROUP BY table_name
+ORDER BY changes DESC;
+
+-- All blocked changes (requires investigation)
+SELECT * FROM schema_change_audit
+WHERE status = 'blocked'
+ORDER BY event_timestamp DESC;
+```
+
+---
+
+## 18. Schema Fingerprint (Performance Optimisation)
+
+### Problem
+
+For hundreds of tables, running `detect_changes()` on every execution is expensive — it reads the existing table schema from BLMS every time.
+
+### Solution
+
+After each successful run, persist a hash of the incoming schema:
+
+```json
+// gs://{bucket}/{layer}/_schema_fingerprints/{table}.json
+{
+  "fingerprint": "a3f2b8c1e9d04f7a",
+  "columns": ["transaction_id", "store_id", "product_sku", ...],
+  "updated_at": "2026-07-13T07:34:00"
+}
+```
+
+On next run:
+1. Compute fingerprint of incoming DataFrame
+2. Compare against stored fingerprint
+3. If identical → skip detection entirely (no BLMS read)
+4. If different → run full detection
+
+This reduces catalog lookups by ~90% for stable tables.
+
+---
+
+## 19. Schema Quarantine
+
+### Problem
+
+When silver blocks a schema change, the pipeline fails and the batch is lost. The only recovery is to fix the source and re-run. There's no record of what the offending data looked like.
+
+### Solution
+
+When a schema violation is detected, the offending batch is written to a quarantine table before the pipeline fails:
+
+```
+{catalog}.silver.{table}_schema_quarantine
+```
+
+Additional columns:
+- `_schema_quarantine_reason` — e.g. "drop_column blocked: ['unit_price']"
+- `_schema_diff` — JSON of the detected changes
+- `_quarantined_at` — timestamp
+
+This provides:
+- Full record of what the source sent
+- The exact schema diff that caused the failure
+- Data available for replay once the issue is resolved
+
+---
+
+## 20. Gold Contract Versioning
+
+### Problem
+
+Gold schema is "contract-locked" but there's no formal versioning, no history, and no consumer notification process.
+
+### Solution
+
+Contracts are stored as versioned YAML files:
+
+```
+contracts/
+  pos_transactions/
+    v1.0.0.yaml
+    v1.1.0.yaml    ← minor: column added
+    v2.0.0.yaml    ← major: breaking change
+```
+
+Table config references the active version:
+```yaml
+contract_version: "1.0.0"
+```
+
+Contract file defines:
+```yaml
+contract:
+  name: pos_transactions
+  version: "1.0.0"
+  status: active
+  owner:
+    team: retail_data
+    data_steward: Chandra Prakash
+  schema:
+    primary_key: transaction_id
+    required_columns:
+      - name: transaction_id
+        type: string
+        nullable: false
+      - name: unit_price
+        type: double
+        nullable: false
+  consumers:
+    - name: retail_dashboard
+      team: bi_team
+  changelog:
+    - version: "1.0.0"
+      date: "2026-07-09"
+      change: "Initial contract"
+```
+
+**Versioning rules:**
+- Patch (1.0.1): metadata change only (description, owner)
+- Minor (1.1.0): non-breaking change (new optional column)
+- Major (2.0.0): breaking change (column drop, type change, rename)
+
+**Process for a breaking change:**
+1. Create new contract version file
+2. Update `contract_version` in table config
+3. Notify consumers listed in the contract
+4. Get approval from data steward
+5. Deploy
+
+---
+
+## 21. Alerting
+
+### Problem
+
+Pipeline fails silently. No one knows until a consumer reports missing data.
+
+### Solution
+
+Dagster failure hooks send alerts on any asset failure:
+
+```python
+@failure_hook
+def alert_on_failure(context: HookContext):
+    # Categorise the failure
+    if "Schema evolution BLOCKED" in error:
+        category = "🚫 SCHEMA EVOLUTION BLOCKED"
+    elif "contract violation" in error:
+        category = "📋 CONTRACT VIOLATION"
+    else:
+        category = "❌ PIPELINE FAILURE"
+
+    # Send to Slack / Google Chat / Email
+    send_alert(category, asset_name, run_id, error)
+```
+
+Configured via environment variables on the Dagster VM:
+```
+ALERT_SLACK_WEBHOOK=https://hooks.slack.com/services/...
+ALERT_GCHAT_WEBHOOK=https://chat.googleapis.com/v1/spaces/...
+ALERT_EMAIL_TO=data-team@company.com
+```
+
+Alerts fire for:
+- `drop_column` blocked
+- `type_narrow` blocked
+- Contract violation
+- Dataproc job failure
+- Timeout
+
+---
+
+## 22. Metadata Governance (Ownership)
+
+Every table config declares ownership explicitly:
+
+```yaml
+owner:
+  team: retail_data
+  email: retail-data@company.com
+data_steward: Chandra Prakash
+```
+
+This enables:
+- Schema change alerts routed to the correct team
+- Contract approval workflow knows who to ask
+- Audit trail shows who owns the data
+
+---
+
+## 23. Data Protection (SHA256 vs KMS)
+
+Two distinct mechanisms, configured per-column:
+
+| Method | Config | Reversible | Use Case |
+|--------|--------|------------|----------|
+| SHA256 hash | `masking: {email: sha256}` | No | Analytics — field is used for joins/grouping but value is never revealed |
+| KMS AES-256 | `encryption: {pan_number: aes256}` | Yes (with key access) | Authorised users can decrypt for fraud investigation, compliance |
+
+Both are applied in the silver layer on write. Gold inherits the protected values.
+
+---
+
+## 24. Configuration Reference
+
+Full table config with all schema evolution features:
+
+```yaml
+table: pos_transactions
+description: "Point-of-sale line items from 50+ physical stores"
+source_format: json
+source_system: pos
+domain: sales
+business_application: retail_pos
+is_cdc: false
+
+owner:
+  team: retail_data
+  email: retail-data@company.com
+data_steward: Chandra Prakash
+
+contract_version: "1.0.0"
+
+primary_key: transaction_id
+hash_fields: [transaction_id, product_sku, transaction_datetime]
+
+dq_rules:
+  not_null: [transaction_id, store_id, product_sku, quantity, unit_price]
+  positive: [quantity, unit_price]
+
+pii_fields: []
+masking: {}
+encryption: {}
+
+schema_evolution:
+  aliases:
+    txn_id: transaction_id
+    txn_datetime: transaction_datetime
+    sku: product_sku
+  bronze:
+    allowed: [add_column, type_widen, drop_column]
+  silver:
+    allowed: [add_column, type_widen]
+    blocked: [drop_column, type_narrow]
+    on_drop: fail               # fail | null_fill_and_alert
+    on_narrow: fail             # fail | cast_and_alert
 ```
 
 Valid values for `allowed` and `blocked`:
@@ -616,7 +974,7 @@ Valid values for `allowed` and `blocked`:
 
 ---
 
-## 15. Technology Stack Summary
+## 25. Technology Stack Summary
 
 | Component | Technology | Purpose |
 |-----------|------------|---------|
@@ -624,9 +982,10 @@ Valid values for `allowed` and `blocked`:
 | Table Format | Apache Iceberg | Schema evolution, time travel, snapshot isolation |
 | Catalog | BigLake Metastore (BLMS) | Iceberg metadata management (schemas, snapshots, manifests) |
 | Compute | Dataproc Serverless (PySpark) | Executes bronze.py, silver.py, gold.py |
-| Orchestration | Dagster (GCE VM) | Job sequencing, BQ registration, column tagging |
+| Orchestration | Dagster (GCE VM) | Job sequencing, BQ registration, column tagging, alerting |
 | Gold Layer | BigQuery (native tables) | Consumption-optimised data products |
 | Bronze/Silver Query | BigQuery (external tables via BigLake connection) | Zero-copy SQL access to Iceberg data |
 | Encryption | Cloud KMS (`pii-encryption-key`) | AES-256 for reversible PII protection in silver |
+| Alerting | Dagster hooks → Slack / Google Chat / Email | Failure notification |
 | IaC | Terraform | Bucket, BLMS catalog, BQ datasets, IAM, Dagster VM |
 | CI/CD | Cloud Build | Deployment automation |
