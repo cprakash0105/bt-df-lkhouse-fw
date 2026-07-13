@@ -1,13 +1,12 @@
 import time
 from typing import ClassVar
-from dagster import ConfigurableResource
+from dagster import ConfigurableResource, get_dagster_logger
 from google.cloud import dataproc_v1
 
 
 class DataprocResource(ConfigurableResource):
     project: str = "bt-df-lkhouse"
     region: str = "europe-west2"
-    cluster: str = "lakehouse-cluster"
     bucket: str = "eastside-lakehouse"
 
     PY_FILES: ClassVar[list] = [
@@ -28,43 +27,67 @@ class DataprocResource(ConfigurableResource):
         "spark.sql.extensions": "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
     }
 
-    def submit_and_wait(self, stage: str, table: str, extra_jars: list = None) -> str:
+    def submit_and_wait(self, stage: str, table: str, version: str = None,
+                        timeout: int = 900) -> str:
+        """Submit a PySpark job to Dataproc and wait for completion.
+
+        Args:
+            stage: Pipeline stage (bronze, silver, gold, reconcile)
+            table: Table name to process
+            version: Landing version (required for bronze, ignored for others)
+            timeout: Max wait time in seconds (default 15 min)
+
+        Returns:
+            Job ID on success
+
+        Raises:
+            RuntimeError on job failure or timeout
+        """
+        logger = get_dagster_logger()
         client = dataproc_v1.JobControllerClient(
             client_options={"api_endpoint": f"{self.region}-dataproc.googleapis.com:443"}
         )
-        job_id = f"eastside-{stage}-{table}-{int(time.time()) % 100000}"
-        jars = list(self.JARS) + (extra_jars or [])
 
-        args = ["--config", f"gs://{self.bucket}/config/pipeline.yaml",
-                "--table", table, "--project", self.project]
+        job_id = f"eastside-{stage}-{table}-{int(time.time()) % 100000}"
+
+        args = [
+            "--config", f"gs://{self.bucket}/config/pipeline.yaml",
+            "--table", table,
+            "--project", self.project,
+        ]
         if stage == "bronze":
-            args += ["--version", "v1"]
+            if not version:
+                raise ValueError("version is required for bronze stage")
+            args += ["--version", version]
 
         job = {
-            "placement": {"cluster_name": self.cluster},
+            "placement": {"cluster_name": "lakehouse-cluster"},
             "reference": {"job_id": job_id},
             "pyspark_job": {
                 "main_python_file_uri": f"gs://{self.bucket}/engine/{stage}.py",
                 "python_file_uris": self.PY_FILES,
-                "jar_file_uris": jars,
+                "jar_file_uris": list(self.JARS),
                 "args": args,
                 "properties": self.SPARK_PROPS,
             },
         }
 
+        logger.info(f"Submitting {stage} job: {job_id} (table={table}, version={version})")
         client.submit_job(project_id=self.project, region=self.region, job=job)
 
-        # Wait for completion
-        timeout = 600
+        # Poll for completion
         start = time.time()
         while time.time() - start < timeout:
             result = client.get_job(project_id=self.project, region=self.region, job_id=job_id)
             state = result.status.state.name
             if state == "DONE":
+                logger.info(f"Job {job_id} completed successfully")
                 return job_id
             if state in ("ERROR", "CANCELLED"):
-                raise RuntimeError(f"Job {job_id} {state}: {result.status.details}")
+                error_msg = result.status.details or "No details"
+                raise RuntimeError(f"Job {job_id} {state}: {error_msg}")
             time.sleep(10)
+
         raise RuntimeError(f"Job {job_id} timed out after {timeout}s")
 
 
