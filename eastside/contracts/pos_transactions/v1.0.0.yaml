@@ -1,0 +1,80 @@
+# ============================================================
+# Gold Contract: pos_transactions v1.0.0
+# ============================================================
+# This contract defines the schema that consumers depend on.
+# Any change to this contract requires:
+#   1. New version file (v1.1.0.yaml or v2.0.0.yaml)
+#   2. Update contract_version in table config
+#   3. Consumer notification
+#   4. Approval from data steward
+#
+# Breaking changes (column drop, type narrow, rename) = major version bump
+# Non-breaking changes (column add) = minor version bump
+# ============================================================
+
+contract:
+  name: pos_transactions
+  version: "1.0.0"
+  created: "2026-07-09"
+  status: active  # active | deprecated | superseded
+
+  owner:
+    team: retail_data
+    email: retail-data@company.com
+    data_steward: Chandra Prakash
+
+  schema:
+    primary_key: transaction_id
+    required_columns:
+      - name: transaction_id
+        type: string
+        nullable: false
+      - name: store_id
+        type: string
+        nullable: false
+      - name: product_sku
+        type: string
+        nullable: false
+      - name: quantity
+        type: integer
+        nullable: false
+      - name: unit_price
+        type: double
+        nullable: false
+      - name: transaction_datetime
+        type: string
+        nullable: false
+
+    optional_columns:
+      - name: basket_id
+        type: string
+      - name: till_id
+        type: string
+      - name: customer_id
+        type: string
+      - name: discount_amount
+        type: double
+      - name: payment_method
+        type: string
+      - name: staff_id
+        type: string
+
+  quality:
+    pk_uniqueness: required
+    completeness:
+      target: 99.5%
+      critical_fields: [transaction_id, store_id, product_sku]
+
+  consumers:
+    - name: retail_dashboard
+      team: bi_team
+      usage: daily_sales_reporting
+    - name: fraud_detection
+      team: risk_team
+      usage: real_time_scoring
+
+  changelog:
+    - version: "1.0.0"
+      date: "2026-07-09"
+      change: "Initial contract"
+      author: Chandra Prakash

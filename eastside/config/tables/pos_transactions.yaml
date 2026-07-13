@@ -6,6 +6,13 @@ domain: sales
 business_application: retail_pos
 is_cdc: false
 
+owner:
+  team: retail_data
+  email: retail-data@company.com
+data_steward: Chandra Prakash
+
+contract_version: "1.0.0"
+
 primary_key: transaction_id
 dedup_order_by: transaction_datetime DESC
 
@@ -22,8 +29,14 @@ policy:
   silver: preventative
 
 schema_evolution:
+  aliases:
+    txn_id: transaction_id
+    txn_datetime: transaction_datetime
+    sku: product_sku
   bronze:
     allowed: [add_column, type_widen, drop_column]
   silver:
     allowed: [add_column, type_widen]
     blocked: [drop_column, type_narrow]
+    on_drop: fail           # fail | null_fill_and_alert
+    on_narrow: fail         # fail | cast_and_alert

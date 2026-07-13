@@ -1,0 +1,47 @@
+# ============================================================
+# Type Widening Rules — Schema Evolution
+# ============================================================
+# Defines which type promotions are considered safe (non-breaking).
+# Used by SchemaEvolver to determine if a type change is a widen or narrow.
+#
+# Format: "from_type -> to_type"
+# If a type change matches a rule here, it is treated as a widen.
+# If it does NOT match, it is treated as a narrow (potentially blocked).
+#
+# Add new rules here as source systems produce new type changes.
+# No code change required — SchemaEvolver reads this at runtime.
+# ============================================================
+
+widen:
+  # Integer promotions
+  - "short -> int"
+  - "short -> integer"
+  - "short -> bigint"
+  - "int -> bigint"
+  - "int -> long"
+  - "integer -> long"
+  - "int -> double"
+  - "int -> decimal"
+  - "bigint -> double"
+  - "bigint -> decimal"
+
+  # Float promotions
+  - "float -> double"
+
+  # Decimal promotions (precision increase)
+  - "decimal(10,2) -> decimal(20,2)"
+  - "decimal(10,0) -> decimal(20,0)"
+  - "decimal(18,2) -> decimal(38,2)"
+  - "decimal(10,2) -> decimal(38,6)"
+
+  # Temporal promotions
+  - "date -> timestamp"
+
+  # String promotions (common in CDC tools)
+  # Note: string -> bigint is NOT a widen (it's a narrow — string is wider)
+  # bigint -> string IS a widen (string can hold anything)
+  - "int -> string"
+  - "bigint -> string"
+  - "double -> string"
+  - "date -> string"
+  - "timestamp -> string"

@@ -2,6 +2,7 @@ from dagster import asset, AssetExecutionContext, Config, RetryPolicy, AssetIn
 import yaml
 from google.cloud import storage, bigquery
 from .resources import DataprocResource
+from .hooks import alert_on_failure, log_on_success
 
 
 PROJECT_ID = "bt-df-lkhouse"
@@ -145,6 +146,7 @@ def tag_columns(table_name: str, config: dict, context):
 @asset(
     group_name="eastside",
     retry_policy=RetryPolicy(max_retries=2, delay=30),
+    op_tags={"dagster/hook/alert_on_failure": "", "dagster/hook/log_on_success": ""},
     metadata={"layer": "bronze", "description": "Landing → Bronze Iceberg (append)"},
 )
 def bronze_asset(context: AssetExecutionContext, config: BronzeConfig, dataproc: DataprocResource):
@@ -179,6 +181,7 @@ def bronze_asset(context: AssetExecutionContext, config: BronzeConfig, dataproc:
     group_name="eastside",
     deps=[bronze_asset],
     retry_policy=RetryPolicy(max_retries=1, delay=30),
+    op_tags={"dagster/hook/alert_on_failure": "", "dagster/hook/log_on_success": ""},
     metadata={"layer": "silver", "description": "Bronze → Silver Iceberg (merge/SCD2)"},
 )
 def silver_asset(context: AssetExecutionContext, config: SilverConfig, dataproc: DataprocResource):
@@ -202,6 +205,7 @@ def silver_asset(context: AssetExecutionContext, config: SilverConfig, dataproc:
     group_name="eastside",
     deps=[silver_asset],
     retry_policy=RetryPolicy(max_retries=1, delay=30),
+    op_tags={"dagster/hook/alert_on_failure": "", "dagster/hook/log_on_success": ""},
     metadata={"layer": "gold", "description": "Silver → BigQuery Data Product"},
 )
 def gold_asset(context: AssetExecutionContext, config: GoldConfig, dataproc: DataprocResource):

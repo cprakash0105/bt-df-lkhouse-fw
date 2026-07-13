@@ -2,6 +2,7 @@ from dagster import Definitions, ScheduleDefinition, DefaultScheduleStatus, RunC
 from .assets import bronze_asset, silver_asset, gold_asset, BronzeConfig, SilverConfig, GoldConfig
 from .jobs import eastside_pipeline_job, bronze_job, silver_job, gold_job
 from .sensors import landing_sensor
+from .hooks import alert_on_failure, log_on_success
 from .resources import dataproc_resource
 
 
