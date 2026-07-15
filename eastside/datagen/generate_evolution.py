@@ -87,7 +87,8 @@ def save_state(client, bucket_name, state, local=False):
 def upload_jsonl(client, bucket_name, path, records):
     bucket = client.bucket(bucket_name)
     content = "\n".join(json.dumps(r) for r in records)
-    blob_path = f"{path}/part-00000.jsonl"
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    blob_path = f"{path}/pos_transactions_{ts}.jsonl"
     blob = bucket.blob(blob_path)
     blob.upload_from_string(content, content_type="application/json")
     print(f"  → gs://{bucket_name}/{blob_path} ({len(records):,} records)")
