@@ -1085,10 +1085,10 @@ def _resolve_from_text(text: str) -> Optional[dict]:
 
     # Strategy 2: Extract name from common patterns
     patterns = [
-        r"(?:onboard|discover|load|process|ingest|profile|check)\s+(?:the\s+)?(.+?)(?:\s+(?:data|dataset|feed|table|source))?\s*$",
-        r"(?:i want to|please|can you|let'?s)\s+(?:onboard|discover|load|process)\s+(?:the\s+)?(.+?)(?:\s+(?:data|dataset|feed|table))?\s*$",
-        r"(?:new|add)\s+(.+?)(?:\s+(?:data|dataset|feed|table))?\s*$",
-        r"(?:what about|how about|try)\s+(?:the\s+)?(.+?)(?:\s+(?:data|dataset|feed))?\s*$",
+        r"(?:onboard|discover|load|process|ingest|profile|check)\s+(?:the\s+)?(.+?)(?:\s+(?:dataset|feed|table|source))?\s*$",
+        r"(?:i want to|please|can you|let'?s)\s+(?:onboard|discover|load|process)\s+(?:the\s+)?(.+?)(?:\s+(?:dataset|feed|table))?\s*$",
+        r"(?:new|add)\s+(.+?)(?:\s+(?:dataset|feed|table))?\s*$",
+        r"(?:what about|how about|try)\s+(?:the\s+)?(.+?)(?:\s+(?:dataset|feed))?\s*$",
     ]
 
     extracted_name = None
