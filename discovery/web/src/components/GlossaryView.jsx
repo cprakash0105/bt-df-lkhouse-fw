@@ -7,15 +7,32 @@ export default function GlossaryView() {
   const [searchResults, setSearchResults] = useState(null)
   const [selected, setSelected] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [showCreate, setShowCreate] = useState(false)
+  const [domains, setDomains] = useState([])
 
   useEffect(() => {
-    api.glossary().then(setGlossary).catch(() => {}).finally(() => setLoading(false))
+    Promise.all([
+      api.glossary().then(setGlossary),
+      api.domains().then(setDomains),
+    ]).catch(() => {}).finally(() => setLoading(false))
   }, [])
 
   const handleSearch = async () => {
     if (!search.trim()) { setSearchResults(null); return }
     const results = await api.searchGlossary(search)
     setSearchResults(results)
+  }
+
+  const handleCreate = async (data) => {
+    try {
+      await api.createBDE(data)
+      setShowCreate(false)
+      // Refresh glossary
+      const updated = await api.glossary()
+      setGlossary(updated)
+    } catch (e) {
+      alert(e.message)
+    }
   }
 
   if (loading) return <div className="p-6 text-gray-400">Loading glossary...</div>
@@ -25,7 +42,15 @@ export default function GlossaryView() {
       {/* Left: terms list */}
       <div className="flex-1 p-6 overflow-auto">
         <h2 className="text-2xl font-bold text-gray-800 mb-1">Business Glossary</h2>
-        <p className="text-sm text-gray-500 mb-5">Business Data Elements — define once, apply everywhere</p>
+        <div className="flex items-center justify-between mb-5">
+          <p className="text-sm text-gray-500">Business Data Elements — define once, apply everywhere</p>
+          <button
+            onClick={() => setShowCreate(true)}
+            className="px-3 py-1.5 bg-ontika-blue text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+          >
+            + New BDE
+          </button>
+        </div>
 
         {/* Search */}
         <div className="flex gap-2 mb-5">
@@ -79,8 +104,11 @@ export default function GlossaryView() {
         ))}
       </div>
 
-      {/* Right: detail panel */}
-      {selected && (
+      {/* Right: detail panel or create form */}
+      {showCreate && (
+        <CreateBDEPanel domains={domains} onCreate={handleCreate} onClose={() => setShowCreate(false)} />
+      )}
+      {!showCreate && selected && (
         <div className="w-[320px] border-l border-gray-200 p-5 overflow-auto bg-white shadow-elevated">
           <div className="flex justify-between items-start mb-4">
             <h3 className="text-sm font-bold text-gray-800">{selected.name}</h3>
@@ -104,6 +132,72 @@ export default function GlossaryView() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function CreateBDEPanel({ domains, onCreate, onClose }) {
+  const [form, setForm] = useState({
+    name: '', domain: domains[0]?.id || '', data_type: 'string',
+    information_type: 'Dimension', is_pii: false, synonyms: '',
+  })
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    if (!form.name.trim() || !form.domain) return
+    onCreate({
+      ...form,
+      synonyms: form.synonyms ? form.synonyms.split(',').map(s => s.trim()).filter(Boolean) : null,
+    })
+  }
+
+  return (
+    <div className="w-[320px] border-l border-gray-200 p-5 overflow-auto bg-white shadow-elevated">
+      <div className="flex justify-between items-start mb-4">
+        <h3 className="text-sm font-bold text-gray-800">Create New BDE</h3>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xs p-1 hover:bg-gray-100 rounded">✕</button>
+      </div>
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <Field label="Name" value={form.name} onChange={v => setForm({...form, name: v})} placeholder="e.g. Nomination Flag" />
+        <div>
+          <label className="text-[10px] text-gray-400 uppercase tracking-wider">Domain</label>
+          <select value={form.domain} onChange={e => setForm({...form, domain: e.target.value})} className="w-full mt-1 px-3 py-1.5 border border-gray-200 rounded-md text-xs">
+            {domains.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-[10px] text-gray-400 uppercase tracking-wider">Data Type</label>
+          <select value={form.data_type} onChange={e => setForm({...form, data_type: e.target.value})} className="w-full mt-1 px-3 py-1.5 border border-gray-200 rounded-md text-xs">
+            {['string', 'integer', 'double', 'date', 'timestamp', 'boolean'].map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-[10px] text-gray-400 uppercase tracking-wider">Information Type</label>
+          <select value={form.information_type} onChange={e => setForm({...form, information_type: e.target.value})} className="w-full mt-1 px-3 py-1.5 border border-gray-200 rounded-md text-xs">
+            {['Dimension', 'Measure', 'Identifier', 'Reference', 'Temporal'].map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+        <Field label="Synonyms (comma-separated)" value={form.synonyms} onChange={v => setForm({...form, synonyms: v})} placeholder="e.g. nom_flag, nominated" />
+        <div className="flex items-center gap-2">
+          <input type="checkbox" checked={form.is_pii} onChange={e => setForm({...form, is_pii: e.target.checked})} className="rounded" />
+          <span className="text-xs text-gray-600">Contains PII</span>
+        </div>
+        <button type="submit" className="w-full py-2 bg-ontika-blue text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition-colors">
+          Create BDE
+        </button>
+      </form>
+    </div>
+  )
+}
+
+function Field({ label, value, onChange, placeholder }) {
+  return (
+    <div>
+      <label className="text-[10px] text-gray-400 uppercase tracking-wider">{label}</label>
+      <input
+        value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+        className="w-full mt-1 px-3 py-1.5 border border-gray-200 rounded-md text-xs focus:ring-1 focus:ring-ontika-blue/30 outline-none"
+      />
     </div>
   )
 }

@@ -247,10 +247,185 @@ def search_glossary(q: str):
     ]
 
 
+class CreateBDERequest(BaseModel):
+    name: str
+    domain: str
+    synonyms: Optional[list[str]] = None
+    data_type: str = "string"
+    information_type: str = "Dimension"
+    is_pii: bool = False
+    is_key_candidate: bool = False
+    classification: str = "Internal"
+    pattern: Optional[str] = None
+    reference_code_set: Optional[str] = None
+    dq_rules: Optional[dict] = None
+
+
+@app.post("/glossary")
+def create_bde(req: CreateBDERequest):
+    """Create a new Business Data Element in the glossary."""
+    import re
+    term_id = re.sub(r'[^a-z0-9_]', '_', req.name.lower().strip().replace(' ', '_'))
+    term_id = re.sub(r'_+', '_', term_id).strip('_')
+
+    if term_id in kg.terms:
+        raise HTTPException(409, f"BDE '{term_id}' already exists")
+
+    # Ensure domain exists
+    if req.domain not in kg.domains:
+        from discovery.engine.knowledge_graph import DataDomain
+        kg.domains[req.domain] = DataDomain(
+            id=req.domain,
+            name=req.domain.replace('_', ' ').title(),
+            description=f"Created with BDE '{req.name}'",
+        )
+
+    synonyms = req.synonyms or [req.name.lower(), term_id]
+    from discovery.engine.knowledge_graph import BusinessTerm
+    term = BusinessTerm(
+        id=term_id,
+        name=req.name,
+        domain=req.domain,
+        synonyms=synonyms,
+        data_type=req.data_type,
+        information_type=req.information_type,
+        is_pii=req.is_pii,
+        is_key_candidate=req.is_key_candidate,
+        classification=req.classification,
+        pattern=req.pattern,
+        reference_code_set=req.reference_code_set,
+        dq_rules=req.dq_rules or {},
+    )
+
+    # Add to in-memory KG
+    kg.add_term(term)
+
+    # Persist to Dataplex if available
+    written = kg.write_term_to_catalog(term)
+
+    # Update catalog cache if available
+    if catalog_cache:
+        try:
+            catalog_cache.upsert_term(term_id, {
+                "name": req.name,
+                "domain": req.domain,
+                "data_type": req.data_type,
+                "information_type": req.information_type,
+                "is_pii": req.is_pii,
+                "classification": req.classification,
+                "dq_rules": req.dq_rules or {},
+                "synonyms": synonyms,
+                "reference_code_set": req.reference_code_set,
+                "is_key_candidate": req.is_key_candidate,
+            })
+        except Exception:
+            pass
+
+    # Re-initialize embedder with new term
+    try:
+        term_dicts = [
+            {"id": t.id, "name": t.name, "synonyms": t.synonyms,
+             "data_type": t.data_type, "information_type": t.information_type,
+             "domain": t.domain}
+            for t in kg.get_all_terms()
+        ]
+        embedder.initialize(term_dicts)
+    except Exception:
+        pass
+
+    return {
+        "status": "created",
+        "id": term_id,
+        "name": req.name,
+        "domain": req.domain,
+        "persisted_to_dataplex": written,
+    }
+
+
+@app.get("/glossary/hierarchy")
+def get_glossary_hierarchy():
+    """Get the full business hierarchy: Domain → Business Application → BDEs.
+    Works without Firestore by using in-memory KG + known mappings."""
+    from discovery.engine.catalog_cache.sync import CFUS, DOMAIN_TO_APPS, BA_TO_BDES
+
+    hierarchy = []
+    for cfu_id, cfu_data in CFUS.items():
+        cfu_node = {
+            "id": cfu_id,
+            "name": cfu_data["name"],
+            "type": "cfu",
+            "children": [],
+        }
+        for domain_id in cfu_data["domains"]:
+            domain = kg.domains.get(domain_id)
+            domain_terms = kg.get_terms_by_domain(domain_id)
+            domain_node = {
+                "id": domain_id,
+                "name": domain.name if domain else domain_id.replace('_', ' ').title(),
+                "type": "domain",
+                "description": domain.description if domain else "",
+                "term_count": len(domain_terms),
+                "children": [],
+            }
+            for app_id in DOMAIN_TO_APPS.get(domain_id, []):
+                app = kg.applications.get(app_id)
+                app_node = {
+                    "id": app_id,
+                    "name": app.name if app else app_id.replace('_', ' ').title(),
+                    "type": "application",
+                    "description": app.description if app else "",
+                    "children": [],
+                }
+                # BDEs under this app
+                for bde_id in BA_TO_BDES.get(app_id, []):
+                    term = kg.terms.get(bde_id)
+                    if term:
+                        app_node["children"].append({
+                            "id": term.id,
+                            "name": term.name,
+                            "type": "term",
+                            "is_pii": term.is_pii,
+                            "dq_rules": term.dq_rules,
+                            "data_type": term.data_type,
+                            "information_type": term.information_type,
+                        })
+                domain_node["children"].append(app_node)
+            cfu_node["children"].append(domain_node)
+        hierarchy.append(cfu_node)
+
+    # Add domains not in any CFU
+    assigned = set()
+    for cfu_data in CFUS.values():
+        assigned.update(cfu_data["domains"])
+    for domain_id, domain in kg.domains.items():
+        if domain_id not in assigned:
+            terms = kg.get_terms_by_domain(domain_id)
+            hierarchy.append({
+                "id": domain_id,
+                "name": domain.name,
+                "type": "domain",
+                "description": domain.description,
+                "term_count": len(terms),
+                "children": [{
+                    "id": t.id, "name": t.name, "type": "term",
+                    "is_pii": t.is_pii, "dq_rules": t.dq_rules,
+                } for t in terms],
+            })
+
+    return {"hierarchy": hierarchy}
+
+
 @app.get("/applications")
 def get_applications():
+    from discovery.engine.catalog_cache.sync import DOMAIN_TO_APPS
+    # Enrich with domain info
+    app_to_domain = {}
+    for domain_id, app_ids in DOMAIN_TO_APPS.items():
+        for app_id in app_ids:
+            app_to_domain[app_id] = domain_id
     return [
-        {"id": a.id, "name": a.name, "description": a.description, "keywords": a.keywords[:5]}
+        {"id": a.id, "name": a.name, "description": a.description,
+         "keywords": a.keywords[:5], "domain": app_to_domain.get(a.id)}
         for a in kg.applications.values()
     ]
 
@@ -1134,7 +1309,8 @@ if static_dir.exists():
         # Don't catch API paths
         if path.startswith(("health", "glossary", "applications", "domains",
                            "ask", "discover", "landing", "profile", "approve",
-                           "correct", "suggestion", "generate")):
+                           "correct", "suggestion", "generate", "catalog",
+                           "cache", "debug", "rag", "mcp", "logs")):
             raise HTTPException(404, "Not found")
         file_path = static_dir / path
         if file_path.exists() and file_path.is_file():

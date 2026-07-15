@@ -14,10 +14,14 @@ export default function HomePage() {
 
   const loadCatalog = () => {
     setLoading(true)
-    api.catalogTree()
+    // Primary: use /glossary/hierarchy (works without Firestore)
+    // Fallback: /catalog/tree (Firestore-backed)
+    api.glossaryHierarchy()
       .then(data => setTree(data.hierarchy))
       .catch(() => {
-        buildFallbackTree().then(setTree)
+        api.catalogTree()
+          .then(data => setTree(data.hierarchy))
+          .catch(() => { buildFallbackTree().then(setTree) })
       })
       .finally(() => setLoading(false))
 
@@ -27,7 +31,7 @@ export default function HomePage() {
   const handleRefresh = async () => {
     setLoading(true)
     try {
-      await api.catalogSync()
+      await api.catalogSync().catch(() => {})
       await loadCatalog()
     } catch (e) {
       loadCatalog()
@@ -361,6 +365,16 @@ async function buildFallbackTree() {
       api.applications(),
       api.domains(),
     ])
+    // Build domain→apps mapping from the enriched apps response
+    const domainApps = {}
+    apps.forEach(a => {
+      const d = a.domain
+      if (d) {
+        if (!domainApps[d]) domainApps[d] = []
+        domainApps[d].push(a)
+      }
+    })
+
     const tree = [{
       id: 'bt_group',
       name: 'BT Group',
@@ -371,22 +385,20 @@ async function buildFallbackTree() {
         type: 'domain',
         description: d.description,
         term_count: d.term_count,
-        children: apps
-          .filter(a => a.keywords?.some(k => k.includes(d.id) || d.id.includes(k)))
-          .map(a => ({
-            id: a.id,
-            name: a.name,
-            type: 'application',
-            description: a.description,
-            children: (glossary[d.name] || []).slice(0, 10).map(t => ({
-              id: t.id,
-              name: t.name,
-              type: 'term',
-              is_pii: t.is_pii,
-              dq_rules: t.dq_rules,
-              data_type: t.information_type,
-            }))
+        children: (domainApps[d.id] || []).map(a => ({
+          id: a.id,
+          name: a.name,
+          type: 'application',
+          description: a.description,
+          children: (glossary[d.name] || []).slice(0, 10).map(t => ({
+            id: t.id,
+            name: t.name,
+            type: 'term',
+            is_pii: t.is_pii,
+            dq_rules: t.dq_rules,
+            data_type: t.information_type,
           }))
+        }))
       }))
     }]
     return tree

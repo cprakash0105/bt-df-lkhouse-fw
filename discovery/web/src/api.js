@@ -17,7 +17,9 @@ async function request(path, options = {}) {
 export const api = {
   health: () => request('/health'),
   glossary: () => request('/glossary'),
+  glossaryHierarchy: () => request('/glossary/hierarchy'),
   searchGlossary: (q) => request(`/glossary/search?q=${encodeURIComponent(q)}`),
+  createBDE: (data) => request('/glossary', { method: 'POST', body: JSON.stringify(data) }),
   askCatalog: (question) => request('/ask', { method: 'POST', body: JSON.stringify({ requirement: question }) }),
   catalogTree: () => request('/catalog/tree'),
   catalogSearch: (q) => request(`/catalog/search?q=${encodeURIComponent(q)}`),
