@@ -32,7 +32,7 @@ A config-driven lakehouse platform with 3 major components:
 | SD LLM | AWS Bedrock Mantle (openai.gpt-oss-120b, eu-north-1, OpenAI-compatible API) |
 | Automation | Cloud Functions Gen2 (GCS event trigger) |
 | IaC | Terraform |
-| CI/CD | Cloud Build |
+| CI/CD | Cloud Build (`cloudbuild-web.yaml` at repo root) |
 
 ## EastSide Data Flow
 ```
@@ -94,6 +94,65 @@ Same concept but 4 layers: Landing → Reservoir (Parquet, no catalog) → CCN (
 - Service accounts (eastside-dataproc, eastside-dagster)
 - Dagster GCE VM (e2-small, Debian 12, static IP, nginx proxy)
 - VPC, NAT, firewall rules
+
+## Deployment
+```bash
+# From Cloud Shell:
+cd ~/schema-evolution-gcp-native
+git pull origin main
+gcloud builds submit --config cloudbuild-web.yaml .
+```
+
+Cloud Build files:
+- `cloudbuild-web.yaml` — Semantic Discovery (React UI + FastAPI) → Cloud Run
+- `cloudbuild-profiler.yaml` — Profiler service → Cloud Run
+- `cloudbuild.yaml` — Original framework
+- `eastside/cloudbuild.yaml` — EastSide pipeline engine
+
+## Data Generation
+```bash
+# Generate all 8 datasets (v1) to GCS landing:
+python eastside/datagen/generate.py --project=bt-df-lkhouse
+
+# Generate schema evolution demo data (v2 + v3 for pos_transactions):
+python eastside/datagen/generate_schema_evolution_demo.py --project=bt-df-lkhouse
+```
+
+### Schema Evolution Demo (pos_transactions)
+
+Production-realistic generator with state management:
+```bash
+# Generate all 3 versions (prep):
+python eastside/datagen/generate_evolution.py --project=bt-df-lkhouse --all
+
+# Or one at a time (live demo):
+python eastside/datagen/generate_evolution.py --project=bt-df-lkhouse --version v1
+python eastside/datagen/generate_evolution.py --project=bt-df-lkhouse --version v2
+python eastside/datagen/generate_evolution.py --project=bt-df-lkhouse --version v3
+
+# Reset state:
+python eastside/datagen/generate_evolution.py --project=bt-df-lkhouse --reset
+```
+
+| Version | Records | Change | Landing Path |
+|---------|---------|--------|--------------|
+| v1 | 3,000 | Baseline (12 fields) | `landing/pos_transactions/v1/` |
+| v2 | 2,000 | +`loyalty_points_earned` (new column) | `landing/pos_transactions/v2/` |
+| v3 | 1,500 | −`unit_price` (dropped column) | `landing/pos_transactions/v3/` |
+
+- State file: `gs://eastside-lakehouse/datagen/_state/pos_transactions.json`
+- Each run increments IDs from last run (no duplicates, no watermark clearing needed)
+- Timestamps relative to `now` — data always looks fresh
+
+Demo flow:
+1. Bronze v1 → baseline table created
+2. Silver → SCD2 merge succeeds ✅
+3. Bronze v2 → SchemaEvolver auto-adds `loyalty_points_earned` ✅
+4. Silver → new column accepted as nullable ✅
+5. Bronze v3 → `unit_price` NULL-filled (bronze accepts drops) ✅
+6. Silver → **FAILS** — `drop_column blocked` ❌ (proves governance)
+
+Legacy generator (fixed IDs, requires watermark clearing): `eastside/datagen/generate_schema_evolution_demo.py`
 
 ## Project Paths
 ```
