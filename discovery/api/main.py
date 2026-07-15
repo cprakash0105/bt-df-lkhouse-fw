@@ -1201,8 +1201,10 @@ def _fetch_schema_from_landing(dataset_name: str) -> Optional[dict]:
         if not blobs:
             return None
 
-        # Read first file
-        blob = blobs[0]
+        # Read first actual file (skip folder markers)
+        blob = next((b for b in blobs if b.size and b.size > 0 and not b.name.endswith('/')), None)
+        if not blob:
+            return None
         content = blob.download_as_text()
         if not content.strip():
             return None
