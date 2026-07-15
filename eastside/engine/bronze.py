@@ -27,20 +27,41 @@ from pyspark.sql.types import StringType, ArrayType
 
 
 def check_watermark(config, table_name, version):
-    """Check if this version was already processed. Returns True if already done."""
+    """Check if this version was already processed.
+    Returns True (skip) only if version was processed AND no newer files exist."""
     import json
     from google.cloud import storage as gcs_storage
+    from datetime import datetime as dt
     pipeline = config["pipeline"]
     bucket_name = pipeline["bucket"]
     wm_path = f"bronze/_watermarks/{table_name}.json"
     try:
         client = gcs_storage.Client(project=pipeline.get("project_id", "bt-df-lkhouse"))
-        blob = client.bucket(bucket_name).blob(wm_path)
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(wm_path)
         if not blob.exists():
             return False
         wm = json.loads(blob.download_as_text())
         processed = wm.get("processed_versions", [])
-        return version in processed
+        if version not in processed:
+            return False
+        # Version was processed before — check if new files arrived since
+        last_ts = wm.get("last_processed_at")
+        if not last_ts:
+            return True  # no timestamp recorded, trust the version list
+        last_dt = dt.fromisoformat(last_ts)
+        landing_prefix = f"{pipeline.get('landing_prefix', 'landing')}/{table_name}/{version}/"
+        blobs = list(bucket.list_blobs(prefix=landing_prefix))
+        if not blobs:
+            return True  # no files at all, nothing to reprocess
+        newest_file = max(b.updated for b in blobs)
+        # Compare (GCS updated is timezone-aware, make last_dt naive-safe)
+        from datetime import timezone
+        last_dt_utc = last_dt.replace(tzinfo=timezone.utc) if last_dt.tzinfo is None else last_dt
+        if newest_file > last_dt_utc:
+            log("bronze", f"New files detected for {version} (file: {newest_file} > watermark: {last_dt_utc})")
+            return False  # new data — reprocess
+        return True  # no new files
     except Exception:
         return False
 
