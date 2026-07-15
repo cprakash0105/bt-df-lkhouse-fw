@@ -25,6 +25,7 @@ class ConfigGenerator:
             "table": suggestion.asset_name,
             "description": self._build_description(suggestion),
             "source": f"landing/{suggestion.asset_name}",
+            "source_format": suggestion.source_format,
             "primary_key": suggestion.primary_key or self._guess_pk(fields),
             "dedup_order_by": "ingestion_ts DESC",
         }

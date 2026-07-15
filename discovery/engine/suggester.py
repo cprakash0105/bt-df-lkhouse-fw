@@ -45,6 +45,7 @@ class DiscoverySuggestion:
     business_application_name: Optional[str] = None
     app_confidence: float = 0.0
     data_domain: Optional[str] = None
+    source_format: str = "json"
     fields: list[FieldSuggestion] = field(default_factory=list)
     new_term_proposals: list[dict] = field(default_factory=list)
     fk_candidates: list[dict] = field(default_factory=list)
@@ -91,6 +92,7 @@ class Suggester:
         suggestion = DiscoverySuggestion(
             asset_name=asset_name,
             mode="full",
+            source_format=asset_definition.get("source_format", "json"),
         )
 
         # Step 0: Try to auto-profile from GCS landing data

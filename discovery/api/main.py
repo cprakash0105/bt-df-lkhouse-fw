@@ -1215,12 +1215,14 @@ def _fetch_schema_from_landing(dataset_name: str) -> Optional[dict]:
         from io import StringIO
 
         if blob.name.endswith(".csv"):
+            source_format = "csv"
             reader = csv.DictReader(StringIO(content))
             row = next(reader, None)
             if not row:
                 return None
             fields = [{"name": k.strip(), "type": "string"} for k in row.keys()]
         else:
+            source_format = "json"
             # JSONL
             first_line = content.strip().split("\n")[0]
             record = json.loads(first_line)
@@ -1229,8 +1231,8 @@ def _fetch_schema_from_landing(dataset_name: str) -> Optional[dict]:
         if not fields:
             return None
 
-        print(f"[API] Fetched schema from landing/{dataset_name}/: {len(fields)} fields")
-        return {"name": dataset_name, "fields": fields}
+        print(f"[API] Fetched schema from landing/{dataset_name}/: {len(fields)} fields ({source_format})")
+        return {"name": dataset_name, "fields": fields, "source_format": source_format}
 
     except ImportError:
         print("[API] google-cloud-storage not available")
