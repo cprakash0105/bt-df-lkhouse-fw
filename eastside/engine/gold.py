@@ -132,6 +132,13 @@ def gold_table(spark, config, table_name):
     # 4. Write to BigQuery
     write_to_bigquery(spark, df, config, table_name)
 
+    # 5. Tag in Dataplex catalog
+    try:
+        from catalog_tag import tag_table
+        tag_table(table_config, pipeline)
+    except Exception as e:
+        log("gold", f"Catalog tagging failed (non-fatal): {e}", LogLevel.WARN)
+
     return "SUCCESS"
 
 
