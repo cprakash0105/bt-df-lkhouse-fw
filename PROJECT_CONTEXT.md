@@ -154,6 +154,40 @@ Demo flow:
 
 Legacy generator (fixed IDs, requires watermark clearing): `eastside/datagen/generate_schema_evolution_demo.py`
 
+## Capability Demos
+
+File: `eastside/docs/CAPABILITY_DEMO_PLAYBOOK.md`
+
+| # | Capability | Status | Demo Story |
+|---|-----------|--------|------------|
+| 1 | Format Conversion (CSV/JSON → Iceberg) | ✅ Done | Drop CSV, query as Iceberg in BQ |
+| 2 | Time Travel & Late Arriving Feed | 🔨 Build | Late record arrives, show before/after, quarantine if too old |
+| 3 | SCD2 in Silver | ✅ Done | Customer moves city, show history + point-in-time query |
+| 4 | Streaming Dedup | ✅ Done | Duplicate arrives, bronze keeps both, silver deduplicates |
+| 5 | CDC & Partial Records | ✅ Done | Partial update reconstructed to full row |
+| 6 | Policy Controls (PII) | 🔨 Build | Write-time masking (SHA256) + read-time Dataplex policies |
+
+Priority build order: test data generator → Demo 2 (late arrival) → Demo 6 (Dataplex policies)
+
+## Demo Queries (BQ)
+
+File: `eastside/docs/DEMO_QUERIES.md`
+
+| # | Query | What It Proves |
+|---|-------|----------------|
+| 1 | Schema Evolution Proof | v1/v2/v3 coexist — NULL pattern shows zero-cost column add/drop |
+| 2 | Table Schema (INFORMATION_SCHEMA) | Schema is union of all versions, columns never removed |
+| 3 | Data Lineage by Source File | Every record traceable to source file + batch |
+| 4 | DQ Flags | Bronze flags but never rejects (detective-only policy) |
+| 5 | NULL Pattern Deep Dive | One record per batch showing different schemas coexisting |
+| 6 | Ingestion History | Pipeline run history visible from the data itself |
+| 7 | Silver Governed Data | Only clean data passes; v3 blocked if drop_column enforced |
+| 8 | Bronze vs Silver (Governance Gap) | Record count difference = governance working |
+| 9 | Row Hash Dedup Check | Bronze is append-only; row_hash enables silver dedup |
+| 10 | Pipeline Monitor | Unified observability from GCS logs via external table |
+
+Suggested demo flow: 1 → 2 → 5 → 3 → 8 → 7 → 10
+
 ## Project Paths
 ```
 schema-evolution-gcp-native/
