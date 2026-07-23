@@ -43,4 +43,5 @@ export const api = {
   getSuggestion: () => request('/suggestion'),
   generateConfig: () => request('/generate/config', { method: 'POST' }),
   generateSQL: (requirement) => request('/generate/sql', { method: 'POST', body: JSON.stringify({ requirement }) }),
+  generateDataProduct: (requirement) => request('/generate/dataproduct', { method: 'POST', body: JSON.stringify({ requirement }) }),
 }

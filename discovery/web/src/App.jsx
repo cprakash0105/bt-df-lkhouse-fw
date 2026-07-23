@@ -119,6 +119,20 @@ export default function App() {
         const answer = _answerQuestion(lower, suggestion)
         addMessage({ role: 'assistant', content: answer, type: 'text' })
       }
+      // Data product build
+      else if (_isDataProductRequest(lower)) {
+        addMessage({ role: 'assistant', content: 'Building data product SQL...', type: 'loading' })
+        const result = await api.generateDataProduct(text)
+        setMessages(prev => prev.filter(m => m.type !== 'loading'))
+        setView(VIEWS.DATA_PRODUCTS)
+        addMessage({
+          role: 'assistant',
+          content: `✅ **Data product generated: \`${result.table_name}\`**\n\n` +
+            (result.gcs_path ? `• SQL pushed to: ${result.gcs_path}\n` : '') +
+            `\nSQL preview:\n\`\`\`sql\n${result.sql?.slice(0, 600)}${result.sql?.length > 600 ? '\n...' : ''}\n\`\`\``,
+          type: 'text'
+        })
+      }
       // Onboard intent — explicit trigger words only
       else if (_isOnboardRequest(lower)) {
         addMessage({ role: 'assistant', content: 'Discovering...', type: 'loading' })
@@ -158,7 +172,7 @@ export default function App() {
   const renderMainPanel = () => {
     switch (view) {
       case VIEWS.DATA_PRODUCTS:
-        return <DataProductsPanel />
+        return <DataProductsPanel onChat={handleSend} />
       case VIEWS.GLOSSARY:
         return <GlossaryView />
       case VIEWS.TECHNICAL:
@@ -261,6 +275,12 @@ function OntikaLogo() {
 }
 
 // --- Intent Helpers ---
+
+function _isDataProductRequest(text) {
+  return /(build|create|generate|make)\s+(a\s+)?data\s+product/.test(text) ||
+    /(build|create|generate)\s+.*(360|product|view|mart)/.test(text) ||
+    text.includes('customer_360') || text.includes('data product called')
+}
 
 // Only trigger landing list for explicit requests
 function _isLandingRequest(text) {

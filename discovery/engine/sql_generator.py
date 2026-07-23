@@ -17,11 +17,21 @@ LOCATION = os.environ.get("GCP_REGION", "europe-west2")
 CONFIG_BUCKET = os.environ.get("CONFIG_BUCKET", f"{PROJECT_ID}-lakehouse")
 
 
-SYSTEM_PROMPT = """Generate BigQuery CREATE OR REPLACE TABLE SQL. Output ONLY SQL, no explanation.
-Target: `${{PROJECT_ID}}.lakehouse_dataproduct.<name>`
-Source: `${{PROJECT_ID}}.lakehouse_ccn.<table>`
-Use ${{PROJECT_ID}} placeholder. Add comment header. Explicit columns.
-Tables: {available_tables}"""
+SYSTEM_PROMPT = """You are a BigQuery SQL expert for the EastSide Apparel data platform.
+
+Platform conventions:
+- Silver tables: `silver.<table>` (Apache Iceberg via BigLake Metastore, catalog: lkhouse_eastside)
+  All silver tables have SCD2 columns: valid_from, valid_to, is_current
+  Always filter: WHERE is_current = true
+- Output target: `eastside_dataproduct.<name>` (BigQuery)
+- GCS bucket: eastside-lakehouse
+- Dedup each source on its primary key before joining (keep latest by event date)
+- Do NOT expose raw PII fields (first_name, last_name, email, phone, date_of_birth) in output
+- Use CREATE OR REPLACE TABLE syntax
+- Add a _gold_published_at = CURRENT_TIMESTAMP() column to every output
+- Output ONLY valid BigQuery SQL. No explanation, no markdown fences.
+
+Available silver tables: {available_tables}"""
 
 
 class SQLGenerator:
@@ -64,34 +74,54 @@ class SQLGenerator:
         from discovery.engine.llm_client import get_llm
         return get_llm().generate(system=system_prompt, user=requirement, max_tokens=1024)
 
-    def _get_available_tables(self) -> list[str]:
-        """Get list of tables available in CCN layer."""
-        # Try reading from GCS config
-        if GCS_AVAILABLE:
-            try:
-                client = storage.Client(project=self.project_id)
-                bucket = client.bucket(CONFIG_BUCKET)
-                blobs = list(bucket.list_blobs(prefix="framework/config/tables/"))
-                tables = []
-                for blob in blobs:
-                    if blob.name.endswith(".yaml"):
-                        name = blob.name.split("/")[-1].replace(".yaml", "")
-                        tables.append(name)
-                if tables:
-                    return tables
-            except Exception:
-                pass
+    def generate_dataproduct(self, spec: str) -> dict:
+        """Generate a full data product: SQL + metadata from a free-text spec.
+        Returns {sql, table_name, gcs_path}."""
+        available_tables = self._get_available_tables()
+        tables_desc = ", ".join(available_tables)
+        system = SYSTEM_PROMPT.format(available_tables=tables_desc)
+        sql = self._generate_with_gemini(system, spec)
+        if not sql or sql == "__QUOTA_EXCEEDED__":
+            return {"sql": None, "error": "LLM unavailable"}
+        # Strip accidental markdown fences
+        sql = sql.strip().lstrip("```sql").lstrip("```").rstrip("```").strip()
+        table_name = self._extract_table_name(sql)
+        gcs_path = self._push_to_gcs_eastside(table_name, sql)
+        return {"sql": sql, "table_name": table_name, "gcs_path": gcs_path}
 
-        # Fallback: known tables
-        return [
-            "customers",
-            "orders",
-            "payments",
-            "products",
-            "clickstream",
-            "cibil_bureau_feed",
-            "pipeline_audit",
-        ]
+    def _push_to_gcs_eastside(self, table_name: str, sql: str) -> str | None:
+        """Push SQL to EastSide GCS bucket."""
+        if not GCS_AVAILABLE:
+            return None
+        blob_name = f"config/consumption/{table_name}.sql"
+        try:
+            client = storage.Client(project=self.project_id)
+            bucket = client.bucket("eastside-lakehouse")
+            bucket.blob(blob_name).upload_from_string(sql, content_type="text/plain")
+            path = f"gs://eastside-lakehouse/{blob_name}"
+            print(f"[SQLGenerator] Pushed to: {path}")
+            return path
+        except Exception as e:
+            print(f"[SQLGenerator] Failed to push to EastSide GCS: {e}")
+            return None
+
+    def _get_available_tables(self) -> list[str]:
+        """Get list of tables available in silver layer (EastSide bucket first)."""
+        if GCS_AVAILABLE:
+            for bucket_name, prefix in [
+                ("eastside-lakehouse", "config/tables/"),
+                (CONFIG_BUCKET, "framework/config/tables/"),
+            ]:
+                try:
+                    client = storage.Client(project=self.project_id)
+                    blobs = list(client.bucket(bucket_name).list_blobs(prefix=prefix))
+                    tables = [b.name.split("/")[-1].replace(".yaml", "") for b in blobs if b.name.endswith(".yaml")]
+                    if tables:
+                        return tables
+                except Exception:
+                    pass
+        return ["customer_profiles", "pos_transactions", "online_orders", "returns_exchanges",
+                "inventory_movements", "loyalty_members", "staff", "products"]
 
     def _extract_table_name(self, sql: str) -> str:
         """Extract target table name from SQL."""

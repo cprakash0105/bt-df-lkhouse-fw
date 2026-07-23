@@ -973,6 +973,16 @@ def generate_config():
     return {"yaml": config_gen.generate(suggestion)}
 
 
+@app.post("/generate/dataproduct")
+def generate_dataproduct(req: SQLRequest):
+    """Generate a data product SQL from a free-text spec and push to GCS."""
+    from discovery.engine.sql_generator import SQLGenerator
+    result = SQLGenerator().generate_dataproduct(req.requirement)
+    if result.get("error"):
+        raise HTTPException(503, result["error"])
+    return result
+
+
 @app.post("/generate/sql")
 def generate_sql(req: SQLRequest):
     """Generate consumption SQL from NL requirement."""
