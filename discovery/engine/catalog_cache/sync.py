@@ -31,19 +31,27 @@ CFUS = {
         "name": "Investment Banking",
         "domains": ["investment"],
     },
+    "retail_group": {
+        "name": "Retail Group",
+        "domains": ["retail", "supply_chain", "procurement", "hr"],
+    },
 }
 
 DOMAIN_TO_APPS = {
     "bureau": ["credit_risk"],
     "customer": ["customer_management", "crm"],
-    "finance": ["billing_finance", "aml_system", "risk_engine"],
+    "finance": ["billing_finance"],
     "order": ["order_management"],
     "product": ["product_catalog"],
     "digital": ["marketing_campaigns"],
-    "banking": ["core_banking"],
+    "banking": ["core_banking", "aml_system", "risk_engine"],
     "lending": ["loan_origination", "loan_management"],
     "payments": ["payments_hub", "card_management"],
     "investment": ["investment_banking"],
+    "retail": ["retail_commerce", "loyalty_platform", "merchandising"],
+    "supply_chain": ["warehouse_management"],
+    "procurement": ["procurement"],
+    "hr": ["hr_system"],
 }
 
 BA_TO_BDES = {
