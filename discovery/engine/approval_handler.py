@@ -129,33 +129,43 @@ class ApprovalHandler:
             print(f"[ApprovalHandler] Dataplex not available, skipping term creation")
             return False
 
-        term_id = f"{suggestion.asset_name}_{proposal['field_name']}".lower().replace(" ", "_")
-        # Dataplex term IDs: only lowercase, numbers, hyphens
         import re
-        term_id = re.sub(r'[^a-z0-9-]', '-', term_id).strip('-')
-        term_id = re.sub(r'-+', '-', term_id)  # collapse multiple hyphens
         term_name = proposal["suggested_term_name"]
         domain = proposal.get("suggested_domain", "")
         data_type = proposal.get("suggested_type", "string")
         info_type = proposal.get("suggested_info_type", "Dimension")
 
+        # term_id is concept-scoped, not dataset-scoped — so the same BDE
+        # (e.g. warehouse_id) is reusable across datasets in the KC
+        field_name = proposal["field_name"]
+        term_id = re.sub(r'[^a-z0-9-]', '-', field_name.lower()).strip('-')
+        term_id = re.sub(r'-+', '-', term_id)
+
         # Find the field in suggestions for additional metadata
-        field = next((f for f in suggestion.fields if f.field_name == proposal["field_name"]), None)
+        field = next((f for f in suggestion.fields if f.field_name == field_name), None)
 
         desc_parts = [f"Auto-created by Semantic Discovery during onboarding of '{suggestion.asset_name}'"]
-        desc_parts.append(f"\nData Type: {data_type}")
+        desc_parts.append(f"Data Type: {data_type}")
         desc_parts.append(f"Information Type: {info_type}")
-        if field and field.is_pii:
-            desc_parts.append("Classification: PII")
-        else:
-            desc_parts.append("Classification: Internal")
+        desc_parts.append(f"Classification: {'PII' if field and field.is_pii else 'Internal'}")
         if field and field.dq_rules:
             dq_str = ", ".join(f"{k}: {v}" for k, v in field.dq_rules.items())
             desc_parts.append(f"DQ Rules: {dq_str}")
         desc_parts.append(f"Domain: {domain}")
-        desc_parts.append(f"Synonyms: {proposal['field_name']}")
+        # Build synonym set: original field name + term name variants
+        synonyms = {field_name}
+        term_lower = term_name.lower()
+        synonyms.add(term_lower)
+        synonyms.add(term_lower.replace(" ", "_"))
+        synonyms.add(term_lower.replace(" ", "-"))
+        # Add any LLM-suggested aliases from the proposal
+        for alias in proposal.get("synonyms", []):
+            synonyms.add(alias.lower().strip())
+        desc_parts.append(f"Synonyms: {', '.join(sorted(synonyms))}")
+        if proposal.get("llm_reason"):
+            desc_parts.append(f"Description: {proposal['llm_reason']}")
 
-        description = "\n".join(desc_parts)
+        description = " | ".join(desc_parts)
 
         term = dataplex_v1.GlossaryTerm(
             description=description,
@@ -169,11 +179,13 @@ class ApprovalHandler:
         )
 
         try:
-            client.create_glossary_term(request=req)
-            print(f"[ApprovalHandler] Created BDE: {term_name}")
+            operation = client.create_glossary_term(request=req)
+            # create_glossary_term returns an LRO — wait for it
+            if hasattr(operation, 'result'):
+                operation.result(timeout=30)
+            print(f"[ApprovalHandler] Created BDE: {term_name} (id: {term_id})")
 
-            # Link newly created BDE to the dataset (definition link)
-            # This fixes the gap where new terms weren't linked on creation
+            # Link newly created BDE back to the field
             if field:
                 field.linked_term = term_id
                 field.linked_term_name = term_name
@@ -181,12 +193,12 @@ class ApprovalHandler:
             return True
         except Exception as e:
             if "ALREADY_EXISTS" in str(e):
-                print(f"[ApprovalHandler] BDE already exists: {term_name}")
+                print(f"[ApprovalHandler] BDE already exists: {term_name} (id: {term_id})")
                 if field:
                     field.linked_term = term_id
                     field.linked_term_name = term_name
                 return True
-            print(f"[ApprovalHandler] Failed to create BDE '{term_name}': {e}")
+            print(f"[ApprovalHandler] Failed to create BDE '{term_name}' (id: {term_id}): {e}")
             return False
 
     def _link_to_business_application(self, suggestion: DiscoverySuggestion) -> bool:
