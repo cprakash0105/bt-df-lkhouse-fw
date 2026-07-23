@@ -318,22 +318,30 @@ class Suggester:
 
     def _suggest_domain(self, suggestion: DiscoverySuggestion,
                         asset_name: str, field_names: list[str]):
-        """Use LLM hint if available, else keyword fallback."""
+        """Use LLM hint if available, else derive from BA, else keyword fallback."""
         # Check if LLM already classified
         hint = getattr(self, "_llm_domain_hint", None)
         if hint:
-            # Try to match to existing domain
+            hint_norm = hint.lower().replace(" ", "_")
             for d in self.kg.domains.values():
-                if d.id == hint.lower().replace(" ", "_") or d.name.lower() == hint.lower():
+                if d.id == hint_norm or d.name.lower() == hint.lower():
                     suggestion.data_domain = d.id
                     self._llm_domain_hint = None
                     return
             # LLM suggested new domain — use it
-            suggestion.data_domain = hint.lower().replace(" ", "_")
+            suggestion.data_domain = hint_norm
             self._llm_domain_hint = None
             return
 
-        # Fallback: keyword scoring
+        # Fallback 1: derive from matched BA via DOMAIN_TO_APPS reverse lookup
+        if suggestion.business_application:
+            from discovery.engine.catalog_cache.sync import DOMAIN_TO_APPS
+            for domain_id, app_ids in DOMAIN_TO_APPS.items():
+                if suggestion.business_application in app_ids:
+                    suggestion.data_domain = domain_id
+                    return
+
+        # Fallback 2: keyword scoring against domain terms (works when KC has terms)
         domain_scores: dict[str, int] = {}
         all_text = f"{asset_name} {' '.join(field_names)}".lower()
         for domain in self.kg.domains.values():
@@ -343,8 +351,7 @@ class Suggester:
                     if syn.lower() in all_text:
                         domain_scores[domain.id] = domain_scores.get(domain.id, 0) + 1
         if domain_scores:
-            best_domain = max(domain_scores, key=domain_scores.get)
-            suggestion.data_domain = best_domain
+            suggestion.data_domain = max(domain_scores, key=domain_scores.get)
 
     def _llm_classify(self, asset_name: str, field_names: list[str]) -> Optional[dict]:
         """Ask LLM to classify dataset into BA + domain. Returns dict or None."""
