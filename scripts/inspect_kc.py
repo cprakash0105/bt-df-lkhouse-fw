@@ -164,8 +164,11 @@ def main():
 
     try:
         from google.cloud import dataplex_v1
-    except ImportError:
-        print("ERROR: google-cloud-dataplex not installed. Run: pip install google-cloud-dataplex")
+    except ImportError as e:
+        print(f"ERROR: cannot import google-cloud-dataplex: {e}")
+        print(f"Python executable: {sys.executable}")
+        print(f"sys.path: {sys.path}")
+        print("Try: python3 -m pip install google-cloud-dataplex")
         sys.exit(1)
 
     print(f"Connecting to KC: project={PROJECT_ID}, location={LOCATION}")
