@@ -109,17 +109,7 @@ export default function App() {
           addMessage({ role: 'assistant', content: 'Try: "status is not PII" or "priority values are low, medium, high"', type: 'text' })
         }
       }
-      // Catalog/glossary questions
-      else if (_isGlossaryQuestion(lower) && !_isFieldSpecificQuestion(lower)) {
-        const answer = await _answerGlossaryQuestion(lower)
-        addMessage({ role: 'assistant', content: answer, type: 'text' })
-      }
-      // Questions about current results — only when a discovery is active
-      else if (suggestion && _isQuestion(lower)) {
-        const answer = _answerQuestion(lower, suggestion)
-        addMessage({ role: 'assistant', content: answer, type: 'text' })
-      }
-      // Data product build
+      // Data product build — must be before glossary check
       else if (_isDataProductRequest(lower)) {
         addMessage({ role: 'assistant', content: 'Building data product SQL...', type: 'loading' })
         const result = await api.generateDataProduct(text)
@@ -132,6 +122,16 @@ export default function App() {
             `\nSQL preview:\n\`\`\`sql\n${result.sql?.slice(0, 600)}${result.sql?.length > 600 ? '\n...' : ''}\n\`\`\``,
           type: 'text'
         })
+      }
+      // Catalog/glossary questions
+      else if (_isGlossaryQuestion(lower) && !_isFieldSpecificQuestion(lower)) {
+        const answer = await _answerGlossaryQuestion(lower)
+        addMessage({ role: 'assistant', content: answer, type: 'text' })
+      }
+      // Questions about current results — only when a discovery is active
+      else if (suggestion && _isQuestion(lower)) {
+        const answer = _answerQuestion(lower, suggestion)
+        addMessage({ role: 'assistant', content: answer, type: 'text' })
       }
       // Onboard intent — explicit trigger words only
       else if (_isOnboardRequest(lower)) {
@@ -317,7 +317,7 @@ function _isGlossaryQuestion(text) {
     text.includes('dq rule') || text.includes('data quality') ||
     text.includes('who owns') || text.includes('relationship') || text.includes('linked') ||
     text.includes('catalog') || text.includes('search for') ||
-    text.includes('data product') || text.includes('curated') || text.includes('curate') ||
+    text.includes('curated') || text.includes('curate') ||
     (text.includes('how many') && (text.includes('term') || text.includes('domain') || text.includes('application') || text.includes('bde') || text.includes('pii'))) ||
     (text.includes('domain') && (text.includes('what') || text.includes('which') || text.includes('tell') || text.includes('show') || text.includes('list'))) ||
     (text.includes('list') && (text.includes('application') || text.includes('domain') || text.includes('term'))) ||
