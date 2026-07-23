@@ -231,12 +231,15 @@ class Suggester:
                     fs.dq_rules[k] = v
 
         # Layer 3: Embedding search (semantic — catches what rules miss)
+        # Minimum threshold raised: sub-0.65 matches on all-MiniLM-L6-v2 are noise
+        # when there are no domain-specific terms in the KC to compete
+        EMBEDDING_MIN_CONFIDENCE = 0.65
         if not fs.linked_term or fs.confidence < 0.7:
             embedding_matches = self.embedder.find_similar_terms(name, dtype, description)
             if embedding_matches:
                 best = embedding_matches[0]
-                if best.similarity > (fs.confidence or 0):
-                    # Embedding found better match
+                if best.similarity >= EMBEDDING_MIN_CONFIDENCE and best.similarity > (fs.confidence or 0):
+                    # Embedding found a credible match
                     term = self.kg.terms.get(best.term_id)
                     if term:
                         fs.linked_term = term.id
@@ -250,6 +253,11 @@ class Suggester:
                         fs.reasoning.append(
                             f"Embedding match -> '{term.name}' (similarity: {best.similarity})"
                         )
+                elif best.similarity > 0:
+                    # Below threshold — record for transparency but don't link
+                    fs.reasoning.append(
+                        f"Embedding match below threshold -> '{best.term_id}' (similarity: {best.similarity}, not applied)"
+                    )
 
         # If NO match at all → propose new term
         if not fs.linked_term or fs.confidence < 0.4:
