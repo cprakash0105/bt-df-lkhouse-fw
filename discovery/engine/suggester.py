@@ -95,6 +95,8 @@ class Suggester:
             mode="full",
             source_format=asset_definition.get("source_format", "json"),
         )
+        # Attach domain list for LLMReviewer Stage 1b prompt
+        suggestion._kg_domains = [d.id for d in self.kg.domains.values()]
 
         # Step 0: Try to auto-profile from GCS landing data
         profile = self._auto_profile(asset_name)

@@ -13,10 +13,10 @@ from typing import Optional
 from discovery.engine.llm_client import get_llm
 from discovery.engine.suggester import DiscoverySuggestion
 
-# Confidence threshold — only validate fields above this (cost optimisation)
+# Confidence threshold — only validate matched fields above this (cost optimisation)
 VALIDATION_THRESHOLD = 0.5
 
-# Stage 1: per-field validation prompt
+# Stage 1a: per-field validation prompt (for fields WITH a BDE match)
 FIELD_VALIDATION_PROMPT = """You are validating a single field's BDE (Business Data Element) match.
 Dataset: {dataset_name} | Domain: {domain}
 
@@ -34,6 +34,23 @@ Validate this match. Return ONLY JSON:
 - confirm: match is correct, no changes needed
 - correct: match is right but some flags/rules need fixing
 - reject: BDE match is wrong, field should be unlinked"""
+
+# Stage 1b: new term suggestion prompt (for fields with NO BDE match)
+NEW_TERM_PROMPT = """You are a data steward naming a new Business Data Element (BDE) for a field that has no match in the catalog.
+Dataset: {dataset_name} | Domain: {domain}
+
+Field: {field_name} (type: {field_type})
+
+Profile evidence from actual data:
+{profile_evidence}
+
+Suggest the correct BDE for this field. Return ONLY JSON:
+{{"suggested_term_name": "Human Readable Name", "suggested_domain": "domain_id", "information_type": "Identifier|Measure|Temporal|Reference|Dimension", "is_pii": false, "reason": "one line explaining what this field represents"}}
+
+Rules:
+- suggested_term_name must be a proper business name (e.g. "Warehouse ID", "Movement Type", "Operator ID")
+- suggested_domain must be one of: {available_domains}
+- Use the actual distinct values and profile stats to infer what the field represents"""
 
 # Stage 2: dataset-level review prompt (cross-field consistency)
 DATASET_REVIEW_PROMPT = """Review this data discovery result for cross-field consistency. Fix any errors. Return ONLY valid JSON.
@@ -127,19 +144,46 @@ class LLMReviewer:
         return self._merge_corrections(stage1_corrections, stage2_corrections)
 
     def _stage1_per_field(self, llm, suggestion: DiscoverySuggestion, profile) -> dict:
-        """Validate each field with confidence >= threshold individually."""
+        """Stage 1a: validate matched fields (confidence >= threshold).
+        Stage 1b: ask LLM to suggest BDE name for unmatched fields."""
         field_verdicts = {}  # field_name -> verdict dict
+        new_term_suggestions = {}  # field_name -> suggested term dict
 
-        candidates = [
-            f for f in suggestion.fields
-            if f.linked_term and f.confidence >= VALIDATION_THRESHOLD
-        ]
+        available_domains = ", ".join(suggestion._kg_domains) if hasattr(suggestion, "_kg_domains") else "supply_chain, retail, finance, customer, product, order"
 
-        if not candidates:
-            return {"field_verdicts": {}}
-
-        for fs in candidates:
+        for fs in suggestion.fields:
             profile_evidence = _build_profile_evidence(fs.field_name, profile)
+
+            # Stage 1b — unmatched field OR low-confidence match below threshold: ask LLM to name the BDE
+            if fs.new_term_proposed or (fs.linked_term and fs.confidence < VALIDATION_THRESHOLD):
+                prompt = NEW_TERM_PROMPT.format(
+                    dataset_name=suggestion.asset_name,
+                    domain=suggestion.data_domain or "unknown",
+                    field_name=fs.field_name,
+                    field_type=fs.field_type,
+                    profile_evidence=profile_evidence,
+                    available_domains=available_domains,
+                )
+                response = llm.generate(
+                    system="You are a data steward naming new Business Data Elements. Return ONLY JSON.",
+                    user=prompt,
+                    max_tokens=200,
+                    temperature=0.0,
+                )
+                if response and response != "__QUOTA_EXCEEDED__":
+                    try:
+                        suggestion_dict = json.loads(response)
+                        new_term_suggestions[fs.field_name] = suggestion_dict
+                        term_name = suggestion_dict.get("suggested_term_name", "")
+                        reason = suggestion_dict.get("reason", "")
+                        fs.reasoning.append(f"LLM STAGE1 💡: suggested BDE '{term_name}' — {reason}")
+                    except (json.JSONDecodeError, TypeError):
+                        print(f"[LLMReviewer] Stage1b parse failed for '{fs.field_name}': {response[:100]}")
+                continue
+
+            # Stage 1a — matched field: validate if confidence >= threshold
+            if not fs.linked_term or fs.confidence < VALIDATION_THRESHOLD:
+                continue
 
             prompt = FIELD_VALIDATION_PROMPT.format(
                 dataset_name=suggestion.asset_name,
@@ -167,7 +211,6 @@ class LLMReviewer:
             try:
                 verdict = json.loads(response)
                 field_verdicts[fs.field_name] = verdict
-                # Annotate reasoning immediately
                 v = verdict.get("verdict", "confirm")
                 reason = verdict.get("reason", "")
                 icon = "✓" if v == "confirm" else "⚠️" if v == "correct" else "❌"
@@ -175,7 +218,7 @@ class LLMReviewer:
             except (json.JSONDecodeError, TypeError):
                 print(f"[LLMReviewer] Stage1 parse failed for '{fs.field_name}': {response[:100]}")
 
-        return {"field_verdicts": field_verdicts}
+        return {"field_verdicts": field_verdicts, "new_term_suggestions": new_term_suggestions}
 
     def _stage2_dataset_level(self, llm, suggestion: DiscoverySuggestion) -> dict:
         """Dataset-level cross-field consistency review."""
@@ -225,6 +268,7 @@ class LLMReviewer:
             "remove_not_null": list(stage2.get("remove_not_null", [])),
             "primary_key_override": stage2.get("primary_key_override"),
             "field_verdicts": stage1.get("field_verdicts", {}),
+            "new_term_suggestions": stage1.get("new_term_suggestions", {}),
         }
 
         # Promote Stage 1 per-field corrections into the merged structure
@@ -294,6 +338,18 @@ class LLMReviewer:
                     f.linked_term_name = None
                     f.confidence = 0.0
                     f.new_term_proposed = True
+
+        # Apply Stage 1b new term suggestions — enrich new_term_proposals
+        new_term_suggestions = corrections.get("new_term_suggestions", {})
+        for proposal in suggestion.new_term_proposals:
+            field_name = proposal["field_name"]
+            llm_suggestion = new_term_suggestions.get(field_name)
+            if llm_suggestion:
+                proposal["suggested_term_name"] = llm_suggestion.get("suggested_term_name", proposal["suggested_term_name"])
+                proposal["suggested_domain"] = llm_suggestion.get("suggested_domain", proposal["suggested_domain"])
+                proposal["suggested_info_type"] = llm_suggestion.get("information_type", proposal["suggested_info_type"])
+                proposal["is_pii"] = llm_suggestion.get("is_pii", False)
+                proposal["llm_reason"] = llm_suggestion.get("reason", "")
 
         # Apply individual field corrections from Stage 2
         for correction in corrections.get("corrections", []):
