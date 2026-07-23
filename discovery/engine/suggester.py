@@ -51,6 +51,7 @@ class DiscoverySuggestion:
     fk_candidates: list[dict] = field(default_factory=list)
     schema_evolution: dict = field(default_factory=dict)
     primary_key: Optional[str] = None
+    profile: Optional[object] = None  # DatasetProfile — passed to LLMReviewer
 
     def __post_init__(self):
         if not self.discovered_at:
@@ -114,6 +115,7 @@ class Suggester:
         # Step 4: Enhance with profile evidence (boost confidence, detect PII, fix types)
         if profile:
             self._enhance_with_profile(suggestion, profile)
+            suggestion.profile = profile  # attach for LLMReviewer
 
         # Step 5: Identify primary key
         self._suggest_primary_key(suggestion)
