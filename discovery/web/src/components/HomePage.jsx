@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import { api } from '../api'
 
-export default function HomePage() {
+export default function HomePage({ onChat }) {
   const [tree, setTree] = useState(null)
   const [loading, setLoading] = useState(true)
   const [selectedNode, setSelectedNode] = useState(null)
   const [viewMode, setViewMode] = useState('business')
   const [techTree, setTechTree] = useState(null)
+  const [stats, setStats] = useState({ bdes: '…', bas: '…', domains: '…' })
 
   useEffect(() => {
     loadCatalog()
@@ -26,6 +27,12 @@ export default function HomePage() {
       .finally(() => setLoading(false))
 
     loadTechTree().then(setTechTree)
+
+    // Live stats from API
+    Promise.all([api.glossary(), api.applications(), api.domains()]).then(([glossary, apps, domains]) => {
+      const bdeCount = Object.values(glossary).reduce((s, terms) => s + terms.length, 0)
+      setStats({ bdes: bdeCount || '0', bas: apps.length || '0', domains: domains.length || '0' })
+    }).catch(() => {})
   }
 
   const handleRefresh = async () => {
@@ -48,9 +55,9 @@ export default function HomePage() {
             <p className="text-sm text-gray-500 mt-0.5">Find, understand and explore your data estate</p>
           </div>
           <div className="flex gap-3 items-center">
-            <Stat label="BDEs" value="40+" color="blue" />
-            <Stat label="BAs" value="14" color="purple" />
-            <Stat label="Domains" value="9" color="gold" />
+            <Stat label="BDEs" value={stats.bdes} color="blue" />
+            <Stat label="BAs" value={stats.bas} color="purple" />
+            <Stat label="Domains" value={stats.domains} color="gold" />
             <button
               onClick={handleRefresh}
               disabled={loading}
@@ -64,17 +71,17 @@ export default function HomePage() {
 
         {/* Quick Links */}
         <div className="grid grid-cols-3 gap-4 mb-8">
-          <QuickLinkGroup title="Business Glossary" icon="📖" color="blue" links={[
+          <QuickLinkGroup title="Business Glossary" icon="📖" color="blue" onChat={onChat} links={[
             'Find Business Terms',
             'Find BDEs with DQ Rules',
             'Find PII Fields',
           ]} />
-          <QuickLinkGroup title="Technical Assets" icon="💾" color="purple" links={[
+          <QuickLinkGroup title="Technical Assets" icon="💾" color="purple" onChat={onChat} links={[
             'Find Datasets in Landing',
             'Find Data Products',
             'Find Tables in CCN',
           ]} />
-          <QuickLinkGroup title="Governance" icon="🛡️" color="gold" links={[
+          <QuickLinkGroup title="Governance" icon="🛡️" color="gold" onChat={onChat} links={[
             'Show all Domains',
             'List Business Applications',
             'DQ Rules by Domain',
@@ -327,7 +334,7 @@ function Stat({ label, value, color }) {
   )
 }
 
-function QuickLinkGroup({ title, icon, color, links }) {
+function QuickLinkGroup({ title, icon, color, links, onChat }) {
   const borderColors = { blue: 'hover:border-indigo-200', purple: 'hover:border-purple-200', gold: 'hover:border-amber-200' }
   return (
     <div className={`card p-4 ${borderColors[color]}`}>
@@ -335,7 +342,10 @@ function QuickLinkGroup({ title, icon, color, links }) {
         <span>{icon}</span> {title}
       </h4>
       {links.map((link, i) => (
-        <div key={i} className="text-xs text-ontika-blue py-1 cursor-pointer hover:text-ontika-purple transition-colors">
+        <div key={i}
+          className="text-xs text-ontika-blue py-1 cursor-pointer hover:text-ontika-purple transition-colors"
+          onClick={() => onChat?.(link)}
+        >
           → {link}
         </div>
       ))}

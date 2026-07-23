@@ -167,8 +167,8 @@ export default function App() {
         return <DataPanel suggestion={suggestion} landingDatasets={landingDatasets} />
       case VIEWS.PROFILER:
         return <ProfilerPanel profileResult={profileResult} setProfileResult={setProfileResult} />
-      default:
-        return <HomePage />
+      case VIEWS.HOME:
+        return <HomePage onChat={handleSend} />
     }
   }
 

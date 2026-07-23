@@ -102,6 +102,8 @@ function MessageContent({ content }) {
   return (
     <>
       {lines.map((line, i) => {
+        // Unescape HTML entities that may come from the backend
+        line = line.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>')
         // Bold
         line = line.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold">$1</strong>')
         // Code
