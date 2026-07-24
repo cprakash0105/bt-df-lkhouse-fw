@@ -73,22 +73,22 @@ def rand_sku():
     return f"{cat}-{random.randint(10000, 99999)}"
 
 
-def upload_jsonl(client, bucket_name, path, records):
+def upload_jsonl(client, bucket_name, path, records, timestamp):
     bucket = client.bucket(bucket_name)
     content = "\n".join(json.dumps(r) for r in records)
-    blob_path = f"{path}/part-00000.jsonl"
+    blob_path = f"{path}/part-{timestamp}.jsonl"
     blob = bucket.blob(blob_path)
     blob.upload_from_string(content, content_type="application/json")
     print(f"    -> gs://{bucket_name}/{blob_path} ({len(records):,} records)")
 
 
-def upload_csv(client, bucket_name, path, records, fields):
+def upload_csv(client, bucket_name, path, records, fields, timestamp):
     bucket = client.bucket(bucket_name)
     lines = [",".join(fields)]
     for r in records:
         lines.append(",".join(str(r.get(f, "")) for f in fields))
     content = "\n".join(lines)
-    blob_path = f"{path}/part-00000.csv"
+    blob_path = f"{path}/part-{timestamp}.csv"
     blob = bucket.blob(blob_path)
     blob.upload_from_string(content, content_type="text/csv")
     print(f"    -> gs://{bucket_name}/{blob_path} ({len(records):,} records)")
@@ -352,62 +352,68 @@ def main():
     parser = argparse.ArgumentParser(description="EastSide — Generate all datasets to GCS landing")
     parser.add_argument("--project", default="bt-df-lkhouse")
     parser.add_argument("--bucket", default=BUCKET)
+    parser.add_argument("--version", default="v2", help="Landing version folder (e.g. v2, v3)")
     args = parser.parse_args()
 
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     client = storage.Client(project=args.project)
+    version = args.version
 
     print("=" * 60)
     print("  EastSide — Data Generation")
     print("=" * 60)
-    print(f"  Project: {args.project}")
-    print(f"  Bucket:  gs://{args.bucket}/")
+    print(f"  Project:   {args.project}")
+    print(f"  Bucket:    gs://{args.bucket}/")
+    print(f"  Version:   {version}")
+    print(f"  Timestamp: {timestamp}")
 
     # JSON datasets
     data = generate_pos_transactions()
-    upload_jsonl(client, args.bucket, "landing/pos_transactions/v1", data)
+    upload_jsonl(client, args.bucket, f"landing/pos_transactions/{version}", data, timestamp)
 
     data = generate_online_orders()
-    upload_jsonl(client, args.bucket, "landing/online_orders/v1", data)
+    upload_jsonl(client, args.bucket, f"landing/online_orders/{version}", data, timestamp)
 
     data = generate_customer_profiles()
-    upload_jsonl(client, args.bucket, "landing/customer_profiles/v1", data)
+    upload_jsonl(client, args.bucket, f"landing/customer_profiles/{version}", data, timestamp)
 
     data = generate_product_catalogue()
-    upload_jsonl(client, args.bucket, "landing/product_catalogue/v1", data)
+    upload_jsonl(client, args.bucket, f"landing/product_catalogue/{version}", data, timestamp)
 
     data = generate_returns_exchanges()
-    upload_jsonl(client, args.bucket, "landing/returns_exchanges/v1", data)
+    upload_jsonl(client, args.bucket, f"landing/returns_exchanges/{version}", data, timestamp)
 
     # CSV datasets
     inv = generate_inventory_movements()
-    upload_csv(client, args.bucket, "landing/inventory_movements/v1", inv,
+    upload_csv(client, args.bucket, f"landing/inventory_movements/{version}", inv,
                ["movement_id", "product_sku", "warehouse_id", "store_id", "movement_type",
-                "quantity", "movement_date", "reference_id", "reason_code"])
+                "quantity", "movement_date", "reference_id", "reason_code"], timestamp)
 
     po = generate_supplier_purchase_orders()
-    upload_csv(client, args.bucket, "landing/supplier_purchase_orders/v1", po,
+    upload_csv(client, args.bucket, f"landing/supplier_purchase_orders/{version}", po,
                ["_cdc_operation", "po_number", "supplier_id", "supplier_name", "product_sku",
-                "quantity_ordered", "unit_cost", "order_date", "expected_delivery_date", "status", "warehouse_id"])
+                "quantity_ordered", "unit_cost", "order_date", "expected_delivery_date",
+                "status", "warehouse_id"], timestamp)
 
     staff = generate_store_staff()
-    upload_csv(client, args.bucket, "landing/store_staff/v1", staff,
+    upload_csv(client, args.bucket, f"landing/store_staff/{version}", staff,
                ["_cdc_operation", "staff_id", "first_name", "last_name", "email",
-                "store_id", "role", "department", "start_date", "hourly_rate", "status"])
+                "store_id", "role", "department", "start_date", "hourly_rate", "status"], timestamp)
 
     print(f"\n{'=' * 60}")
     print("  ALL DATA GENERATED")
     print("=" * 60)
-    print(f"\n  Landing zones populated:")
-    print(f"    landing/pos_transactions/v1/          (5,000 records)  JSON")
-    print(f"    landing/online_orders/v1/             (3,000 records)  JSON")
-    print(f"    landing/inventory_movements/v1/       (4,000 records)  CSV")
-    print(f"    landing/customer_profiles/v1/         (2,000 records)  JSON")
-    print(f"    landing/product_catalogue/v1/         (1,000 records)  JSON  [CDC]")
-    print(f"    landing/supplier_purchase_orders/v1/  (1,500 records)  CSV   [CDC]")
-    print(f"    landing/returns_exchanges/v1/         (1,200 records)  JSON")
-    print(f"    landing/store_staff/v1/               (400 records)    CSV   [CDC]")
+    print(f"\n  Landing zones populated (version={version}, ts={timestamp}):")
+    print(f"    landing/pos_transactions/{version}/part-{timestamp}.jsonl          (5,000)  JSON")
+    print(f"    landing/online_orders/{version}/part-{timestamp}.jsonl             (3,000)  JSON")
+    print(f"    landing/inventory_movements/{version}/part-{timestamp}.csv         (4,000)  CSV")
+    print(f"    landing/customer_profiles/{version}/part-{timestamp}.jsonl         (2,000)  JSON")
+    print(f"    landing/product_catalogue/{version}/part-{timestamp}.jsonl         (1,000)  JSON  [CDC]")
+    print(f"    landing/supplier_purchase_orders/{version}/part-{timestamp}.csv    (1,500)  CSV   [CDC]")
+    print(f"    landing/returns_exchanges/{version}/part-{timestamp}.jsonl         (1,200)  JSON")
+    print(f"    landing/store_staff/{version}/part-{timestamp}.csv                 (400)    CSV   [CDC]")
     print(f"\n  Total: 18,100 records across 8 datasets")
-    print(f"\n  Next: Onboard each via Ontika -> approve -> bronze.py runs")
+    print(f"\n  To process: spark-submit bronze.py --config gs://eastside-lakehouse/config/pipeline.yaml --all --version {version}")
     print("=" * 60)
 
 

@@ -16,8 +16,8 @@ import hashlib
 from datetime import datetime
 from base import (
     get_spark, load_config, get_table_config, get_all_tables,
-    parse_args, resolve_pipeline_vars, log, log_header,
-    log_error, log_summary, flush_logs_to_gcs, BANNER, LogLevel,
+    parse_args, resolve_pipeline_vars, resolve_latest_version,
+    log, log_header, log_error, log_summary, flush_logs_to_gcs, BANNER, LogLevel,
 )
 from pyspark.sql.functions import (
     col, lit, current_timestamp, input_file_name, sha2, concat_ws,
@@ -342,12 +342,14 @@ def main():
         sys.exit(1)
 
     log("bronze", f"Tables: {tables}")
-    log("bronze", f"Version: {args.version}")
 
     results = {}
     for table in tables:
+        # Resolve version per table — use CLI arg if given, else auto-detect latest
+        version = args.version or resolve_latest_version(config, table)
+        log("bronze", f"Version for {table}: {version}")
         try:
-            result = bronze_table(spark, config, table, args.version)
+            result = bronze_table(spark, config, table, version)
             results[table] = result
         except Exception as e:
             log_error("bronze", f"Table '{table}' failed", e)

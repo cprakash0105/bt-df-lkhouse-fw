@@ -164,11 +164,36 @@ def parse_args(description):
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--config", required=True, help="Path to pipeline.yaml (local or gs://)")
     parser.add_argument("--table", help="Single table to process")
-    parser.add_argument("--version", default="v1", help="Data version")
+    parser.add_argument("--version", default=None, help="Data version (e.g. v2). Defaults to latest in landing.")
     parser.add_argument("--all", action="store_true", help="Process all tables")
     parser.add_argument("--project", help="GCP project ID override")
     parser.add_argument("--bucket", help="GCS bucket override")
     return parser.parse_args()
+
+
+def resolve_latest_version(config, table_name):
+    """Scan GCS landing prefix and return the latest version folder (e.g. v3).
+    Falls back to 'v1' if nothing found."""
+    try:
+        from google.cloud import storage as gcs
+        pipeline = config["pipeline"]
+        bucket_name = pipeline["bucket"]
+        prefix = f"{pipeline.get('landing_prefix', 'landing')}/{table_name}/"
+        client = gcs.Client(project=pipeline.get("project_id", "bt-df-lkhouse"))
+        blobs = client.list_blobs(bucket_name, prefix=prefix, delimiter="/")
+        list(blobs)  # consume to populate prefixes
+        versions = []
+        for p in blobs.prefixes:
+            folder = p.rstrip("/").split("/")[-1]  # e.g. "v2"
+            if folder.startswith("v") and folder[1:].isdigit():
+                versions.append(folder)
+        if versions:
+            latest = sorted(versions, key=lambda v: int(v[1:]))[-1]
+            log("config", f"Latest version for {table_name}: {latest}")
+            return latest
+    except Exception as e:
+        log("config", f"Version auto-detect failed for {table_name}: {e}", LogLevel.WARN)
+    return "v1"
 
 
 def resolve_pipeline_vars(config, args):
