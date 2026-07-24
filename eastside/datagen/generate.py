@@ -350,9 +350,10 @@ def generate_store_staff(n=400):
 # ============================================================
 def main():
     parser = argparse.ArgumentParser(description="EastSide — Generate all datasets to GCS landing")
-    parser.add_argument("--project", default="bt-df-lkhouse")
+    parser.add_argument("--project", default="bt-df-lkhouse", help="GCP project ID")
     parser.add_argument("--bucket", default=BUCKET)
     parser.add_argument("--version", default="v2", help="Landing version folder (e.g. v2, v3)")
+    parser.add_argument("--scale", type=int, default=1, help="Scale multiplier for record counts")
     args = parser.parse_args()
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
