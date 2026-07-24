@@ -81,11 +81,13 @@ class ApprovalHandler:
         # 1. Create new BDE terms in glossary
         if suggestion.new_term_proposals:
             for proposal in suggestion.new_term_proposals:
-                success = self._create_bde_term(proposal, suggestion)
-                if success:
+                success, reason = self._create_bde_term(proposal, suggestion)
+                if success and reason == "created":
                     results["new_terms_created"].append(proposal["suggested_term_name"])
+                elif success and reason == "already_exists":
+                    results["new_terms_created"].append(f"{proposal['suggested_term_name']} (already exists)")
                 else:
-                    results["errors"].append(f"Failed to create term: {proposal['suggested_term_name']}")
+                    results["errors"].append(f"Failed to create term '{proposal['suggested_term_name']}': {reason}")
 
         # 2. Register dataset under Business Application
         if suggestion.business_application:
@@ -180,26 +182,22 @@ class ApprovalHandler:
 
         try:
             operation = client.create_glossary_term(request=req)
-            # create_glossary_term returns an LRO — wait for it
             if hasattr(operation, 'result'):
                 operation.result(timeout=30)
             print(f"[ApprovalHandler] Created BDE: {term_name} (id: {term_id})")
-
-            # Link newly created BDE back to the field
             if field:
                 field.linked_term = term_id
                 field.linked_term_name = term_name
-
-            return True
+            return True, "created"
         except Exception as e:
             if "ALREADY_EXISTS" in str(e):
                 print(f"[ApprovalHandler] BDE already exists: {term_name} (id: {term_id})")
                 if field:
                     field.linked_term = term_id
                     field.linked_term_name = term_name
-                return True
+                return True, "already_exists"
             print(f"[ApprovalHandler] Failed to create BDE '{term_name}' (id: {term_id}): {e}")
-            return False
+            return False, str(e)
 
     def _link_to_business_application(self, suggestion: DiscoverySuggestion) -> bool:
         """Register the dataset as linked to a Business Application in the hierarchy."""

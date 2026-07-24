@@ -344,73 +344,116 @@ def create_bde(req: CreateBDERequest):
 
 @app.get("/glossary/hierarchy")
 def get_glossary_hierarchy():
-    """Get the full business hierarchy: Domain → Business Application → BDEs.
-    Works without Firestore by using in-memory KG + known mappings."""
-    from discovery.engine.catalog_cache.sync import CFUS, DOMAIN_TO_APPS, BA_TO_BDES
+    """Get the full business hierarchy built from live KG state.
+    Combines: hardcoded CFU shell + KC-loaded domains/apps/terms + anything
+    created dynamically this session via approval."""
+    from discovery.engine.catalog_cache.sync import CFUS, DOMAIN_TO_APPS
+
+    # Build reverse map: app_id -> domain_id from both static mapping and kg
+    app_to_domain = {}
+    for domain_id, app_ids in DOMAIN_TO_APPS.items():
+        for app_id in app_ids:
+            app_to_domain[app_id] = domain_id
+
+    # Also map any dynamically created apps (from approval) not in static mapping
+    # by checking which domain they were linked to in kg
+    for app in kg.applications.values():
+        if app.id not in app_to_domain:
+            # Try to find domain from kg terms
+            for term in kg.terms.values():
+                if term.domain and app.id in term.domain:
+                    app_to_domain[app.id] = term.domain
+                    break
 
     hierarchy = []
+
+    # Track which domains and apps are placed
+    placed_domains = set()
+    placed_apps = set()
+
+    # Build CFU nodes from static shell
     for cfu_id, cfu_data in CFUS.items():
-        cfu_node = {
-            "id": cfu_id,
-            "name": cfu_data["name"],
-            "type": "cfu",
-            "children": [],
-        }
+        cfu_node = {"id": cfu_id, "name": cfu_data["name"], "type": "cfu", "children": []}
         for domain_id in cfu_data["domains"]:
             domain = kg.domains.get(domain_id)
+            if not domain:
+                continue
+            placed_domains.add(domain_id)
             domain_terms = kg.get_terms_by_domain(domain_id)
             domain_node = {
-                "id": domain_id,
-                "name": domain.name if domain else domain_id.replace('_', ' ').title(),
-                "type": "domain",
-                "description": domain.description if domain else "",
-                "term_count": len(domain_terms),
-                "children": [],
-            }
-            for app_id in DOMAIN_TO_APPS.get(domain_id, []):
-                app = kg.applications.get(app_id)
-                app_node = {
-                    "id": app_id,
-                    "name": app.name if app else app_id.replace('_', ' ').title(),
-                    "type": "application",
-                    "description": app.description if app else "",
-                    "children": [],
-                }
-                # BDEs under this app
-                for bde_id in BA_TO_BDES.get(app_id, []):
-                    term = kg.terms.get(bde_id)
-                    if term:
-                        app_node["children"].append({
-                            "id": term.id,
-                            "name": term.name,
-                            "type": "term",
-                            "is_pii": term.is_pii,
-                            "dq_rules": term.dq_rules,
-                            "data_type": term.data_type,
-                            "information_type": term.information_type,
-                        })
-                domain_node["children"].append(app_node)
-            cfu_node["children"].append(domain_node)
-        hierarchy.append(cfu_node)
-
-    # Add domains not in any CFU
-    assigned = set()
-    for cfu_data in CFUS.values():
-        assigned.update(cfu_data["domains"])
-    for domain_id, domain in kg.domains.items():
-        if domain_id not in assigned:
-            terms = kg.get_terms_by_domain(domain_id)
-            hierarchy.append({
                 "id": domain_id,
                 "name": domain.name,
                 "type": "domain",
                 "description": domain.description,
-                "term_count": len(terms),
-                "children": [{
-                    "id": t.id, "name": t.name, "type": "term",
-                    "is_pii": t.is_pii, "dq_rules": t.dq_rules,
-                } for t in terms],
+                "term_count": len(domain_terms),
+                "children": [],
+            }
+            # Apps: static mapping first, then any dynamic apps linked to this domain
+            app_ids = list(DOMAIN_TO_APPS.get(domain_id, []))
+            for app in kg.applications.values():
+                if app.id not in app_ids and app_to_domain.get(app.id) == domain_id:
+                    app_ids.append(app.id)
+            for app_id in app_ids:
+                app = kg.applications.get(app_id)
+                if not app:
+                    continue
+                placed_apps.add(app_id)
+                app_terms = kg.get_terms_by_domain(domain_id)
+                app_node = {
+                    "id": app_id,
+                    "name": app.name,
+                    "type": "application",
+                    "description": app.description,
+                    "children": [
+                        {"id": t.id, "name": t.name, "type": "term",
+                         "is_pii": t.is_pii, "dq_rules": t.dq_rules,
+                         "data_type": t.data_type, "information_type": t.information_type}
+                        for t in app_terms
+                    ],
+                }
+                domain_node["children"].append(app_node)
+            cfu_node["children"].append(domain_node)
+        hierarchy.append(cfu_node)
+
+    # Append any domains not in any CFU (dynamically created)
+    for domain_id, domain in kg.domains.items():
+        if domain_id in placed_domains:
+            continue
+        domain_terms = kg.get_terms_by_domain(domain_id)
+        domain_node = {
+            "id": domain_id, "name": domain.name, "type": "domain",
+            "description": domain.description, "term_count": len(domain_terms),
+            "children": [],
+        }
+        for app in kg.applications.values():
+            if app_to_domain.get(app.id) != domain_id or app.id in placed_apps:
+                continue
+            placed_apps.add(app.id)
+            app_terms = kg.get_terms_by_domain(domain_id)
+            domain_node["children"].append({
+                "id": app.id, "name": app.name, "type": "application",
+                "description": app.description,
+                "children": [
+                    {"id": t.id, "name": t.name, "type": "term",
+                     "is_pii": t.is_pii, "dq_rules": t.dq_rules}
+                    for t in app_terms
+                ],
             })
+        hierarchy.append(domain_node)
+
+    # Append orphan terms (in KC but domain not in kg.domains)
+    orphan_terms = [t for t in kg.terms.values() if t.domain not in kg.domains]
+    if orphan_terms:
+        hierarchy.append({
+            "id": "_unclassified", "name": "Unclassified", "type": "domain",
+            "description": "Terms pending domain assignment",
+            "term_count": len(orphan_terms),
+            "children": [
+                {"id": t.id, "name": t.name, "type": "term",
+                 "is_pii": t.is_pii, "dq_rules": t.dq_rules}
+                for t in orphan_terms
+            ],
+        })
 
     return {"hierarchy": hierarchy}
 
@@ -858,7 +901,7 @@ def approve(req: ApproveRequest):
 
     results = approval_handler.process_approval(suggestion, config_yaml=config_yaml)
 
-    # Update in-memory knowledge graph with new BA/domain
+    # Update in-memory knowledge graph with new BA/domain/terms
     if suggestion.business_application and suggestion.business_application not in kg.applications:
         from discovery.engine.knowledge_graph import BusinessApplication
         kg.applications[suggestion.business_application] = BusinessApplication(
@@ -874,6 +917,21 @@ def approve(req: ApproveRequest):
             name=suggestion.data_domain.replace("_", " ").title(),
             description=f"Created during onboarding of {suggestion.asset_name}",
         )
+    # Add newly created BDE terms to in-memory KG so hierarchy reflects them immediately
+    from discovery.engine.knowledge_graph import BusinessTerm
+    for field in suggestion.fields:
+        if field.linked_term and field.linked_term not in kg.terms:
+            kg.terms[field.linked_term] = BusinessTerm(
+                id=field.linked_term,
+                name=field.linked_term_name or field.linked_term.replace("-", " ").title(),
+                domain=suggestion.data_domain or "",
+                synonyms=[field.field_name, field.linked_term],
+                data_type=field.field_type,
+                information_type=field.information_type or "Dimension",
+                is_pii=field.is_pii,
+                classification=field.classification,
+                dq_rules=field.dq_rules,
+            )
 
     # Update catalog cache immediately
     if catalog_cache:
