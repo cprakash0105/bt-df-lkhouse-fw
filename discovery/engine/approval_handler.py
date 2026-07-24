@@ -190,7 +190,8 @@ class ApprovalHandler:
                 field.linked_term_name = term_name
             return True, "created"
         except Exception as e:
-            if "ALREADY_EXISTS" in str(e):
+            err_str = str(e)
+            if "ALREADY_EXISTS" in err_str or "already exists" in err_str.lower():
                 print(f"[ApprovalHandler] BDE already exists: {term_name} (id: {term_id})")
                 if field:
                     field.linked_term = term_id
