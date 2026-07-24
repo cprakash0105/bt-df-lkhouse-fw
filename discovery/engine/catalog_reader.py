@@ -43,7 +43,7 @@ class CatalogReader:
             return None
         if self._client is None:
             try:
-                self._client = dataplex_v1.CatalogServiceClient()
+                self._client = dataplex_v1.BusinessGlossaryServiceClient()
             except Exception:
                 return None
         return self._client
