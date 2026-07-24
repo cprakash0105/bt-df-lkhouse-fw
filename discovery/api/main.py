@@ -344,115 +344,79 @@ def create_bde(req: CreateBDERequest):
 
 @app.get("/glossary/hierarchy")
 def get_glossary_hierarchy():
-    """Get the full business hierarchy built from live KG state.
-    Combines: hardcoded CFU shell + KC-loaded domains/apps/terms + anything
-    created dynamically this session via approval."""
+    """Get the full business hierarchy driven entirely by KC terms.
+    Only CFUs/domains/apps that have at least one KC term are shown."""
     from discovery.engine.catalog_cache.sync import CFUS, DOMAIN_TO_APPS
 
-    # Build reverse map: app_id -> domain_id from both static mapping and kg
-    app_to_domain = {}
-    for domain_id, app_ids in DOMAIN_TO_APPS.items():
-        for app_id in app_ids:
-            app_to_domain[app_id] = domain_id
+    # Group KC terms by domain
+    terms_by_domain: dict[str, list] = {}
+    for term in kg.terms.values():
+        d = term.domain or "_unclassified"
+        terms_by_domain.setdefault(d, []).append(term)
 
-    # Also map any dynamically created apps (from approval) not in static mapping
-    # by checking which domain they were linked to in kg
-    for app in kg.applications.values():
-        if app.id not in app_to_domain:
-            # Try to find domain from kg terms
-            for term in kg.terms.values():
-                if term.domain and app.id in term.domain:
-                    app_to_domain[app.id] = term.domain
-                    break
+    if not terms_by_domain:
+        return {"hierarchy": []}
+
+    def _term_node(t):
+        return {"id": t.id, "name": t.name, "type": "term",
+                "is_pii": t.is_pii, "dq_rules": t.dq_rules,
+                "data_type": t.data_type, "information_type": t.information_type}
 
     hierarchy = []
-
-    # Track which domains and apps are placed
     placed_domains = set()
-    placed_apps = set()
 
-    # Build CFU nodes from static shell
     for cfu_id, cfu_data in CFUS.items():
         cfu_node = {"id": cfu_id, "name": cfu_data["name"], "type": "cfu", "children": []}
         for domain_id in cfu_data["domains"]:
-            domain = kg.domains.get(domain_id)
-            if not domain:
-                continue
+            domain_terms = terms_by_domain.get(domain_id, [])
+            if not domain_terms:
+                continue  # skip domains with no KC terms
             placed_domains.add(domain_id)
-            domain_terms = kg.get_terms_by_domain(domain_id)
+            domain = kg.domains.get(domain_id)
             domain_node = {
                 "id": domain_id,
-                "name": domain.name,
+                "name": domain.name if domain else domain_id.replace("_", " ").title(),
                 "type": "domain",
-                "description": domain.description,
+                "description": domain.description if domain else "",
                 "term_count": len(domain_terms),
                 "children": [],
             }
-            # Apps: static mapping first, then any dynamic apps linked to this domain
-            app_ids = list(DOMAIN_TO_APPS.get(domain_id, []))
-            for app in kg.applications.values():
-                if app.id not in app_ids and app_to_domain.get(app.id) == domain_id:
-                    app_ids.append(app.id)
-            for app_id in app_ids:
+            # Assign terms to their BA; terms with no matching BA sit directly under domain
+            app_ids = DOMAIN_TO_APPS.get(domain_id, [])
+            terms_by_app: dict[str, list] = {}
+            unassigned = []
+            for term in domain_terms:
+                if app_ids:
+                    terms_by_app.setdefault(app_ids[0], []).append(term)
+                else:
+                    unassigned.append(term)
+            for app_id, app_terms in terms_by_app.items():
                 app = kg.applications.get(app_id)
                 if not app:
                     continue
-                placed_apps.add(app_id)
-                app_terms = kg.get_terms_by_domain(domain_id)
-                app_node = {
-                    "id": app_id,
-                    "name": app.name,
-                    "type": "application",
+                domain_node["children"].append({
+                    "id": app_id, "name": app.name, "type": "application",
                     "description": app.description,
-                    "children": [
-                        {"id": t.id, "name": t.name, "type": "term",
-                         "is_pii": t.is_pii, "dq_rules": t.dq_rules,
-                         "data_type": t.data_type, "information_type": t.information_type}
-                        for t in app_terms
-                    ],
-                }
-                domain_node["children"].append(app_node)
+                    "children": [_term_node(t) for t in app_terms],
+                })
+            for t in unassigned:
+                domain_node["children"].append(_term_node(t))
             cfu_node["children"].append(domain_node)
-        hierarchy.append(cfu_node)
+        if cfu_node["children"]:
+            hierarchy.append(cfu_node)
 
-    # Append any domains not in any CFU (dynamically created)
-    for domain_id, domain in kg.domains.items():
+    # Domains with KC terms not covered by any CFU
+    for domain_id, domain_terms in terms_by_domain.items():
         if domain_id in placed_domains:
             continue
-        domain_terms = kg.get_terms_by_domain(domain_id)
-        domain_node = {
-            "id": domain_id, "name": domain.name, "type": "domain",
-            "description": domain.description, "term_count": len(domain_terms),
-            "children": [],
-        }
-        for app in kg.applications.values():
-            if app_to_domain.get(app.id) != domain_id or app.id in placed_apps:
-                continue
-            placed_apps.add(app.id)
-            app_terms = kg.get_terms_by_domain(domain_id)
-            domain_node["children"].append({
-                "id": app.id, "name": app.name, "type": "application",
-                "description": app.description,
-                "children": [
-                    {"id": t.id, "name": t.name, "type": "term",
-                     "is_pii": t.is_pii, "dq_rules": t.dq_rules}
-                    for t in app_terms
-                ],
-            })
-        hierarchy.append(domain_node)
-
-    # Append orphan terms (in KC but domain not in kg.domains)
-    orphan_terms = [t for t in kg.terms.values() if t.domain not in kg.domains]
-    if orphan_terms:
+        domain = kg.domains.get(domain_id)
         hierarchy.append({
-            "id": "_unclassified", "name": "Unclassified", "type": "domain",
-            "description": "Terms pending domain assignment",
-            "term_count": len(orphan_terms),
-            "children": [
-                {"id": t.id, "name": t.name, "type": "term",
-                 "is_pii": t.is_pii, "dq_rules": t.dq_rules}
-                for t in orphan_terms
-            ],
+            "id": domain_id,
+            "name": domain.name if domain else domain_id.replace("_", " ").title(),
+            "type": "domain",
+            "description": domain.description if domain else "",
+            "term_count": len(domain_terms),
+            "children": [_term_node(t) for t in domain_terms],
         })
 
     return {"hierarchy": hierarchy}

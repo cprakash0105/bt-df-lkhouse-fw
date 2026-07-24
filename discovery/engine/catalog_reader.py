@@ -154,6 +154,7 @@ class CatalogReader:
         pattern = None
         reference_code_set = None
 
+        domain = ""
         for part in description.split(" | "):
             part = part.strip()
             if part.startswith("Synonyms:"):
@@ -177,6 +178,8 @@ class CatalogReader:
                 pattern = part[8:].strip()
             elif part.startswith("Reference Set:"):
                 reference_code_set = part[14:].strip()
+            elif part.startswith("Domain:"):
+                domain = part[7:].strip()
 
         # Also derive synonyms from name
         name_lower = name.lower()
@@ -189,7 +192,7 @@ class CatalogReader:
         return CatalogTerm(
             id=term_id,
             name=name,
-            domain="",  # Would need category lookup
+            domain=domain,
             description=description,
             synonyms=synonyms,
             data_type=data_type,
