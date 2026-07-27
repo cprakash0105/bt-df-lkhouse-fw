@@ -75,17 +75,50 @@ class SQLGenerator:
         return get_llm().generate(system=system_prompt, user=requirement, max_tokens=1024)
 
     def generate_dataproduct(self, spec: str) -> dict:
-        """Generate a full data product: SQL + metadata from a free-text spec.
+        """Generate a full data product: SQL + metadata from a free-text or YAML spec.
         Returns {sql, table_name, gcs_path}."""
+        import re, yaml as _yaml
+
         available_tables = self._get_available_tables()
         tables_desc = ", ".join(available_tables)
         system = SYSTEM_PROMPT.format(available_tables=tables_desc)
-        sql = self._generate_with_gemini(system, spec)
+
+        # Extract product name and clean spec if it's a YAML data_product spec
+        product_name = None
+        clean_spec = spec
+        try:
+            parsed = _yaml.safe_load(spec)
+            if isinstance(parsed, dict) and "data_product" in parsed:
+                dp = parsed["data_product"]
+                product_name = dp.get("name")
+                # Build a clean NL summary for the LLM instead of passing raw YAML
+                sources = dp.get("source_datasets", [])
+                metrics = [m.get("name") if isinstance(m, dict) else m for m in dp.get("metrics", [])]
+                dimensions = dp.get("dimensions", [])
+                filters = dp.get("filters", [])
+                grain = dp.get("grain", "")
+                output_table = dp.get("output_table", f"eastside_dataproduct.{product_name}")
+                clean_spec = (
+                    f"Build a data product called {product_name}.\n"
+                    f"Output table: {output_table}\n"
+                    f"Source datasets: {', '.join(str(s) for s in sources)}\n"
+                    f"Metrics: {', '.join(str(m) for m in metrics)}\n"
+                    f"Dimensions: {', '.join(str(d) for d in dimensions)}\n"
+                    f"Filters: {', '.join(str(f) for f in filters)}\n"
+                    f"Grain: {grain}\n"
+                )
+        except Exception:
+            pass
+
+        sql = self._generate_with_gemini(system, clean_spec)
         if not sql or sql == "__QUOTA_EXCEEDED__":
             return {"sql": None, "error": "LLM unavailable"}
+
         # Strip accidental markdown fences
-        sql = sql.strip().lstrip("```sql").lstrip("```").rstrip("```").strip()
-        table_name = self._extract_table_name(sql)
+        sql = re.sub(r"^```[a-z]*\n?", "", sql.strip(), flags=re.MULTILINE)
+        sql = re.sub(r"```$", "", sql.strip()).strip()
+
+        table_name = product_name or self._extract_table_name(sql)
         gcs_path = self._push_to_gcs_eastside(table_name, sql)
         return {"sql": sql, "table_name": table_name, "gcs_path": gcs_path}
 
@@ -125,10 +158,16 @@ class SQLGenerator:
 
     def _extract_table_name(self, sql: str) -> str:
         """Extract target table name from SQL."""
-        # Look for lakehouse_dataproduct.<name>
+        import re
+        # Match CREATE OR REPLACE TABLE `dataset.table` or dataset.table
+        m = re.search(r'CREATE\s+OR\s+REPLACE\s+TABLE\s+`?[\w-]+\.([\w]+)`?', sql, re.IGNORECASE)
+        if m:
+            return m.group(1)
+        # Fallback: look for known dataset prefixes
         for part in sql.split("`"):
-            if "lakehouse_dataproduct." in part:
-                return part.split(".")[-1]
+            for prefix in ("eastside_dataproduct.", "lakehouse_dataproduct."):
+                if prefix in part:
+                    return part.split(".")[-1]
         return "unnamed_data_product"
 
     def _push_to_gcs(self, table_name: str, sql: str) -> Optional[str]:

@@ -1033,33 +1033,37 @@ def parse_brd(req: BRDRequest):
     domains = [d.name for d in kg.domains.values()]
 
     prompt = (
-        f"You are a data product architect. Parse the following Business Requirements Document "
-        f"and produce a structured data product spec in YAML.\n\n"
-        f"Available source datasets in landing zone: {available}\n"
+        f"Parse the following BRD and return ONLY a valid YAML block — no explanation, no reasoning, no markdown fences.\n\n"
+        f"Available source datasets (use ONLY names from this list): {available}\n"
         f"Available data domains: {domains}\n\n"
         f"BRD:\n{req.brd_text}\n\n"
-        f"Return ONLY valid YAML with this structure:\n"
+        f"Return EXACTLY this structure and nothing else:\n"
         f"data_product:\n"
         f"  name: <snake_case_name>\n"
-        f"  description: <one line>\n"
+        f"  description: <one sentence>\n"
         f"  domain: <domain>\n"
         f"  source_datasets:\n"
-        f"    - <dataset_name>\n"
+        f"    - <dataset_name_from_available_list>\n"
         f"  metrics:\n"
         f"    - name: <metric_name>\n"
         f"      expression: <sql_expression>\n"
         f"  dimensions:\n"
         f"    - <field_name>\n"
         f"  filters:\n"
-        f"    - <sql_filter>\n"
-        f"  grain: <description of row grain>\n"
-        f"  output_table: <dataset>.<table_name>\n"
+        f"    - <sql_where_clause>\n"
+        f"  grain: <one line description>\n"
+        f"  output_table: eastside_dataproduct.<snake_case_name>\n"
     )
 
     try:
         llm = get_llm()
         raw = llm.generate(
-            system="You are a data product architect. Return only valid YAML, no markdown fences.",
+            system=(
+                "You are a data product architect. "
+                "Return ONLY valid YAML. No explanation, no reasoning, no markdown fences, no comments. "
+                "Every value must be a scalar string or a proper YAML list. "
+                "source_datasets must be a list of dataset name strings only."
+            ),
             user=prompt,
             max_tokens=800,
             temperature=0.0,
