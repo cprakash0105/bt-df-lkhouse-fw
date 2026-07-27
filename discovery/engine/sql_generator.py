@@ -72,7 +72,7 @@ class SQLGenerator:
     def _generate_with_gemini(self, system_prompt: str, requirement: str) -> Optional[str]:
         """Use LLM to generate SQL."""
         from discovery.engine.llm_client import get_llm
-        return get_llm().generate(system=system_prompt, user=requirement, max_tokens=1024)
+        return get_llm().generate(system=system_prompt, user=requirement, max_tokens=2000)
 
     def generate_dataproduct(self, spec: str) -> dict:
         """Generate a full data product: SQL + metadata from a free-text or YAML spec.
@@ -81,34 +81,49 @@ class SQLGenerator:
 
         available_tables = self._get_available_tables()
         tables_desc = ", ".join(available_tables)
-        system = SYSTEM_PROMPT.format(available_tables=tables_desc)
 
         # Extract product name and clean spec if it's a YAML data_product spec
         product_name = None
         clean_spec = spec
+        source_tables = []
         try:
             parsed = _yaml.safe_load(spec)
             if isinstance(parsed, dict) and "data_product" in parsed:
                 dp = parsed["data_product"]
                 product_name = dp.get("name")
-                # Build a clean NL summary for the LLM instead of passing raw YAML
-                sources = dp.get("source_datasets", [])
+                source_tables = dp.get("source_datasets", [])
                 metrics = [m.get("name") if isinstance(m, dict) else m for m in dp.get("metrics", [])]
+                metric_exprs = [
+                    f"{m.get('name')}: {m.get('expression')}" if isinstance(m, dict) else str(m)
+                    for m in dp.get("metrics", [])
+                ]
                 dimensions = dp.get("dimensions", [])
                 filters = dp.get("filters", [])
                 grain = dp.get("grain", "")
                 output_table = dp.get("output_table", f"eastside_dataproduct.{product_name}")
                 clean_spec = (
-                    f"Build a data product called {product_name}.\n"
+                    f"Build a BigQuery data product called {product_name}.\n"
                     f"Output table: {output_table}\n"
-                    f"Source datasets: {', '.join(str(s) for s in sources)}\n"
-                    f"Metrics: {', '.join(str(m) for m in metrics)}\n"
-                    f"Dimensions: {', '.join(str(d) for d in dimensions)}\n"
+                    f"Source silver tables (prefix with silver.): {', '.join(str(s) for s in source_tables)}\n"
+                    f"Metrics (include ALL of these):\n" +
+                    "\n".join(f"  - {e}" for e in metric_exprs) + "\n"
+                    f"Dimensions to include: {', '.join(str(d) for d in dimensions)}\n"
                     f"Filters: {', '.join(str(f) for f in filters)}\n"
                     f"Grain: {grain}\n"
+                    f"Join all source tables together on customer_id, store_id, offer_id, campaign_id as appropriate.\n"
+                    f"Dedup each source using QUALIFY ROW_NUMBER() OVER (PARTITION BY <pk> ORDER BY event_timestamp DESC) = 1.\n"
+                    f"Filter is_current = true on all silver tables.\n"
+                    f"Do NOT expose PII fields (first_name, last_name, email, phone, date_of_birth).\n"
+                    f"Add _gold_published_at = CURRENT_TIMESTAMP() to output.\n"
                 )
         except Exception:
             pass
+
+        # Use source tables from spec if available, otherwise fall back to discovered tables
+        if source_tables:
+            tables_desc = ", ".join(str(s) for s in source_tables)
+
+        system = SYSTEM_PROMPT.format(available_tables=tables_desc)
 
         sql = self._generate_with_gemini(system, clean_spec)
         if not sql or sql == "__QUOTA_EXCEEDED__":
