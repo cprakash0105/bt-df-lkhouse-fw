@@ -1075,7 +1075,30 @@ def parse_brd(req: BRDRequest):
         spec_yaml = re.sub(r"^```[a-z]*\n?", "", raw.strip(), flags=re.MULTILINE)
         spec_yaml = re.sub(r"```$", "", spec_yaml.strip()).strip()
 
-        # Try to parse — if invalid, ask LLM to repair it
+        # Extract only the YAML block — discard any prose before/after
+        # Look for the data_product: key and take everything from there
+        yaml_match = re.search(r'(data_product\s*:.*)', spec_yaml, re.DOTALL)
+        if yaml_match:
+            spec_yaml = yaml_match.group(1).strip()
+        else:
+            # Nothing looks like YAML — ask LLM to produce clean YAML from scratch
+            spec_yaml = llm.generate(
+                system="Return ONLY valid YAML, no explanation, no markdown, no prose.",
+                user=(
+                    f"Convert this into a valid YAML data_product spec. "
+                    f"source_datasets, dimensions, filters must be proper YAML lists (- item per line).\n\n"
+                    f"{raw.strip()}"
+                ),
+                max_tokens=800,
+                temperature=0.0,
+            ) or ""
+            spec_yaml = re.sub(r"^```[a-z]*\n?", "", spec_yaml.strip(), flags=re.MULTILINE)
+            spec_yaml = re.sub(r"```$", "", spec_yaml.strip()).strip()
+            yaml_match = re.search(r'(data_product\s*:.*)', spec_yaml, re.DOTALL)
+            if yaml_match:
+                spec_yaml = yaml_match.group(1).strip()
+
+        # Try to parse — if still invalid, ask LLM to repair
         try:
             parsed = yaml.safe_load(spec_yaml)
         except yaml.YAMLError:
@@ -1093,6 +1116,9 @@ def parse_brd(req: BRDRequest):
             if repair and repair != "__QUOTA_EXCEEDED__":
                 spec_yaml = re.sub(r"^```[a-z]*\n?", "", repair.strip(), flags=re.MULTILINE)
                 spec_yaml = re.sub(r"```$", "", spec_yaml.strip()).strip()
+                yaml_match = re.search(r'(data_product\s*:.*)', spec_yaml, re.DOTALL)
+                if yaml_match:
+                    spec_yaml = yaml_match.group(1).strip()
             parsed = yaml.safe_load(spec_yaml)
 
         # Coerce any inline string lists to proper lists
