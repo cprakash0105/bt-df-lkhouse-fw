@@ -1065,7 +1065,7 @@ def parse_brd(req: BRDRequest):
                 "source_datasets must be a list of dataset name strings only."
             ),
             user=prompt,
-            max_tokens=800,
+            max_tokens=1500,
             temperature=0.0,
         )
         if not raw or raw == "__QUOTA_EXCEEDED__":
