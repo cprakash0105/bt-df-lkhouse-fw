@@ -1073,10 +1073,37 @@ def parse_brd(req: BRDRequest):
 
         # Strip markdown fences if present
         spec_yaml = re.sub(r"^```[a-z]*\n?", "", raw.strip(), flags=re.MULTILINE)
-        spec_yaml = re.sub(r"```$", "", spec_yaml.strip())
+        spec_yaml = re.sub(r"```$", "", spec_yaml.strip()).strip()
 
-        # Validate it parses
-        parsed = yaml.safe_load(spec_yaml)
+        # Try to parse — if invalid, ask LLM to repair it
+        try:
+            parsed = yaml.safe_load(spec_yaml)
+        except yaml.YAMLError:
+            repair = llm.generate(
+                system="Fix the YAML. Return only valid YAML, no markdown, no explanation, no comments.",
+                user=(
+                    f"The following YAML is invalid. Fix it so it is valid YAML. "
+                    f"source_datasets, metrics, dimensions, filters must ALL be proper YAML lists "
+                    f"(each item on its own line starting with '- '). "
+                    f"No inline comma-separated strings. No colons in unquoted values.\n\n{spec_yaml}"
+                ),
+                max_tokens=800,
+                temperature=0.0,
+            )
+            if repair and repair != "__QUOTA_EXCEEDED__":
+                spec_yaml = re.sub(r"^```[a-z]*\n?", "", repair.strip(), flags=re.MULTILINE)
+                spec_yaml = re.sub(r"```$", "", spec_yaml.strip()).strip()
+            parsed = yaml.safe_load(spec_yaml)
+
+        # Coerce any inline string lists to proper lists
+        dp = parsed.get("data_product", {}) if parsed else {}
+        changed = False
+        for list_field in ("source_datasets", "dimensions", "filters"):
+            if isinstance(dp.get(list_field), str):
+                dp[list_field] = [s.strip() for s in dp[list_field].split(",") if s.strip()]
+                changed = True
+        if changed:
+            spec_yaml = yaml.dump(parsed, default_flow_style=False, allow_unicode=True)
         product_name = (
             req.product_name
             or parsed.get("data_product", {}).get("name", "unnamed_product")
