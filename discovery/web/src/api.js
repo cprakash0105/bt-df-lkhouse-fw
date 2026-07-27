@@ -44,4 +44,9 @@ export const api = {
   generateConfig: () => request('/generate/config', { method: 'POST' }),
   generateSQL: (requirement) => request('/generate/sql', { method: 'POST', body: JSON.stringify({ requirement }) }),
   generateDataProduct: (requirement) => request('/generate/dataproduct', { method: 'POST', body: JSON.stringify({ requirement }) }),
+
+  parseBRD: (brd_text, product_name = null) =>
+    request('/brd/parse', { method: 'POST', body: JSON.stringify({ brd_text, product_name }) }),
+  listBRDSpecs: () => request('/brd/specs'),
+  getBRDSpec: (product_name) => request(`/brd/specs/${encodeURIComponent(product_name)}`),
 }

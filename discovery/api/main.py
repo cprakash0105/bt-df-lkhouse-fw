@@ -1016,6 +1016,148 @@ def generate_sql(req: SQLRequest):
     return {"sql": sql}
 
 
+class BRDRequest(BaseModel):
+    brd_text: str
+    product_name: Optional[str] = None
+
+
+@app.post("/brd/parse")
+def parse_brd(req: BRDRequest):
+    """Parse a Business Requirements Document into a data product spec YAML.
+    Saves the spec to GCS and returns it for review/editing."""
+    from discovery.engine.llm_client import get_llm
+    import re, yaml
+
+    # Build available datasets context
+    available = _list_landing_datasets()
+    domains = [d.name for d in kg.domains.values()]
+
+    prompt = (
+        f"You are a data product architect. Parse the following Business Requirements Document "
+        f"and produce a structured data product spec in YAML.\n\n"
+        f"Available source datasets in landing zone: {available}\n"
+        f"Available data domains: {domains}\n\n"
+        f"BRD:\n{req.brd_text}\n\n"
+        f"Return ONLY valid YAML with this structure:\n"
+        f"data_product:\n"
+        f"  name: <snake_case_name>\n"
+        f"  description: <one line>\n"
+        f"  domain: <domain>\n"
+        f"  source_datasets:\n"
+        f"    - <dataset_name>\n"
+        f"  metrics:\n"
+        f"    - name: <metric_name>\n"
+        f"      expression: <sql_expression>\n"
+        f"  dimensions:\n"
+        f"    - <field_name>\n"
+        f"  filters:\n"
+        f"    - <sql_filter>\n"
+        f"  grain: <description of row grain>\n"
+        f"  output_table: <dataset>.<table_name>\n"
+    )
+
+    try:
+        llm = get_llm()
+        raw = llm.generate(
+            system="You are a data product architect. Return only valid YAML, no markdown fences.",
+            user=prompt,
+            max_tokens=800,
+            temperature=0.0,
+        )
+        if not raw or raw == "__QUOTA_EXCEEDED__":
+            raise HTTPException(503, "LLM unavailable")
+
+        # Strip markdown fences if present
+        spec_yaml = re.sub(r"^```[a-z]*\n?", "", raw.strip(), flags=re.MULTILINE)
+        spec_yaml = re.sub(r"```$", "", spec_yaml.strip())
+
+        # Validate it parses
+        parsed = yaml.safe_load(spec_yaml)
+        product_name = (
+            req.product_name
+            or parsed.get("data_product", {}).get("name", "unnamed_product")
+        )
+
+        # Save to GCS
+        gcs_path = _save_brd_spec(product_name, spec_yaml)
+
+        return {
+            "product_name": product_name,
+            "spec_yaml": spec_yaml,
+            "parsed": parsed,
+            "gcs_path": gcs_path,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"BRD parse failed: {str(e)}")
+
+
+@app.get("/brd/specs")
+def list_brd_specs():
+    """List all saved data product specs from GCS."""
+    specs = _list_brd_specs()
+    return {"specs": specs, "count": len(specs)}
+
+
+@app.get("/brd/specs/{product_name}")
+def get_brd_spec(product_name: str):
+    """Fetch a saved data product spec YAML from GCS."""
+    import os
+    bucket_name = os.environ.get("CONFIG_BUCKET", "bt-df-lkhouse-lakehouse")
+    path = f"data_product_specs/{product_name}.yaml"
+    try:
+        from google.cloud import storage as gcs_storage
+        client = gcs_storage.Client()
+        blob = client.bucket(bucket_name).blob(path)
+        if not blob.exists():
+            raise HTTPException(404, f"Spec '{product_name}' not found")
+        return {"product_name": product_name, "spec_yaml": blob.download_as_text()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+def _save_brd_spec(product_name: str, spec_yaml: str) -> Optional[str]:
+    """Save a data product spec YAML to GCS."""
+    import os
+    bucket_name = os.environ.get("CONFIG_BUCKET", "bt-df-lkhouse-lakehouse")
+    path = f"data_product_specs/{product_name}.yaml"
+    try:
+        from google.cloud import storage as gcs_storage
+        client = gcs_storage.Client()
+        blob = client.bucket(bucket_name).blob(path)
+        blob.upload_from_string(spec_yaml, content_type="application/x-yaml")
+        gcs_path = f"gs://{bucket_name}/{path}"
+        print(f"[API] BRD spec saved: {gcs_path}")
+        return gcs_path
+    except Exception as e:
+        print(f"[API] Failed to save BRD spec: {e}")
+        return None
+
+
+def _list_brd_specs() -> list:
+    """List all saved data product specs from GCS."""
+    import os
+    bucket_name = os.environ.get("CONFIG_BUCKET", "bt-df-lkhouse-lakehouse")
+    try:
+        from google.cloud import storage as gcs_storage
+        client = gcs_storage.Client()
+        blobs = client.list_blobs(bucket_name, prefix="data_product_specs/")
+        return [
+            {
+                "name": b.name.replace("data_product_specs/", "").replace(".yaml", ""),
+                "gcs_path": f"gs://{bucket_name}/{b.name}",
+                "updated": b.updated.isoformat() if b.updated else None,
+            }
+            for b in blobs if b.name.endswith(".yaml")
+        ]
+    except Exception as e:
+        print(f"[API] Failed to list BRD specs: {e}")
+        return []
+
+
 # --- Helpers ---
 
 DAGSTER_URL = os.environ.get("DAGSTER_URL", "http://34.89.76.230")
@@ -1346,7 +1488,7 @@ if static_dir.exists():
         if path.startswith(("health", "glossary", "applications", "domains",
                            "ask", "discover", "landing", "profile", "approve",
                            "correct", "suggestion", "generate", "catalog",
-                           "cache", "debug", "rag", "mcp", "logs")):
+                           "cache", "debug", "rag", "mcp", "logs", "brd")):
             raise HTTPException(404, "Not found")
         file_path = static_dir / path
         if file_path.exists() and file_path.is_file():

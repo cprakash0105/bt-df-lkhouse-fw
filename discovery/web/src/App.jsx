@@ -123,6 +123,15 @@ export default function App() {
           type: 'text'
         })
       }
+      // BRD parse
+      else if (_isBRDRequest(lower)) {
+        setView(VIEWS.DATA_PRODUCTS)
+        addMessage({
+          role: 'assistant',
+          content: `Go to the **Data Products** panel → **BRD → Spec** tab and paste your requirements. Ontika will generate a structured YAML spec and save it to GCS.`,
+          type: 'text'
+        })
+      }
       // Catalog/glossary questions
       else if (_isGlossaryQuestion(lower) && !_isFieldSpecificQuestion(lower)) {
         const answer = await _answerGlossaryQuestion(lower)
@@ -280,6 +289,12 @@ function _isDataProductRequest(text) {
   return /(build|create|generate|make)\s+(a\s+)?data\s+product/.test(text) ||
     /(build|create|generate)\s+.*(360|product|view|mart)/.test(text) ||
     text.includes('customer_360') || text.includes('data product called')
+}
+
+function _isBRDRequest(text) {
+  return text.includes('brd') || text.includes('business requirement') ||
+    text.includes('requirements document') || text.includes('parse requirement') ||
+    text.includes('generate spec') || text.includes('product spec')
 }
 
 // Only trigger landing list for explicit requests
