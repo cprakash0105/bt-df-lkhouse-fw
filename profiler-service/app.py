@@ -454,7 +454,8 @@ def _fetch_from_gcs(source_path: str) -> tuple:
             prefix = source_path
 
         bucket = client.bucket(bucket_name)
-        blobs = list(bucket.list_blobs(prefix=prefix, max_results=5))
+        blobs = [b for b in bucket.list_blobs(prefix=prefix, max_results=20)
+                 if not b.name.endswith("/") and b.size > 0]
         if not blobs:
             return None, None
 

@@ -132,7 +132,8 @@ class DiscoveryProfiler:
             from google.cloud import storage
             client = storage.Client()
             bucket = client.bucket(bucket_name)
-            blobs = list(bucket.list_blobs(prefix=prefix, max_results=5))
+            blobs = [b for b in bucket.list_blobs(prefix=prefix, max_results=20)
+                     if not b.name.endswith("/") and b.size > 0]
 
             if not blobs:
                 print(f"[DiscoveryProfiler] No data at gs://{bucket_name}/{prefix}")
