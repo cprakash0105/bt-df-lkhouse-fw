@@ -150,7 +150,7 @@ function OrgRoot({ tree, onSelect }) {
       >
         <span className="text-xs text-gray-400 w-4">{expanded ? '▼' : '▶'}</span>
         <span className="text-lg">🏛️</span>
-        <span className="text-sm font-semibold text-gray-800">BT Group</span>
+        <span className="text-sm font-semibold text-gray-800">ET Group</span>
         <span className="text-[10px] text-gray-400 ml-2">Organization</span>
       </div>
       {expanded && (
@@ -386,8 +386,8 @@ async function buildFallbackTree() {
     })
 
     const tree = [{
-      id: 'bt_group',
-      name: 'BT Group',
+      id: 'et_group',
+      name: 'ET Group',
       type: 'cfu',
       children: domains.map(d => ({
         id: d.id,

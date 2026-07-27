@@ -13,7 +13,7 @@ export default function LandingPage({ onStart }) {
           </div>
         </div>
         <div className="text-right">
-          <p className="text-sm text-gray-400">BT Data Fabric</p>
+          <p className="text-sm text-gray-400">ET FabricOfData</p>
           <p className="text-xs text-gray-600">GCP · europe-west2</p>
         </div>
       </header>

@@ -223,7 +223,7 @@ export default function App() {
         </nav>
 
         <div className="text-right hidden sm:block">
-          <p className="text-xs text-gray-500 font-medium">BT Data Fabric</p>
+          <p className="text-xs text-gray-500 font-medium">ET FabricOfData</p>
           <p className="text-[10px] text-gray-400">GCP · europe-west2</p>
         </div>
       </header>
