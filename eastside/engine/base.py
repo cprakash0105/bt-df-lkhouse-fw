@@ -173,7 +173,8 @@ def parse_args(description):
 
 def resolve_latest_version(config, table_name):
     """Scan GCS landing prefix and return the latest version folder (e.g. v3).
-    Falls back to 'v1' if nothing found."""
+    Returns empty string if files are placed directly in landing/{table}/ (no versioning).
+    Falls back to 'v1' only if nothing found at all."""
     try:
         from google.cloud import storage as gcs
         pipeline = config["pipeline"]
@@ -182,15 +183,25 @@ def resolve_latest_version(config, table_name):
         client = gcs.Client(project=pipeline.get("project_id", "bt-df-lkhouse"))
         blobs = client.list_blobs(bucket_name, prefix=prefix, delimiter="/")
         list(blobs)  # consume to populate prefixes
+
+        # Check for versioned subfolders (v1, v2, v3 ...)
         versions = []
         for p in blobs.prefixes:
-            folder = p.rstrip("/").split("/")[-1]  # e.g. "v2"
+            folder = p.rstrip("/").split("/")[-1]
             if folder.startswith("v") and folder[1:].isdigit():
                 versions.append(folder)
         if versions:
             latest = sorted(versions, key=lambda v: int(v[1:]))[-1]
             log("config", f"Latest version for {table_name}: {latest}")
             return latest
+
+        # No versioned subfolders — check if files exist directly at the prefix
+        direct_blobs = [b for b in client.list_blobs(bucket_name, prefix=prefix, max_results=5)
+                        if not b.name.endswith("/") and b.size > 0]
+        if direct_blobs:
+            log("config", f"No version folders for {table_name} — using flat landing path")
+            return ""  # no version subfolder needed
+
     except Exception as e:
         log("config", f"Version auto-detect failed for {table_name}: {e}", LogLevel.WARN)
     return "v1"

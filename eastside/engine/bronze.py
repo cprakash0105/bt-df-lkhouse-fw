@@ -50,7 +50,7 @@ def check_watermark(config, table_name, version):
         if not last_ts:
             return True  # no timestamp recorded, trust the version list
         last_dt = dt.fromisoformat(last_ts)
-        landing_prefix = f"{pipeline.get('landing_prefix', 'landing')}/{table_name}/{version}/"
+        landing_prefix = f"{pipeline.get('landing_prefix', 'landing')}/{table_name}/{version}/" if version else f"{pipeline.get('landing_prefix', 'landing')}/{table_name}/"
         blobs = list(bucket.list_blobs(prefix=landing_prefix))
         if not blobs:
             return True  # no files at all, nothing to reprocess
@@ -93,7 +93,11 @@ def read_landing(spark, config, table_name, table_config, version):
     """Read raw files from landing, auto-detecting format."""
     pipeline = config["pipeline"]
     source_format = table_config.get("source_format", "json")
-    source_path = f"{pipeline['landing_path']}/{table_name}/{version}"
+    # version is empty string when files are placed directly in landing/{table}/
+    if version:
+        source_path = f"{pipeline['landing_path']}/{table_name}/{version}"
+    else:
+        source_path = f"{pipeline['landing_path']}/{table_name}"
 
     log("bronze", f"Reading {source_format.upper()} from: {source_path}")
 
