@@ -49,4 +49,8 @@ export const api = {
     request('/brd/parse', { method: 'POST', body: JSON.stringify({ brd_text, product_name }) }),
   listBRDSpecs: () => request('/brd/specs'),
   getBRDSpec: (product_name) => request(`/brd/specs/${encodeURIComponent(product_name)}`),
+
+  deployDataProduct: (table_name, sql, description = null, source_datasets = null, domain = null) =>
+    request('/dataproduct/deploy', { method: 'POST', body: JSON.stringify({ table_name, sql, description, source_datasets, domain }) }),
+  listDeployedDataProducts: () => request('/dataproduct/list'),
 }

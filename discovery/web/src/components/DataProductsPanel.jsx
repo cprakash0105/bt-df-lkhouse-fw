@@ -4,21 +4,26 @@ import { api } from '../api'
 export default function DataProductsPanel({ onChat, prefilledDataset, onBrdPrefillUsed }) {
   const [sources, setSources] = useState([])
   const [products, setProducts] = useState([])
+  const [deployedProducts, setDeployedProducts] = useState([])
   const [savedSpecs, setSavedSpecs] = useState([])
   const [loading, setLoading] = useState(true)
   const [building, setBuilding] = useState(false)
+  const [deploying, setDeploying] = useState(null) // table_name being deployed
   const [parsing, setParsing] = useState(false)
   const [spec, setSpec] = useState('')
   const [brdText, setBrdText] = useState('')
   const [result, setResult] = useState(null)
+  const [deployResult, setDeployResult] = useState(null)
   const [error, setError] = useState(null)
   const [rightTab, setRightTab] = useState('brd')
   const [specYaml, setSpecYaml] = useState('')
+  const [parsedSpec, setParsedSpec] = useState(null)
 
   useEffect(() => {
     Promise.all([
       api.listLanding().then(r => setSources(r.datasets || [])),
       api.listBRDSpecs().then(r => setSavedSpecs(r.specs || [])).catch(() => {}),
+      api.listDeployedDataProducts().then(r => setDeployedProducts(r.products || [])).catch(() => {}),
     ]).catch(() => {}).finally(() => setLoading(false))
   }, [])
 
@@ -37,9 +42,11 @@ export default function DataProductsPanel({ onChat, prefilledDataset, onBrdPrefi
     setParsing(true)
     setError(null)
     setSpecYaml('')
+    setParsedSpec(null)
     try {
       const r = await api.parseBRD(brdText)
       setSpecYaml(r.spec_yaml)
+      setParsedSpec(r.parsed)
       setSavedSpecs(prev => [
         { name: r.product_name, gcs_path: r.gcs_path, updated: new Date().toISOString() },
         ...prev.filter(s => s.name !== r.product_name),
@@ -62,6 +69,7 @@ export default function DataProductsPanel({ onChat, prefilledDataset, onBrdPrefi
     setBuilding(true)
     setError(null)
     setResult(null)
+    setDeployResult(null)
     try {
       const r = await api.generateDataProduct(spec)
       setResult(r)
@@ -71,6 +79,34 @@ export default function DataProductsPanel({ onChat, prefilledDataset, onBrdPrefi
       setError(e.message)
     } finally {
       setBuilding(false)
+    }
+  }
+
+  const handleDeploy = async (p) => {
+    setDeploying(p.table_name)
+    setDeployResult(null)
+    setError(null)
+    try {
+      const dp = parsedSpec?.data_product
+      const r = await api.deployDataProduct(
+        p.table_name,
+        p.sql,
+        dp?.description || null,
+        dp?.source_datasets || null,
+        dp?.domain || null,
+      )
+      setDeployResult(r)
+      if (r.bq_status === 'deployed') {
+        setDeployedProducts(prev => [
+          { table_name: r.table_name, bq_table: r.bq_table, deployed_at: new Date().toISOString(),
+            bq_status: 'deployed', catalog_status: r.catalog_status },
+          ...prev.filter(d => d.table_name !== r.table_name),
+        ])
+      }
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setDeploying(null)
     }
   }
 
@@ -93,25 +129,70 @@ export default function DataProductsPanel({ onChat, prefilledDataset, onBrdPrefi
           Build BigQuery data products from silver layer sources
         </p>
 
-        {/* Built this session */}
+        {/* Deployed data products */}
+        {deployedProducts.length > 0 && (
+          <div className="mb-8">
+            <h3 className="text-sm font-semibold text-gray-600 mb-3">Deployed Data Products ({deployedProducts.length})</h3>
+            <div className="grid grid-cols-2 gap-3">
+              {deployedProducts.map(p => (
+                <div key={p.table_name} className="card p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-lg">📦</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-gray-800 truncate">{p.table_name}</p>
+                      <p className="text-[10px] text-gray-400 font-mono">eastside_dataproduct.{p.table_name}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-1.5 flex-wrap">
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
+                      p.bq_status === 'deployed' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'
+                    }`}>BQ: {p.bq_status}</span>
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
+                      p.catalog_status === 'cataloged' || p.catalog_status === 'updated' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-600'
+                    }`}>KC: {p.catalog_status}</span>
+                    {p.deployed_at && (
+                      <span className="text-[9px] text-gray-400">{new Date(p.deployed_at).toLocaleDateString()}</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Built this session — with Deploy button */}
         {products.length > 0 && (
           <div className="mb-8">
-            <h3 className="text-sm font-semibold text-gray-600 mb-3">Built This Session</h3>
-            <div className="grid grid-cols-2 gap-4">
+            <h3 className="text-sm font-semibold text-gray-600 mb-3">Ready to Deploy</h3>
+            <div className="grid grid-cols-1 gap-3">
               {products.map(p => (
                 <div key={p.table_name} className="card p-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-emerald-50 to-emerald-100 flex items-center justify-center">
-                      <span className="text-emerald-600 text-lg">📦</span>
+                    <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-amber-50 to-amber-100 flex items-center justify-center flex-shrink-0">
+                      <span className="text-amber-600">⚙️</span>
                     </div>
                     <div className="flex-1 min-w-0">
-                      <span className="text-sm font-semibold text-gray-800">{p.table_name}</span>
-                      <p className="text-[11px] text-gray-400 font-mono truncate">eastside_dataproduct.{p.table_name}</p>
-                      {p.gcs_path && (
-                        <p className="text-[10px] text-emerald-600 truncate mt-0.5">✓ {p.gcs_path}</p>
-                      )}
+                      <p className="text-xs font-semibold text-gray-800">{p.table_name}</p>
+                      <p className="text-[10px] text-gray-400 font-mono truncate">SQL ready · {p.gcs_path?.split('/').pop()}</p>
                     </div>
+                    <button
+                      onClick={() => handleDeploy(p)}
+                      disabled={deploying === p.table_name}
+                      className="px-3 py-1.5 bg-ontika-blue text-white text-xs font-medium rounded-lg hover:bg-ontika-blue/90 disabled:opacity-50 transition-colors flex-shrink-0"
+                    >
+                      {deploying === p.table_name ? '⏳ Deploying...' : '🚀 Deploy'}
+                    </button>
                   </div>
+                  {deployResult?.table_name === p.table_name && (
+                    <div className={`mt-2 p-2 rounded-lg text-[10px] ${
+                      deployResult.bq_status === 'deployed' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'
+                    }`}>
+                      {deployResult.bq_status === 'deployed'
+                        ? `✅ Deployed to BQ · Cataloged in KC`
+                        : `❌ ${deployResult.errors?.join('; ')}`
+                      }
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

@@ -1005,6 +1005,131 @@ def generate_dataproduct(req: SQLRequest):
     return result
 
 
+class DeployDataProductRequest(BaseModel):
+    table_name: str
+    sql: str
+    description: Optional[str] = None
+    source_datasets: Optional[list[str]] = None
+    domain: Optional[str] = None
+
+
+@app.post("/dataproduct/deploy")
+def deploy_dataproduct(req: DeployDataProductRequest):
+    """Deploy a data product: run SQL in BigQuery + catalog in Dataplex."""
+    results = {"table_name": req.table_name, "bq_status": None, "catalog_status": None, "errors": []}
+
+    # 1. Run SQL in BigQuery
+    try:
+        from google.cloud import bigquery
+        bq = bigquery.Client(project=os.environ.get("GCP_PROJECT_ID", "bt-df-lkhouse"))
+        job = bq.query(req.sql)
+        job.result(timeout=300)  # wait up to 5 min
+        results["bq_status"] = "deployed"
+        results["bq_table"] = f"eastside_dataproduct.{req.table_name}"
+        print(f"[Deploy] BQ table created: eastside_dataproduct.{req.table_name}")
+    except Exception as e:
+        results["errors"].append(f"BigQuery deploy failed: {str(e)}")
+        results["bq_status"] = "failed"
+
+    # 2. Catalog in Dataplex as a Data Product entry
+    try:
+        from google.cloud import dataplex_v1
+        project_id = os.environ.get("GCP_PROJECT_ID", "bt-df-lkhouse")
+        location = os.environ.get("GCP_REGION", "europe-west2")
+        entry_group_id = "enterprise-hierarchy"
+        parent = f"projects/{project_id}/locations/{location}"
+        entry_group = f"{parent}/entryGroups/{entry_group_id}"
+
+        client = dataplex_v1.CatalogServiceClient()
+        entry_id = f"dataproduct-{req.table_name.replace('_', '-')}"
+        fq_type = f"{parent}/entryTypes/dataset"
+
+        description_parts = [
+            f"Data Product: {req.table_name}",
+            f"Type: Gold / Data Product",
+            f"BigQuery Table: eastside_dataproduct.{req.table_name}",
+        ]
+        if req.description:
+            description_parts.append(f"Description: {req.description}")
+        if req.domain:
+            description_parts.append(f"Domain: {req.domain}")
+        if req.source_datasets:
+            description_parts.append(f"Source Datasets: {', '.join(req.source_datasets)}")
+
+        entry = dataplex_v1.Entry(
+            entry_type=fq_type,
+            fully_qualified_name=f"custom:dataproduct/{req.table_name}",
+            entry_source=dataplex_v1.EntrySource(
+                display_name=req.table_name,
+                description="\n".join(description_parts),
+            ),
+        )
+        catalog_req = dataplex_v1.CreateEntryRequest(
+            parent=entry_group, entry=entry, entry_id=entry_id
+        )
+        try:
+            client.create_entry(request=catalog_req)
+            results["catalog_status"] = "cataloged"
+            print(f"[Deploy] Cataloged data product: {req.table_name}")
+        except Exception as ce:
+            if "ALREADY_EXISTS" in str(ce):
+                # Update existing entry
+                update_req = dataplex_v1.UpdateEntryRequest(entry=entry)
+                client.update_entry(request=update_req)
+                results["catalog_status"] = "updated"
+            else:
+                raise ce
+    except Exception as e:
+        results["errors"].append(f"Catalog failed: {str(e)}")
+        results["catalog_status"] = "failed"
+
+    # 3. Save deployment record to GCS
+    try:
+        from google.cloud import storage as gcs_storage
+        import datetime
+        record = {
+            "table_name": req.table_name,
+            "bq_table": f"eastside_dataproduct.{req.table_name}",
+            "deployed_at": datetime.datetime.utcnow().isoformat(),
+            "bq_status": results["bq_status"],
+            "catalog_status": results["catalog_status"],
+            "source_datasets": req.source_datasets or [],
+            "domain": req.domain or "",
+            "description": req.description or "",
+        }
+        bucket_name = os.environ.get("CONFIG_BUCKET", "bt-df-lkhouse-lakehouse")
+        blob_name = f"data_product_specs/{req.table_name}.deployment.json"
+        gcs_storage.Client().bucket(bucket_name).blob(blob_name).upload_from_string(
+            json.dumps(record, indent=2), content_type="application/json"
+        )
+        results["deployment_record"] = f"gs://{bucket_name}/{blob_name}"
+    except Exception as e:
+        results["errors"].append(f"Deployment record failed: {str(e)}")
+
+    return results
+
+
+@app.get("/dataproduct/list")
+def list_deployed_dataproducts():
+    """List all deployed data products from GCS deployment records."""
+    try:
+        from google.cloud import storage as gcs_storage
+        bucket_name = os.environ.get("CONFIG_BUCKET", "bt-df-lkhouse-lakehouse")
+        client = gcs_storage.Client()
+        blobs = client.list_blobs(bucket_name, prefix="data_product_specs/")
+        products = []
+        for b in blobs:
+            if b.name.endswith(".deployment.json"):
+                try:
+                    record = json.loads(b.download_as_text())
+                    products.append(record)
+                except Exception:
+                    pass
+        return {"products": products, "count": len(products)}
+    except Exception as e:
+        return {"products": [], "count": 0, "error": str(e)}
+
+
 @app.post("/generate/sql")
 def generate_sql(req: SQLRequest):
     """Generate consumption SQL from NL requirement."""
@@ -1545,7 +1670,7 @@ if static_dir.exists():
         if path.startswith(("health", "glossary", "applications", "domains",
                            "ask", "discover", "landing", "profile", "approve",
                            "correct", "suggestion", "generate", "catalog",
-                           "cache", "debug", "rag", "mcp", "logs", "brd")):
+                           "cache", "debug", "rag", "mcp", "logs", "brd", "dataproduct")):
             raise HTTPException(404, "Not found")
         file_path = static_dir / path
         if file_path.exists() and file_path.is_file():
