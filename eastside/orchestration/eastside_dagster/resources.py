@@ -56,9 +56,8 @@ class DataprocResource(ConfigurableResource):
             "--project", self.project,
         ]
         if stage == "bronze":
-            if not version:
-                raise ValueError("version is required for bronze stage")
-            args += ["--version", version]
+            # version can be empty string (flat landing) or v1/v2/v3
+            args += ["--version", version if version is not None else ""]
 
         job = {
             "placement": {"cluster_name": "lakehouse-cluster"},

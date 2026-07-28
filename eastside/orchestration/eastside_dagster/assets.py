@@ -18,7 +18,7 @@ CONNECTION = f"projects/{PROJECT_ID}/locations/{REGION}/connections/biglake-conn
 
 class BronzeConfig(Config):
     table: str = "all"
-    version: str = "v1"
+    version: str = "auto"  # auto-detect flat or versioned landing
 
 
 class SilverConfig(Config):
@@ -48,23 +48,30 @@ def load_table_config(table_name: str) -> dict:
 
 
 def get_unprocessed_versions(table_name: str) -> list:
-    """Get versions in landing that haven't been processed yet (no watermark)."""
+    """Get versions in landing that haven't been processed yet (no watermark).
+    Returns [''] for flat landing (no version subfolders), or version list."""
     import json
     gcs = storage.Client(project=PROJECT_ID)
     bucket = gcs.bucket(BUCKET)
 
-    # Get all version folders in landing
     prefix = f"landing/{table_name}/"
     blobs = bucket.list_blobs(prefix=prefix, delimiter="/")
-    # Force iteration to populate prefixes
-    _ = list(blobs)
+    _ = list(blobs)  # consume to populate prefixes
+
     versions = []
     for p in blobs.prefixes:
-        # p looks like "landing/pos_transactions/v1/"
         version = p.rstrip("/").split("/")[-1]
-        versions.append(version)
+        if version.startswith("v") and version[1:].isdigit():
+            versions.append(version)
 
-    # Check watermark for processed versions
+    # No versioned subfolders — check for flat files directly in landing/{table}/
+    if not versions:
+        direct = [b for b in bucket.list_blobs(prefix=prefix, max_results=5)
+                  if not b.name.endswith("/") and b.size > 0]
+        if direct:
+            versions = [""]  # flat landing, no version subfolder
+
+    # Check watermark
     wm_path = f"bronze/_watermarks/{table_name}.json"
     wm_blob = bucket.blob(wm_path)
     processed = []
