@@ -1159,7 +1159,8 @@ def parse_brd(req: BRDRequest):
 
     prompt = (
         f"Parse the following BRD and return ONLY a valid YAML block — no explanation, no reasoning, no markdown fences.\n\n"
-        f"Available source datasets (use ONLY names from this list): {available}\n"
+        f"Known source datasets in landing zone (prefer these names): {available}\n"
+        f"If the BRD references datasets not in the above list, include them anyway using the name from the BRD.\n"
         f"Available data domains: {domains}\n\n"
         f"BRD:\n{req.brd_text}\n\n"
         f"Return EXACTLY this structure and nothing else:\n"
@@ -1171,13 +1172,15 @@ def parse_brd(req: BRDRequest):
         f"    - <dataset_name_from_available_list>\n"
         f"  metrics:\n"
         f"    - name: <metric_name>\n"
-        f"      expression: <sql_expression>\n"
+        f"      expression: <complete_sql_aggregate_expression>\n"
         f"  dimensions:\n"
-        f"    - <field_name>\n"
+        f"    - <field_name>  # all GROUP BY fields\n"
         f"  filters:\n"
-        f"    - <sql_where_clause>\n"
+        f"    - <sql_where_clause>  # one filter per item\n"
         f"  grain: <one line description>\n"
         f"  output_table: eastside_dataproduct.<snake_case_name>\n"
+        f"\nExtract ALL metrics defined in the BRD including derived flags (e.g. is_heavy_user), averages, percentages, scores, and audit timestamps.\n"
+        f"For each metric include the complete SQL aggregate expression.\n"
     )
 
     try:
