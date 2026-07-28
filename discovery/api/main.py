@@ -1174,13 +1174,15 @@ def parse_brd(req: BRDRequest):
         f"    - name: <metric_name>\n"
         f"      expression: <complete_sql_aggregate_expression>\n"
         f"  dimensions:\n"
-        f"    - <field_name>  # all GROUP BY fields\n"
+        f"    - <field_name>  # ALL columns in the gold output schema that are not metrics — include every GROUP BY field from the BRD gold schema\n"
         f"  filters:\n"
         f"    - <sql_where_clause>  # one filter per item\n"
         f"  grain: <one line description>\n"
         f"  output_table: eastside_dataproduct.<snake_case_name>\n"
         f"\nExtract ALL metrics defined in the BRD including derived flags (e.g. is_heavy_user), averages, percentages, scores, and audit timestamps.\n"
         f"For each metric include the complete SQL aggregate expression.\n"
+        f"For network_experience_score or any score scaled 0-100, wrap with GREATEST(0, LEAST(100, ...)).\n"
+        f"dimensions must include ALL non-metric columns from the BRD gold output schema (subscriber_id, usage_date, customer_segment, city, state, region, device_type, network_type etc).\n"
     )
 
     try:
