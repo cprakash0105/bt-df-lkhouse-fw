@@ -110,7 +110,8 @@ class SQLGenerator:
                     f"Dimensions to include: {', '.join(str(d) for d in dimensions)}\n"
                     f"Filters: {', '.join(str(f) for f in filters)}\n"
                     f"Grain: {grain}\n"
-                    f"Join all source tables together on customer_id, store_id, offer_id, campaign_id as appropriate.\n"
+                    f"Join all source tables together using the correct join keys from the source schemas provided.\n"
+                    f"Use LEFT JOIN for any table that may not have data for all records (e.g. device_id added in a later schema version).\n"
                     f"Dedup each source using QUALIFY ROW_NUMBER() OVER (PARTITION BY <pk> ORDER BY event_timestamp DESC) = 1.\n"
                     f"Filter is_current = true on all silver tables.\n"
                     f"Do NOT expose PII fields (first_name, last_name, email, phone, date_of_birth).\n"
@@ -119,13 +120,50 @@ class SQLGenerator:
         except Exception:
             pass
 
+        # Fetch schemas of source datasets from GCS landing to give LLM real column names
+        source_schemas = {}
+        if source_tables and GCS_AVAILABLE:
+            try:
+                import csv as _csv
+                from io import StringIO as _StringIO
+                gcs_client = storage.Client(project=self.project_id)
+                for ds in source_tables:
+                    for bucket_name in ("eastside-lakehouse", CONFIG_BUCKET):
+                        try:
+                            blobs = list(gcs_client.bucket(bucket_name).list_blobs(
+                                prefix=f"landing/{ds}/", max_results=10))
+                            blob = next((b for b in blobs
+                                        if b.size and b.size > 0 and not b.name.endswith("/")), None)
+                            if blob:
+                                content = blob.download_as_text()
+                                if blob.name.endswith(".csv"):
+                                    reader = _csv.DictReader(_StringIO(content))
+                                    row = next(reader, None)
+                                    if row:
+                                        source_schemas[ds] = list(row.keys())
+                                else:
+                                    import json as _json
+                                    record = _json.loads(content.strip().split("\n")[0])
+                                    source_schemas[ds] = list(record.keys())
+                                break
+                        except Exception:
+                            continue
+            except Exception:
+                pass
+
+        schema_context = ""
+        if source_schemas:
+            schema_context = "\nSource dataset schemas (use these exact column names for joins and SELECT):\n"
+            for ds, cols in source_schemas.items():
+                schema_context += f"  {ds}: {', '.join(cols)}\n"
+
         # Use source tables from spec if available, otherwise fall back to discovered tables
         if source_tables:
             tables_desc = ", ".join(str(s) for s in source_tables)
 
         system = SYSTEM_PROMPT.format(available_tables=tables_desc)
 
-        sql = self._generate_with_gemini(system, clean_spec)
+        sql = self._generate_with_gemini(system, clean_spec + schema_context)
         if not sql or sql == "__QUOTA_EXCEEDED__":
             return {"sql": None, "error": "LLM unavailable"}
 
