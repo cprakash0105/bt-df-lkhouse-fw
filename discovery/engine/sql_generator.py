@@ -72,7 +72,7 @@ class SQLGenerator:
     def _generate_with_gemini(self, system_prompt: str, requirement: str) -> Optional[str]:
         """Use LLM to generate SQL."""
         from discovery.engine.llm_client import get_llm
-        return get_llm().generate(system=system_prompt, user=requirement, max_tokens=2000)
+        return get_llm().generate(system=system_prompt, user=requirement, max_tokens=3000)
 
     def generate_dataproduct(self, spec: str) -> dict:
         """Generate a full data product: SQL + metadata from a free-text or YAML spec.
