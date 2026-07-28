@@ -350,7 +350,7 @@ def main():
     results = {}
     for table in tables:
         # Resolve version per table — use CLI arg if given, else auto-detect latest
-        version = args.version or resolve_latest_version(config, table)
+        version = resolve_latest_version(config, table) if args.version is None else args.version
         log("bronze", f"Version for {table}: {version}")
         try:
             result = bronze_table(spark, config, table, version)
