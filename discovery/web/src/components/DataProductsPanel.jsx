@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { api } from '../api'
 
-export default function DataProductsPanel({ onChat }) {
+export default function DataProductsPanel({ onChat, prefilledDataset, onBrdPrefillUsed }) {
   const [sources, setSources] = useState([])
   const [products, setProducts] = useState([])
   const [savedSpecs, setSavedSpecs] = useState([])
@@ -12,7 +12,7 @@ export default function DataProductsPanel({ onChat }) {
   const [brdText, setBrdText] = useState('')
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
-  const [rightTab, setRightTab] = useState('brd') // 'brd' | 'build'
+  const [rightTab, setRightTab] = useState('brd')
   const [specYaml, setSpecYaml] = useState('')
 
   useEffect(() => {
@@ -21,6 +21,16 @@ export default function DataProductsPanel({ onChat }) {
       api.listBRDSpecs().then(r => setSavedSpecs(r.specs || [])).catch(() => {}),
     ]).catch(() => {}).finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    if (prefilledDataset) {
+      setBrdText(prev => prev ? prev
+        : `We need a data product using the newly onboarded dataset: ${prefilledDataset}.\n\nPlease include all relevant metrics, dimensions and joins with other available datasets.`
+      )
+      setRightTab('brd')
+      onBrdPrefillUsed?.()
+    }
+  }, [prefilledDataset])
 
   const handleParseBRD = async () => {
     if (!brdText.trim()) return

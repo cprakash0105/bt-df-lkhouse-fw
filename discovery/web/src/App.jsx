@@ -7,6 +7,7 @@ import ProfilerPanel from './components/ProfilerPanel'
 import DataProductsPanel from './components/DataProductsPanel'
 import GlossaryView from './components/GlossaryView'
 import TechnicalView from './components/TechnicalView'
+import DiscoveryModal from './components/DiscoveryModal'
 
 const VIEWS = {
   HOME: 'home',
@@ -26,6 +27,8 @@ export default function App() {
   const [profileResult, setProfileResult] = useState(null)
   const [loading, setLoading] = useState(false)
   const [landingDatasets, setLandingDatasets] = useState(null)
+  const [modalSuggestion, setModalSuggestion] = useState(null)
+  const [brdPrefill, setBrdPrefill] = useState(null)
 
   const addMessage = (msg) => setMessages(prev => [...prev, msg])
 
@@ -73,18 +76,19 @@ export default function App() {
         } else {
           addMessage({ role: 'assistant', content: 'Processing approval...', type: 'text' })
           const result = await api.approve()
+          const assetName = suggestion.asset_name
           addMessage({
             role: 'assistant',
-            content: `✅ **Approved: ${suggestion.asset_name}**\n\n` +
+            content: `✅ **Approved: ${assetName}**\n\n` +
               (result.new_terms_created?.length ? `• New BDEs: ${result.new_terms_created.join(', ')}\n` : '') +
               (result.ba_linked ? `• Linked to: ${result.ba_linked}\n` : '') +
               (result.config_gcs_path ? `• Config: ${result.config_gcs_path}\n` : '') +
-              (result.contract_path ? `• Contract: ${result.contract_path}\n` : '') +
               (result.errors?.length ? `\n⚠️ ${result.errors.join('; ')}` : '') +
-              '\n\nPipeline will trigger automatically. What\'s next?',
+              `\n\nDo you have a BRD to build a data product on top of **${assetName}**? Say **yes build data product** or continue with something else.`,
             type: 'text'
           })
           setSuggestion(null)
+          setModalSuggestion(null)
           setView(VIEWS.HOME)
         }
       }
@@ -123,12 +127,21 @@ export default function App() {
           type: 'text'
         })
       }
+      // Post-approval BRD intent
+      else if (lower.includes('yes build data product') || lower.includes('yes, build data product')) {
+        setView(VIEWS.DATA_PRODUCTS)
+        addMessage({
+          role: 'assistant',
+          content: `Go to the **Data Products** panel → **BRD → Spec** tab. The last approved dataset has been pre-filled as a source.`,
+          type: 'text'
+        })
+      }
       // BRD parse
       else if (_isBRDRequest(lower)) {
         setView(VIEWS.DATA_PRODUCTS)
         addMessage({
           role: 'assistant',
-          content: `Go to the **Data Products** panel → **BRD → Spec** tab and paste your requirements. Ontika will generate a structured YAML spec and save it to GCS.`,
+          content: `Go to the **Data Products** panel → **BRD → Spec** tab and paste your requirements.`,
           type: 'text'
         })
       }
@@ -147,7 +160,7 @@ export default function App() {
         addMessage({ role: 'assistant', content: 'Discovering...', type: 'loading' })
         const result = await api.discover({ text })
         setSuggestion(result)
-        setView(VIEWS.RESULTS)
+        setModalSuggestion(result)  // show as modal, don't switch view
         setMessages(prev => prev.filter(m => m.type !== 'loading'))
         addMessage({
           role: 'assistant',
@@ -156,7 +169,7 @@ export default function App() {
             `• Business App: ${result.business_application || '?'} (${Math.round(result.app_confidence * 100)}%)\n` +
             `• Primary Key: \`${result.primary_key}\`\n` +
             `• PII: ${result.fields.filter(f => f.is_pii).map(f => f.name).join(', ') || 'none'}\n\n` +
-            `Say **approve** when ready, or correct anything.`,
+            `Review in the popup. Say **approve** when ready, or correct anything.`,
           type: 'text'
         })
       }
@@ -177,11 +190,22 @@ export default function App() {
     }
   }
 
+  const handleModalApproved = (assetName) => {
+    setModalSuggestion(null)
+    setSuggestion(null)
+    setBrdPrefill(assetName)
+    addMessage({
+      role: 'assistant',
+      content: `✅ **${assetName}** onboarded. Do you have a BRD to build a data product on top of it? Say **yes build data product** or continue with something else.`,
+      type: 'text'
+    })
+  }
+
   // Render main panel based on current view
   const renderMainPanel = () => {
     switch (view) {
       case VIEWS.DATA_PRODUCTS:
-        return <DataProductsPanel onChat={handleSend} />
+        return <DataProductsPanel onChat={handleSend} prefilledDataset={brdPrefill} onBrdPrefillUsed={() => setBrdPrefill(null)} />
       case VIEWS.GLOSSARY:
         return <GlossaryView />
       case VIEWS.TECHNICAL:
@@ -197,6 +221,15 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen bg-ontika-light">
+      {/* Discovery modal — overlays current page */}
+      {modalSuggestion && (
+        <DiscoveryModal
+          suggestion={modalSuggestion}
+          setSuggestion={setModalSuggestion}
+          onClose={() => setModalSuggestion(null)}
+          onApproved={handleModalApproved}
+        />
+      )}
       {/* Top Nav */}
       <header className="flex items-center justify-between px-6 py-3 bg-white border-b border-gray-200 shadow-sm">
         <div className="flex items-center gap-3">
