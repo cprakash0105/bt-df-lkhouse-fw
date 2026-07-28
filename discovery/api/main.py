@@ -1183,6 +1183,8 @@ def parse_brd(req: BRDRequest):
         f"For each metric include the complete SQL aggregate expression.\n"
         f"For network_experience_score or any score scaled 0-100, wrap with GREATEST(0, LEAST(100, ...)).\n"
         f"dimensions must include ALL non-metric columns from the BRD gold output schema (subscriber_id, usage_date, customer_segment, city, state, region, device_type, network_type etc).\n"
+        f"dimensions must NOT include any metric names — only raw source columns used for grouping.\n"
+        f"domain must be taken from the BRD exactly, do not substitute with a domain from the available list.\n"
     )
 
     try:
