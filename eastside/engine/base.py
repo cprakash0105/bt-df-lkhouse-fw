@@ -184,18 +184,22 @@ def resolve_latest_version(config, table_name):
         blobs = client.list_blobs(bucket_name, prefix=prefix, delimiter="/")
         list(blobs)  # consume to populate prefixes
 
-        # Check for versioned subfolders (v1, v2, v3 ...)
+        # Check for versioned subfolders (v1, v2, v3 ...) that contain real files
         versions = []
         for p in blobs.prefixes:
             folder = p.rstrip("/").split("/")[-1]
             if folder.startswith("v") and folder[1:].isdigit():
-                versions.append(folder)
+                # Only count this version if it has real files (not just a directory marker)
+                real_files = [b for b in client.list_blobs(bucket_name, prefix=p, max_results=5)
+                              if not b.name.endswith("/") and b.size > 0]
+                if real_files:
+                    versions.append(folder)
         if versions:
             latest = sorted(versions, key=lambda v: int(v[1:]))[-1]
             log("config", f"Latest version for {table_name}: {latest}")
             return latest
 
-        # No versioned subfolders — check if files exist directly at the prefix
+        # No versioned subfolders with real files — check directly at the prefix
         direct_blobs = [b for b in client.list_blobs(bucket_name, prefix=prefix, max_results=5)
                         if not b.name.endswith("/") and b.size > 0]
         if direct_blobs:
