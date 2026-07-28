@@ -62,7 +62,10 @@ def get_unprocessed_versions(table_name: str) -> list:
     for p in blobs.prefixes:
         version = p.rstrip("/").split("/")[-1]
         if version.startswith("v") and version[1:].isdigit():
-            versions.append(version)
+            real_files = [b for b in bucket.list_blobs(prefix=p, max_results=5)
+                          if not b.name.endswith("/") and b.size > 0]
+            if real_files:
+                versions.append(version)
 
     # No versioned subfolders — check for flat files directly in landing/{table}/
     if not versions:
