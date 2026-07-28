@@ -36,7 +36,7 @@ def check_watermark(config, table_name, version):
     bucket_name = pipeline["bucket"]
     wm_path = f"bronze/_watermarks/{table_name}.json"
     try:
-        client = gcs_storage.Client(project=pipeline.get("project_id", "bt-df-lkhouse"))
+        client = gcs_storage.Client()
         bucket = client.bucket(bucket_name)
         blob = bucket.blob(wm_path)
         if not blob.exists():
@@ -73,7 +73,7 @@ def write_watermark(config, table_name, version):
     pipeline = config["pipeline"]
     bucket_name = pipeline["bucket"]
     wm_path = f"bronze/_watermarks/{table_name}.json"
-    client = gcs_storage.Client(project=pipeline.get("project_id", "bt-df-lkhouse"))
+    client = gcs_storage.Client()
     blob = client.bucket(bucket_name).blob(wm_path)
     try:
         wm = json.loads(blob.download_as_text()) if blob.exists() else {}

@@ -180,7 +180,7 @@ def resolve_latest_version(config, table_name):
         pipeline = config["pipeline"]
         bucket_name = pipeline["bucket"]
         prefix = f"{pipeline.get('landing_prefix', 'landing')}/{table_name}/"
-        client = gcs.Client(project=pipeline.get("project_id", "bt-df-lkhouse"))
+        client = gcs.Client()
         blobs = client.list_blobs(bucket_name, prefix=prefix, delimiter="/")
         list(blobs)  # consume to populate prefixes
 
@@ -204,7 +204,8 @@ def resolve_latest_version(config, table_name):
 
     except Exception as e:
         log("config", f"Version auto-detect failed for {table_name}: {e}", LogLevel.WARN)
-    return "v1"
+        raise  # re-raise so the job fails loudly instead of silently using v1
+    return ""
 
 
 def resolve_pipeline_vars(config, args):
