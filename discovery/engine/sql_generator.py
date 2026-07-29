@@ -25,6 +25,10 @@ Platform conventions:
   Always filter: WHERE is_current = true
 - Output target: `eastside_dataproduct.<name>` (BigQuery native table)
 - Dedup each source on its primary key before joining (use QUALIFY ROW_NUMBER())
+- Use LEFT JOIN for ALL dimension table joins
+- Never drop dimensions or metrics from the spec — include every one in SELECT and GROUP BY
+- Foreign keys added in later schema versions (e.g. device_id) may be NULL — use LEFT JOIN and COALESCE where needed
+- Geographic columns (city, state, region) must come from location_master joined via cell_tower_id, NOT from subscriber_master
 - Do NOT expose raw PII fields (first_name, last_name, email, phone, date_of_birth) in output
 - Use CREATE OR REPLACE TABLE syntax
 - Output ONLY valid BigQuery SQL. No explanation, no markdown fences.
@@ -109,7 +113,11 @@ class SQLGenerator:
                     f"Filters: {', '.join(str(f) for f in filters)}\n"
                     f"Grain: {grain}\n"
                     f"Join all source tables together using the correct join keys from the source schemas provided.\n"
-                    f"Use LEFT JOIN for any table that may not have data for all records (e.g. device_id added in a later schema version).\n"
+                    f"Use LEFT JOIN for all dimension tables.\n"
+                    f"For foreign keys that may be NULL (added in later schema versions like device_id), use LEFT JOIN and handle NULLs gracefully.\n"
+                    f"city, state, region must come from location_master joined via cell_tower_id, NOT from subscriber_master.\n"
+                    f"Always include ALL dimensions from the spec in both SELECT and GROUP BY.\n"
+                    f"Never drop a dimension or metric from the spec — if a column may be NULL use COALESCE or LEFT JOIN.\n"
                     f"Dedup each source using QUALIFY ROW_NUMBER() OVER (PARTITION BY <pk> ORDER BY event_timestamp DESC) = 1.\n"
                     f"Filter is_current = true on all silver tables.\n"
                     f"Do NOT expose PII fields (first_name, last_name, email, phone, date_of_birth).\n"
