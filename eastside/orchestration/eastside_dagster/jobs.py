@@ -29,3 +29,10 @@ gold_job = define_asset_job(
     description="Gold only: publish silver to BigQuery data products.",
     tags={"pipeline": "eastside", "layer": "gold"},
 )
+
+dataproduct_job = define_asset_job(
+    name="dataproduct_job",
+    selection=AssetSelection.assets("dataproduct_asset"),
+    description="Run LLM-generated data product SQL in BigQuery.",
+    tags={"pipeline": "eastside", "layer": "dataproduct"},
+)

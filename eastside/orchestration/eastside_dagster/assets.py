@@ -1,4 +1,4 @@
-from dagster import asset, AssetExecutionContext, Config, RetryPolicy, AssetIn
+from dagster import asset, AssetExecutionContext, Config, RetryPolicy
 import yaml
 from google.cloud import storage, bigquery
 from .resources import DataprocResource
@@ -18,7 +18,7 @@ CONNECTION = f"projects/{PROJECT_ID}/locations/{REGION}/connections/biglake-conn
 
 class BronzeConfig(Config):
     table: str = "all"
-    version: str = "auto"  # auto-detect flat or versioned landing
+    version: str = "auto"
 
 
 class SilverConfig(Config):
@@ -29,34 +29,35 @@ class GoldConfig(Config):
     table: str = "all"
 
 
+class DataProductConfig(Config):
+    table_name: str
+    sql_gcs_path: str  # gs://eastside-lakehouse/config/consumption/{table}.sql
+
+
 # ============================================================
 # HELPERS
 # ============================================================
 
 def get_all_tables() -> list:
-    """List all table configs from GCS."""
     gcs = storage.Client(project=PROJECT_ID)
     blobs = gcs.bucket(BUCKET).list_blobs(prefix="config/tables/")
     return [b.name.split("/")[-1].replace(".yaml", "") for b in blobs if b.name.endswith(".yaml")]
 
 
 def load_table_config(table_name: str) -> dict:
-    """Load a table's YAML config from GCS."""
     gcs = storage.Client(project=PROJECT_ID)
     blob = gcs.bucket(BUCKET).blob(f"config/tables/{table_name}.yaml")
     return yaml.safe_load(blob.download_as_text())
 
 
 def get_unprocessed_versions(table_name: str) -> list:
-    """Get versions in landing that haven't been processed yet (no watermark).
-    Returns [''] for flat landing (no version subfolders), or version list."""
     import json
     gcs = storage.Client(project=PROJECT_ID)
     bucket = gcs.bucket(BUCKET)
 
     prefix = f"landing/{table_name}/"
     blobs = bucket.list_blobs(prefix=prefix, delimiter="/")
-    _ = list(blobs)  # consume to populate prefixes
+    _ = list(blobs)
 
     versions = []
     for p in blobs.prefixes:
@@ -67,14 +68,12 @@ def get_unprocessed_versions(table_name: str) -> list:
             if real_files:
                 versions.append(version)
 
-    # No versioned subfolders — check for flat files directly in landing/{table}/
     if not versions:
         direct = [b for b in bucket.list_blobs(prefix=prefix, max_results=5)
                   if not b.name.endswith("/") and b.size > 0]
         if direct:
-            versions = [""]  # flat landing, no version subfolder
+            versions = [""]
 
-    # Check watermark
     wm_path = f"bronze/_watermarks/{table_name}.json"
     wm_blob = bucket.blob(wm_path)
     processed = []
@@ -82,12 +81,10 @@ def get_unprocessed_versions(table_name: str) -> list:
         wm = json.loads(wm_blob.download_as_text())
         processed = wm.get("processed_versions", [])
 
-    unprocessed = [v for v in sorted(versions) if v not in processed]
-    return unprocessed
+    return [v for v in sorted(versions) if v not in processed]
 
 
 def register_bq_external_table(table_name: str, database: str, dataset: str, context):
-    """Create BQ external table pointing to BLMS Iceberg table."""
     bq = bigquery.Client(project=PROJECT_ID)
     table_id = f"{PROJECT_ID}.{dataset}.{table_name}"
 
@@ -114,7 +111,6 @@ def register_bq_external_table(table_name: str, database: str, dataset: str, con
 
 
 def tag_columns(table_name: str, config: dict, context):
-    """Tag BQ columns with BDE descriptions and PII markers."""
     bq = bigquery.Client(project=PROJECT_ID)
     table_id = f"{PROJECT_ID}.eastside_dataproduct.{table_name}"
 
@@ -160,16 +156,10 @@ def tag_columns(table_name: str, config: dict, context):
     metadata={"layer": "bronze", "description": "Landing → Bronze Iceberg (append)"},
 )
 def bronze_asset(context: AssetExecutionContext, config: BronzeConfig, dataproc: DataprocResource):
-    """Ingest raw landing files into Bronze Iceberg tables.
-
-    Processes a specific version of landing data. If version is 'auto',
-    discovers and processes all unprocessed versions in order.
-    """
     tables = get_all_tables() if config.table == "all" else [config.table]
 
     for table in tables:
         if config.version == "auto":
-            # Auto-discover unprocessed versions
             versions = get_unprocessed_versions(table)
             if not versions:
                 context.log.info(f"Bronze [{table}]: no unprocessed versions found — skipping")
@@ -183,7 +173,6 @@ def bronze_asset(context: AssetExecutionContext, config: BronzeConfig, dataproc:
             job_id = dataproc.submit_and_wait("bronze", table, version=version)
             context.log.info(f"Bronze [{table}]: {version} complete (job: {job_id})")
 
-        # Register BQ external table (idempotent)
         register_bq_external_table(table, "bronze", "eastside_bronze", context)
 
 
@@ -195,11 +184,6 @@ def bronze_asset(context: AssetExecutionContext, config: BronzeConfig, dataproc:
     metadata={"layer": "silver", "description": "Bronze → Silver Iceberg (merge/SCD2)"},
 )
 def silver_asset(context: AssetExecutionContext, config: SilverConfig, dataproc: DataprocResource):
-    """Curate bronze data into Silver with dedup, DQ, masking, and SCD2 merge.
-
-    Reads all unprocessed records from bronze (incremental via _ingested_at).
-    Schema evolution enforced: add_column and type_widen allowed, drop_column and type_narrow blocked.
-    """
     tables = get_all_tables() if config.table == "all" else [config.table]
 
     for table in tables:
@@ -207,7 +191,6 @@ def silver_asset(context: AssetExecutionContext, config: SilverConfig, dataproc:
         job_id = dataproc.submit_and_wait("silver", table)
         context.log.info(f"Silver [{table}]: complete (job: {job_id})")
 
-        # Register BQ external table (idempotent)
         register_bq_external_table(table, "silver", "eastside_silver", context)
 
 
@@ -219,11 +202,6 @@ def silver_asset(context: AssetExecutionContext, config: SilverConfig, dataproc:
     metadata={"layer": "gold", "description": "Silver → BigQuery Data Product"},
 )
 def gold_asset(context: AssetExecutionContext, config: GoldConfig, dataproc: DataprocResource):
-    """Publish curated silver data as Gold data products in BigQuery.
-
-    Reads is_current=true from silver, validates against contract, writes native BQ table.
-    Schema is contract-locked — any missing required column fails the pipeline.
-    """
     tables = get_all_tables() if config.table == "all" else [config.table]
 
     for table in tables:
@@ -231,9 +209,32 @@ def gold_asset(context: AssetExecutionContext, config: GoldConfig, dataproc: Dat
         job_id = dataproc.submit_and_wait("gold", table)
         context.log.info(f"Gold [{table}]: complete (job: {job_id})")
 
-        # Tag columns with PII/PK metadata
         try:
             tbl_config = load_table_config(table)
             tag_columns(table, tbl_config, context)
         except Exception as e:
             context.log.warning(f"Column tagging skipped for {table}: {e}")
+
+
+@asset(
+    group_name="eastside",
+    retry_policy=RetryPolicy(max_retries=1, delay=30),
+    op_tags={"dagster/hook/alert_on_failure": "", "dagster/hook/log_on_success": ""},
+    metadata={"layer": "dataproduct", "description": "Run LLM-generated data product SQL in BigQuery"},
+)
+def dataproduct_asset(context: AssetExecutionContext, config: DataProductConfig):
+    """Read SQL from GCS and execute it in BigQuery directly.
+    Dagster VM service account has BQ permissions — no Cloud Run SA needed.
+    """
+    # Read SQL from GCS
+    context.log.info(f"Reading SQL from: {config.sql_gcs_path}")
+    parts = config.sql_gcs_path.replace("gs://", "").split("/", 1)
+    gcs = storage.Client(project=PROJECT_ID)
+    sql = gcs.bucket(parts[0]).blob(parts[1]).download_as_text()
+
+    # Execute in BigQuery
+    context.log.info(f"Executing SQL for: {config.table_name}")
+    bq = bigquery.Client(project=PROJECT_ID)
+    job = bq.query(sql)
+    job.result(timeout=300)
+    context.log.info(f"✅ Deployed: eastside_dataproduct.{config.table_name}")
