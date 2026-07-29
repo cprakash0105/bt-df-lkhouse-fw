@@ -126,7 +126,7 @@ class SQLGenerator:
         except Exception:
             pass
 
-        # Fetch schemas of source datasets from GCS landing to give LLM real column names
+        # Fetch schemas of source datasets from GCS landing — union of all versions
         source_schemas = {}
         if source_tables and GCS_AVAILABLE:
             try:
@@ -134,23 +134,29 @@ class SQLGenerator:
                 from io import StringIO as _StringIO
                 gcs_client = storage.Client(project=self.project_id)
                 for ds in source_tables:
+                    all_columns = set()
                     for bucket_name in ("eastside-lakehouse", CONFIG_BUCKET):
                         try:
                             blobs = list(gcs_client.bucket(bucket_name).list_blobs(
-                                prefix=f"landing/{ds}/", max_results=10))
-                            blob = next((b for b in blobs
-                                        if b.size and b.size > 0 and not b.name.endswith("/")), None)
-                            if blob:
-                                content = blob.download_as_text()
-                                if blob.name.endswith(".csv"):
-                                    reader = _csv.DictReader(_StringIO(content))
-                                    row = next(reader, None)
-                                    if row:
-                                        source_schemas[ds] = list(row.keys())
-                                else:
-                                    import json as _json
-                                    record = _json.loads(content.strip().split("\n")[0])
-                                    source_schemas[ds] = list(record.keys())
+                                prefix=f"landing/{ds}/", max_results=20))
+                            for blob in blobs:
+                                if not blob.size or blob.size == 0 or blob.name.endswith("/"):
+                                    continue
+                                try:
+                                    content = blob.download_as_text()
+                                    if blob.name.endswith(".csv"):
+                                        reader = _csv.DictReader(_StringIO(content))
+                                        row = next(reader, None)
+                                        if row:
+                                            all_columns.update(row.keys())
+                                    else:
+                                        import json as _json
+                                        record = _json.loads(content.strip().split("\n")[0])
+                                        all_columns.update(record.keys())
+                                except Exception:
+                                    continue
+                            if all_columns:
+                                source_schemas[ds] = sorted(all_columns)
                                 break
                         except Exception:
                             continue
@@ -177,15 +183,20 @@ class SQLGenerator:
         sql = re.sub(r"^```[a-z]*\n?", "", sql.strip(), flags=re.MULTILINE)
         sql = re.sub(r"```$", "", sql.strip()).strip()
 
-        # Validate all dimensions are present — if any missing, ask LLM to fix
-        missing_dims = [d for d in dimensions if str(d) not in sql]
+        # Validate all dimensions are in SELECT and GROUP BY — ask LLM to fix if missing
+        missing_dims = [d for d in dimensions
+                        if not re.search(rf'\b{re.escape(str(d))}\b', sql)]
         if missing_dims:
             fix_prompt = (
-                f"The following SQL is missing these required dimensions in SELECT and GROUP BY: {missing_dims}.\n"
-                f"Add them back. All dimensions must appear in both SELECT and GROUP BY.\n"
-                f"For device_type: LEFT JOIN eastside_silver.device_master dm ON c.device_id = dm.device_id, SELECT COALESCE(dm.device_type, 'Unknown') AS device_type.\n"
-                f"For network_type: it is a column in cdr_usage_events, use c.network_type.\n"
-                f"Return ONLY the corrected complete SQL, no explanation.\n\n{sql}"
+                f"This SQL is missing required dimensions: {missing_dims}.\n"
+                f"Rules:\n"
+                f"- Every dimension must appear in both SELECT and GROUP BY\n"
+                f"- network_type: already in cdr table, add as cdr_alias.network_type in SELECT and GROUP BY\n"
+                f"- device_type: add a new CTE dedup_dev from eastside_silver.device_master, "
+                f"LEFT JOIN on cdr_alias.device_id = dev.device_id, "
+                f"SELECT COALESCE(dev.device_type, 'Unknown') AS device_type, add to GROUP BY\n"
+                f"- Source schemas available: {source_schemas}\n"
+                f"Return ONLY the complete corrected SQL, no explanation, no markdown.\n\n{sql}"
             )
             fixed = self._generate_with_gemini(system, fix_prompt)
             if fixed and fixed != "__QUOTA_EXCEEDED__":
