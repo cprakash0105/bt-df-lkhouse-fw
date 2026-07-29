@@ -169,6 +169,22 @@ class SQLGenerator:
             for ds, cols in source_schemas.items():
                 schema_context += f"  {ds}: {', '.join(cols)}\n"
 
+            # Map each dimension to its source table so LLM knows exactly where each column comes from
+            dim_source_map = {}
+            for dim in dimensions:
+                for ds, cols in source_schemas.items():
+                    if str(dim) in cols:
+                        dim_source_map.setdefault(str(dim), [])
+                        dim_source_map[str(dim)].append(ds)
+            if dim_source_map:
+                schema_context += "\nDimension to source table mapping (every dimension MUST appear in SELECT and GROUP BY):\n"
+                for dim, sources in dim_source_map.items():
+                    schema_context += f"  {dim} → found in: {', '.join(sources)}\n"
+            # Flag dimensions not found in any schema
+            missing_from_schema = [d for d in dimensions if str(d) not in dim_source_map]
+            if missing_from_schema:
+                schema_context += f"\nDimensions not found in landing schemas (may be derived): {missing_from_schema}\n"
+
         # Use source tables from spec if available, otherwise fall back to discovered tables
         if source_tables:
             tables_desc = ", ".join(str(s) for s in source_tables)
@@ -183,19 +199,20 @@ class SQLGenerator:
         sql = re.sub(r"^```[a-z]*\n?", "", sql.strip(), flags=re.MULTILINE)
         sql = re.sub(r"```$", "", sql.strip()).strip()
 
-        # Validate all dimensions are in SELECT and GROUP BY — ask LLM to fix if missing
-        missing_dims = [d for d in dimensions
-                        if not re.search(rf'\b{re.escape(str(d))}\b', sql)]
+        # Validate all dimensions are in SELECT as standalone columns
+        def _dim_in_select(dim, sql):
+            return bool(re.search(
+                rf'(?:,|SELECT)\s*\n?\s*[\w.]*{re.escape(str(dim))}(?:\s+AS\s+\w+)?\s*[,\n]',
+                sql, re.IGNORECASE
+            ))
+
+        missing_dims = [d for d in dimensions if not _dim_in_select(str(d), sql)]
         if missing_dims:
             fix_prompt = (
-                f"This SQL is missing required dimensions: {missing_dims}.\n"
-                f"Rules:\n"
-                f"- Every dimension must appear in both SELECT and GROUP BY\n"
-                f"- network_type: already in cdr table, add as cdr_alias.network_type in SELECT and GROUP BY\n"
-                f"- device_type: add a new CTE dedup_dev from eastside_silver.device_master, "
-                f"LEFT JOIN on cdr_alias.device_id = dev.device_id, "
-                f"SELECT COALESCE(dev.device_type, 'Unknown') AS device_type, add to GROUP BY\n"
-                f"- Source schemas available: {source_schemas}\n"
+                f"This SQL is missing these dimensions as standalone SELECT columns: {missing_dims}.\n"
+                f"Every dimension must appear as its own SELECT column AND in GROUP BY.\n"
+                f"Use the dimension-to-source mapping below to find the correct table and column.\n"
+                f"{schema_context}\n"
                 f"Return ONLY the complete corrected SQL, no explanation, no markdown.\n\n{sql}"
             )
             fixed = self._generate_with_gemini(system, fix_prompt)
