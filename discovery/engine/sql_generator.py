@@ -177,6 +177,22 @@ class SQLGenerator:
         sql = re.sub(r"^```[a-z]*\n?", "", sql.strip(), flags=re.MULTILINE)
         sql = re.sub(r"```$", "", sql.strip()).strip()
 
+        # Validate all dimensions are present — if any missing, ask LLM to fix
+        missing_dims = [d for d in dimensions if str(d) not in sql]
+        if missing_dims:
+            fix_prompt = (
+                f"The following SQL is missing these required dimensions in SELECT and GROUP BY: {missing_dims}.\n"
+                f"Add them back. All dimensions must appear in both SELECT and GROUP BY.\n"
+                f"For device_type: LEFT JOIN eastside_silver.device_master dm ON c.device_id = dm.device_id, SELECT COALESCE(dm.device_type, 'Unknown') AS device_type.\n"
+                f"For network_type: it is a column in cdr_usage_events, use c.network_type.\n"
+                f"Return ONLY the corrected complete SQL, no explanation.\n\n{sql}"
+            )
+            fixed = self._generate_with_gemini(system, fix_prompt)
+            if fixed and fixed != "__QUOTA_EXCEEDED__":
+                fixed = re.sub(r"^```[a-z]*\n?", "", fixed.strip(), flags=re.MULTILINE)
+                fixed = re.sub(r"```$", "", fixed.strip()).strip()
+                sql = fixed
+
         table_name = product_name or self._extract_table_name(sql)
         gcs_path = self._push_to_gcs_eastside(table_name, sql)
         return {"sql": sql, "table_name": table_name, "gcs_path": gcs_path}
