@@ -51,7 +51,8 @@ def check_watermark(config, table_name, version):
             return True  # no timestamp recorded, trust the version list
         last_dt = dt.fromisoformat(last_ts)
         landing_prefix = f"{pipeline.get('landing_prefix', 'landing')}/{table_name}/{version}/" if version else f"{pipeline.get('landing_prefix', 'landing')}/{table_name}/"
-        blobs = list(bucket.list_blobs(prefix=landing_prefix))
+        blobs = [b for b in bucket.list_blobs(prefix=landing_prefix)
+                 if not b.name.endswith("/") and b.size > 0]
         if not blobs:
             return True  # no files at all, nothing to reprocess
         newest_file = max(b.updated for b in blobs)
