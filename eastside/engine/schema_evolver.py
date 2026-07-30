@@ -130,10 +130,20 @@ class SchemaEvolver:
         return df
 
     def check_fingerprint(self, df: DataFrame, table_full: str) -> bool:
-        """Check if incoming schema matches stored fingerprint. Returns True if unchanged."""
+        """Check if incoming schema matches stored fingerprint AND Iceberg table schema.
+        Returns True (skip detection) only if both match."""
         try:
+            # Also check incoming schema matches the actual Iceberg table
+            try:
+                table_cols = set(self.spark.read.table(table_full).columns)
+                incoming_cols = set(f.name for f in df.schema.fields)
+                if not incoming_cols.issubset(table_cols):
+                    return False  # table is missing columns — must run detection
+            except Exception:
+                pass  # table doesn't exist yet — fingerprint check handles it
+
             from google.cloud import storage as gcs_storage
-            bucket_name = "eastside-lakehouse"  # TODO: make configurable
+            bucket_name = "eastside-lakehouse"
             fp_path = f"{self.layer}/_schema_fingerprints/{self.table_name}.json"
             client = gcs_storage.Client()
             blob = client.bucket(bucket_name).blob(fp_path)
