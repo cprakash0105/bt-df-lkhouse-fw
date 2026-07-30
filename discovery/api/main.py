@@ -1380,6 +1380,7 @@ def _trigger_dagster_job(table_name: str) -> Optional[str]:
                                     headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=30) as resp:
             result = json.loads(resp.read().decode())
+        print(f"[API] Dagster raw response: {json.dumps(result)[:500]}")
         launch = result.get("data", {}).get("launchRun", {})
         if launch.get("__typename") == "LaunchRunSuccess":
             return launch["run"]["runId"]
@@ -1387,6 +1388,49 @@ def _trigger_dagster_job(table_name: str) -> Optional[str]:
     except Exception as e:
         print(f"[API] Dagster trigger failed: {e}")
     return None
+
+
+@app.get("/debug/dagster")
+def debug_dagster(table: str = "test_table"):
+    """Test Dagster GraphQL trigger directly. Returns full response for debugging."""
+    import urllib.request
+    graphql_url = f"{DAGSTER_URL}/graphql"
+    query = """
+    mutation($executionParams: ExecutionParams!) {
+      launchRun(executionParams: $executionParams) {
+        __typename
+        ... on LaunchRunSuccess { run { runId } }
+        ... on PythonError { message }
+        ... on InvalidSubsetError { message }
+        ... on RunConfigValidationInvalid { errors { message } }
+      }
+    }
+    """
+    variables = {
+        "executionParams": {
+            "selector": {
+                "repositoryLocationName": "eastside_dagster",
+                "repositoryName": "__repository__",
+                "jobName": "eastside_pipeline_job",
+            },
+            "runConfigData": {
+                "ops": {
+                    "bronze_asset": {"config": {"table": table}},
+                    "silver_asset": {"config": {"table": table}},
+                    "gold_asset": {"config": {"table": table}},
+                }
+            },
+        }
+    }
+    payload = json.dumps({"query": query, "variables": variables}).encode()
+    try:
+        req = urllib.request.Request(graphql_url, data=payload,
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            result = json.loads(resp.read().decode())
+        return {"dagster_url": DAGSTER_URL, "response": result}
+    except Exception as e:
+        return {"dagster_url": DAGSTER_URL, "error": str(e)}
 
 
 def _list_landing_datasets() -> list[str]:
