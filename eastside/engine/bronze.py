@@ -301,18 +301,22 @@ def bronze_table(spark, config, table_name, version):
 
     # 7. Append to Iceberg bronze
     log("bronze", f"Appending {df.count()} records to {target_table}")
+    table_exists = True
     try:
-        df.writeTo(target_table).append()
-        log("bronze", f"✅ Appended to existing table")
-    except Exception as e:
-        if "TABLE_OR_VIEW_ALREADY_EXISTS" in str(e) or "already exists" in str(e).lower():
-            raise
-        try:
+        spark.read.table(target_table)
+    except Exception:
+        table_exists = False
+
+    try:
+        if table_exists:
+            df.writeTo(target_table).append()
+            log("bronze", f"✅ Appended to existing table")
+        else:
             df.writeTo(target_table).create()
             log("bronze", f"✅ Created new table")
-        except Exception as e2:
-            log_error("bronze", f"Failed to write: {target_table}", e2)
-            raise
+    except Exception as e:
+        log_error("bronze", f"Failed to write: {target_table}", e)
+        raise
     evolver.save_fingerprint(df)
 
     # 8. Write watermark
