@@ -104,6 +104,8 @@ class SchemaEvolver:
 
         # Audit records collected during this run
         self._audit_records = []
+        # Columns added via ALTER TABLE this run (used by align_to_table)
+        self._last_add_columns: set = set()
 
         log("schema", f"[{self.table_name}] Layer={layer}, "
                       f"allowed={self.allowed}, blocked={self.blocked}, "
@@ -368,6 +370,9 @@ class SchemaEvolver:
         # Save fingerprint after successful processing
         self.save_fingerprint(df)
 
+        # Store add_columns so align_to_table can use them without re-reading stale schema
+        self._last_add_columns = set(changes.get("add_columns", {}).keys())
+
         return df
 
     def quarantine_schema_violation(self, df: DataFrame, table_full: str,
@@ -393,17 +398,22 @@ class SchemaEvolver:
     def align_to_table(self, df: DataFrame, table_full: str) -> DataFrame:
         """Align DataFrame columns to match existing table schema (order + missing as NULL)."""
         try:
-            table_cols = self.spark.read.table(table_full).columns
+            table_cols = list(self.spark.read.table(table_full).columns)
         except Exception:
             return df  # New table, no alignment needed
+
+        # Include any columns added by ALTER TABLE this run (may not be in cached schema yet)
+        added_this_run = getattr(self, "_last_add_columns", set())
+        for col_name in added_this_run:
+            if col_name not in table_cols:
+                table_cols.append(col_name)
 
         # Add any missing columns as NULL
         for col_name in table_cols:
             if col_name not in df.columns:
                 df = df.withColumn(col_name, lit(None))
 
-        # Select in table column order (only columns that exist in table)
-        # Plus any new columns from incoming
+        # Select in table column order + new columns
         existing_set = set(table_cols)
         new_cols = [c for c in df.columns if c not in existing_set]
         select_order = table_cols + new_cols
