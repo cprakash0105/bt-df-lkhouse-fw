@@ -306,14 +306,14 @@ def bronze_table(spark, config, table_name, version):
         log("bronze", f"✅ Appended to existing table")
     except Exception as e:
         if "TABLE_OR_VIEW_ALREADY_EXISTS" in str(e):
-            raise  # table exists but append failed for another reason — don't try create
-        # Table doesn't exist — create it
+            raise
         try:
             df.writeTo(target_table).create()
             log("bronze", f"✅ Created new table")
         except Exception as e2:
             log_error("bronze", f"Failed to write: {target_table}", e2)
             raise
+    evolver.save_fingerprint(df)
 
     # 8. Write watermark
     write_watermark(config, table_name, version)

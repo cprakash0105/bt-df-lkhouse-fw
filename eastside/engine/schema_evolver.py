@@ -367,9 +367,6 @@ class SchemaEvolver:
                     df = df.withColumn(col_name, lit(None))
                     self._record_audit("drop_column", col_name, "", "", "null_filled")
 
-        # Save fingerprint after successful processing
-        self.save_fingerprint(df)
-
         # Store add_columns so align_to_table can use them without re-reading stale schema
         self._last_add_columns = set(changes.get("add_columns", {}).keys())
 
