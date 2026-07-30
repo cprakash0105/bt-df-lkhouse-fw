@@ -915,12 +915,14 @@ def approve(req: ApproveRequest):
         scd_type = scd_gen.infer_scd_type("", suggestion.data_domain)
         scd_path = scd_gen.generate_and_push(suggestion, scd_type=scd_type)
 
-    # Trigger first pipeline run via Dagster (EastSide datasets only)
+    # Trigger first pipeline run via Dagster
     dagster_run_id = None
-    if results.get("config_gcs_path") and "eastside-lakehouse" in (results["config_gcs_path"] or ""):
+    if results.get("config_gcs_path"):
         dagster_run_id = _trigger_dagster_job(suggestion.asset_name)
         if dagster_run_id:
             _log.info("Dagster job triggered", run_id=dagster_run_id, table=suggestion.asset_name)
+        else:
+            _log.warn("Dagster job trigger failed", table=suggestion.asset_name)
 
     _log.info("Approval complete", asset_name=suggestion.asset_name,
               new_terms=results["new_terms_created"], ba_linked=results["ba_linked"],
