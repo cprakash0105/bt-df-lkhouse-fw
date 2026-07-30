@@ -304,13 +304,15 @@ def bronze_table(spark, config, table_name, version):
     try:
         df.writeTo(target_table).option("merge-schema", "true").append()
         log("bronze", f"✅ Appended to existing table")
-    except Exception:
+    except Exception as e:
+        if "TABLE_OR_VIEW_ALREADY_EXISTS" in str(e):
+            raise  # table exists but append failed for another reason — don't try create
         # Table doesn't exist — create it
         try:
             df.writeTo(target_table).create()
             log("bronze", f"✅ Created new table")
-        except Exception as e:
-            log_error("bronze", f"Failed to write: {target_table}", e)
+        except Exception as e2:
+            log_error("bronze", f"Failed to write: {target_table}", e2)
             raise
 
     # 8. Write watermark

@@ -280,7 +280,7 @@ class SchemaEvolver:
 
         # --- ADD COLUMNS ---
         if changes["add_columns"]:
-            if "add_column" in self.allowed:
+            if "add_column" in self.allowed or self.layer == "bronze":
                 for col_name, col_type in changes["add_columns"].items():
                     log("schema", f"[{self.table_name}] ✅ ADD: {col_name} ({col_type})")
                     self._record_audit("add_column", col_name, "", col_type, "applied")
