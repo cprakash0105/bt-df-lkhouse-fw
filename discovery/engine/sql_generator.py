@@ -191,6 +191,10 @@ class SQLGenerator:
 
         system = SYSTEM_PROMPT.format(available_tables=tables_desc)
 
+        print(f"[SQLGenerator] source_schemas keys: {list(source_schemas.keys())}")
+        print(f"[SQLGenerator] dim_source_map: {dim_source_map if source_schemas else 'empty'}")
+        print(f"[SQLGenerator] schema_context length: {len(schema_context)}")
+
         sql = self._generate_with_gemini(system, clean_spec + schema_context)
         if not sql or sql == "__QUOTA_EXCEEDED__":
             return {"sql": None, "error": "LLM unavailable"}
