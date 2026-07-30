@@ -1042,7 +1042,7 @@ def deploy_dataproduct(req: DeployDataProductRequest):
                 "repositoryName": "__repository__",
                 "jobName": "dataproduct_job",
             },
-            "runConfigData": json.dumps({
+            "runConfigData": {
                 "ops": {
                     "dataproduct_asset": {
                         "config": {
@@ -1051,7 +1051,7 @@ def deploy_dataproduct(req: DeployDataProductRequest):
                         }
                     }
                 }
-            }),
+            },
         }
     }
     payload = json.dumps({"query": query, "variables": variables}).encode()
@@ -1365,13 +1365,13 @@ def _trigger_dagster_job(table_name: str) -> Optional[str]:
                 "repositoryName": "__repository__",
                 "jobName": "eastside_pipeline_job",
             },
-            "runConfigData": json.dumps({
+            "runConfigData": {
                 "ops": {
                     "bronze_asset": {"config": {"table": table_name}},
                     "silver_asset": {"config": {"table": table_name}},
                     "gold_asset": {"config": {"table": table_name}},
                 }
-            }),
+            },
         }
     }
     payload = json.dumps({"query": query, "variables": variables}).encode()
