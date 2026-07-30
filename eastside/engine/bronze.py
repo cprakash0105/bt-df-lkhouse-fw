@@ -302,10 +302,10 @@ def bronze_table(spark, config, table_name, version):
     # 7. Append to Iceberg bronze
     log("bronze", f"Appending {df.count()} records to {target_table}")
     try:
-        df.writeTo(target_table).option("merge-schema", "true").append()
+        df.writeTo(target_table).append()
         log("bronze", f"✅ Appended to existing table")
     except Exception as e:
-        if "TABLE_OR_VIEW_ALREADY_EXISTS" in str(e):
+        if "TABLE_OR_VIEW_ALREADY_EXISTS" in str(e) or "already exists" in str(e).lower():
             raise
         try:
             df.writeTo(target_table).create()
