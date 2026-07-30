@@ -1,9 +1,10 @@
 from dagster import define_asset_job, AssetSelection
 
 # Full pipeline: bronze → silver → gold (all tables)
+# Excludes dataproduct_asset — that has required config and is triggered separately
 eastside_pipeline_job = define_asset_job(
     name="eastside_pipeline_job",
-    selection=AssetSelection.groups("eastside"),
+    selection=AssetSelection.assets("bronze_asset", "silver_asset", "gold_asset"),
     description="Full pipeline: bronze → silver → gold for all tables.",
     tags={"pipeline": "eastside", "scope": "full"},
 )
