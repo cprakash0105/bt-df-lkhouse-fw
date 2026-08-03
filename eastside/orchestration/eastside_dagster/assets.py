@@ -1,5 +1,6 @@
 from dagster import asset, AssetExecutionContext, Config, RetryPolicy
 import yaml
+import json
 from google.cloud import storage, bigquery
 from .resources import DataprocResource
 from .hooks import alert_on_failure, log_on_success
@@ -38,7 +39,53 @@ class DataProductConfig(Config):
 # HELPERS
 # ============================================================
 
-def get_all_tables() -> list:
+def load_pipeline_config() -> dict:
+    """Load pipeline.yaml from GCS for lineage enrichment."""
+    gcs = storage.Client(project=PROJECT_ID)
+    blob = gcs.bucket(BUCKET).blob("config/pipeline.yaml")
+    import yaml
+    cfg = yaml.safe_load(blob.download_as_text())
+    cfg["pipeline"]["project_id"] = PROJECT_ID
+    cfg["pipeline"]["region"] = REGION
+    cfg["pipeline"]["bucket"] = BUCKET
+    return cfg
+
+
+def _enrich_lineage(context, table: str, stage: str, job_id: str, asset_name: str):
+    """Best-effort: enrich the engine-emitted lineage event with Dagster context."""
+    try:
+        from google.cloud import storage as gcs_storage
+        import json
+        # Find the most recent COMPLETE event for this table+stage
+        client = gcs_storage.Client(project=PROJECT_ID)
+        prefix = f"lineage/{table}/{stage}_"
+        blobs = sorted(
+            [b for b in client.list_blobs(BUCKET, prefix=prefix) if b.name.endswith("_complete.json")],
+            key=lambda b: b.updated,
+            reverse=True,
+        )
+        if not blobs:
+            context.log.warning(f"[lineage] No COMPLETE event found for {stage}.{table}")
+            return
+        blob = blobs[0]
+        event = json.loads(blob.download_as_text())
+        event["run"]["facets"].setdefault("dagsterContext", {}).update({
+            "dagsterRunId": context.run_id,
+            "dagsterJobName": context.job_name,
+            "dagsterAssetName": asset_name,
+            "dataprocJobId": job_id,
+            "enrichedAt": __import__('datetime').datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        })
+        blob.upload_from_string(
+            json.dumps(event, indent=2, default=str),
+            content_type="application/json",
+        )
+        context.log.info(f"[lineage] Enriched {stage}.{table} with Dagster context (run={context.run_id})")
+    except Exception as e:
+        context.log.warning(f"[lineage] Enrichment failed for {stage}.{table} (non-fatal): {e}")
+
+
+
     gcs = storage.Client(project=PROJECT_ID)
     blobs = gcs.bucket(BUCKET).list_blobs(prefix="config/tables/")
     return [b.name.split("/")[-1].replace(".yaml", "") for b in blobs if b.name.endswith(".yaml")]
@@ -172,6 +219,7 @@ def bronze_asset(context: AssetExecutionContext, config: BronzeConfig, dataproc:
             context.log.info(f"Bronze [{table}]: processing {version}")
             job_id = dataproc.submit_and_wait("bronze", table, version=version)
             context.log.info(f"Bronze [{table}]: {version} complete (job: {job_id})")
+            _enrich_lineage(context, table, "bronze", job_id, "bronze_asset")
 
         register_bq_external_table(table, "bronze", "eastside_bronze", context)
 
@@ -190,6 +238,7 @@ def silver_asset(context: AssetExecutionContext, config: SilverConfig, dataproc:
         context.log.info(f"Silver [{table}]: starting")
         job_id = dataproc.submit_and_wait("silver", table)
         context.log.info(f"Silver [{table}]: complete (job: {job_id})")
+        _enrich_lineage(context, table, "silver", job_id, "silver_asset")
 
         register_bq_external_table(table, "silver", "eastside_silver", context)
 
@@ -208,6 +257,7 @@ def gold_asset(context: AssetExecutionContext, config: GoldConfig, dataproc: Dat
         context.log.info(f"Gold [{table}]: starting")
         job_id = dataproc.submit_and_wait("gold", table)
         context.log.info(f"Gold [{table}]: complete (job: {job_id})")
+        _enrich_lineage(context, table, "gold", job_id, "gold_asset")
 
         try:
             tbl_config = load_table_config(table)

@@ -12,6 +12,7 @@ class DataprocResource(ConfigurableResource):
     PY_FILES: ClassVar[list] = [
         "gs://eastside-lakehouse/engine/base.py",
         "gs://eastside-lakehouse/engine/schema_evolver.py",
+        "gs://eastside-lakehouse/engine/lineage.py",
     ]
     JARS: ClassVar[list] = [
         "gs://bt-df-lkhouse-lakehouse/spark/iceberg-spark-runtime.jar",

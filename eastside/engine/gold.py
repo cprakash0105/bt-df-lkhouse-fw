@@ -10,6 +10,7 @@ Usage:
 """
 import sys
 from datetime import datetime
+from datetime import datetime
 from base import (
     get_spark, load_config, get_table_config, get_all_tables,
     parse_args, resolve_pipeline_vars, log, log_header,
@@ -105,17 +106,18 @@ def gold_table(spark, config, table_name):
     pipeline = config["pipeline"]
     catalog = pipeline["catalog"]
     silver_ns = pipeline["silver_namespace"]
-    silver_table = f"{catalog}.{silver_ns}.{table_name}"
+    silver_table_name = f"{catalog}.{silver_ns}.{table_name}"
+    batch_id = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     log_header(f"GOLD: {table_name.upper()}")
-    log("gold", f"Source: {silver_table} (is_current=true)")
+    log("gold", f"Source: {silver_table_name} (is_current=true)")
 
     # 1. Read current records from silver
     try:
-        df = spark.read.table(silver_table).filter(col("is_current") == True)
+        df = spark.read.table(silver_table_name).filter(col("is_current") == True)
     except Exception as e:
-        log_error("gold", f"Cannot read silver table: {silver_table}", e)
-        raise RuntimeError(f"Silver table not found: {silver_table}. Run silver first.")
+        log_error("gold", f"Cannot read silver table: {silver_table_name}", e)
+        raise RuntimeError(f"Silver table not found: {silver_table_name}. Run silver first.")
 
     record_count = df.count()
     log("gold", f"Current silver records: {record_count}")
@@ -127,6 +129,7 @@ def gold_table(spark, config, table_name):
     df = validate_contract(df, table_config, table_name)
 
     # 3. Project gold schema (drop internal columns)
+    input_df_for_lineage = df  # capture pre-projection schema for lineage
     df = project_gold_schema(df, table_config)
 
     # 4. Write to BigQuery
@@ -138,6 +141,20 @@ def gold_table(spark, config, table_name):
         tag_table(table_config, pipeline)
     except Exception as e:
         log("gold", f"Catalog tagging failed (non-fatal): {e}", LogLevel.WARN)
+
+    # 6. Emit lineage
+    from lineage import emit_lineage
+    emit_lineage(
+        config=config,
+        table_name=table_name,
+        stage="gold",
+        run_id=batch_id,
+        status="COMPLETE",
+        input_df=input_df_for_lineage,
+        output_df=df,
+        input_row_count=record_count,
+        output_row_count=df.count(),
+    )
 
     return "SUCCESS"
 
@@ -167,12 +184,19 @@ def main():
 
     results = {}
     for table in tables:
+        batch_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         try:
             result = gold_table(spark, config, table)
             results[table] = result
         except Exception as e:
             log_error("gold", f"Table '{table}' failed", e)
             results[table] = "FAILED"
+            try:
+                from lineage import emit_lineage
+                emit_lineage(config=config, table_name=table, stage="gold",
+                             run_id=batch_id, status="FAIL", error_message=str(e))
+            except Exception:
+                pass
 
     log_summary("gold", results)
     flush_logs_to_gcs("gold", config)

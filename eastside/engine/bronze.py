@@ -296,6 +296,7 @@ def bronze_table(spark, config, table_name, version):
     # 6. Schema evolution (bronze = accept all)
     from schema_evolver import SchemaEvolver
     evolver = SchemaEvolver(spark, table_config, "bronze")
+    schema_changes = evolver.detect_changes(df, target_table)
     df = evolver.apply(df, target_table)
     df = evolver.align_to_table(df, target_table)
 
@@ -325,6 +326,25 @@ def bronze_table(spark, config, table_name, version):
     # 9. Reconciliation log
     final_count = spark.read.table(target_table).count()
     log("bronze", f"Reconciliation: source={source_count}, bronze_total={final_count}")
+
+    # 10. Emit lineage
+    from lineage import emit_lineage
+    emit_lineage(
+        config=config,
+        table_name=table_name,
+        stage="bronze",
+        run_id=batch_id,
+        status="COMPLETE",
+        input_df=df,
+        output_df=spark.read.table(target_table),
+        input_row_count=source_count,
+        output_row_count=final_count,
+        schema_changes=schema_changes,
+        source_path=f"{config['pipeline']['landing_path']}/{table_name}" + (f"/{version}" if version else ""),
+        source_format=table_config.get("source_format", "json"),
+        version=version,
+        batch_id=batch_id,
+    )
 
     return "SUCCESS"
 
@@ -359,12 +379,20 @@ def main():
         # Resolve version per table — use CLI arg if given, else auto-detect latest
         version = resolve_latest_version(config, table) if args.version is None else args.version
         log("bronze", f"Version for {table}: {version}")
+        batch_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         try:
             result = bronze_table(spark, config, table, version)
             results[table] = result
         except Exception as e:
             log_error("bronze", f"Table '{table}' failed", e)
             results[table] = "FAILED"
+            try:
+                from lineage import emit_lineage
+                emit_lineage(config=config, table_name=table, stage="bronze",
+                             run_id=batch_id, status="FAIL",
+                             version=version, error_message=str(e))
+            except Exception:
+                pass
 
     log_summary("bronze", results)
     flush_logs_to_gcs("bronze", config)

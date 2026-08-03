@@ -8,6 +8,7 @@ import DataProductsPanel from './components/DataProductsPanel'
 import GlossaryView from './components/GlossaryView'
 import TechnicalView from './components/TechnicalView'
 import DiscoveryModal from './components/DiscoveryModal'
+import LineageModal from './components/LineageModal'
 
 const VIEWS = {
   HOME: 'home',
@@ -29,6 +30,7 @@ export default function App() {
   const [landingDatasets, setLandingDatasets] = useState(null)
   const [modalSuggestion, setModalSuggestion] = useState(null)
   const [brdPrefill, setBrdPrefill] = useState(null)
+  const [lineageDataset, setLineageDataset] = useState(null)
 
   const addMessage = (msg) => setMessages(prev => [...prev, msg])
 
@@ -230,6 +232,13 @@ export default function App() {
           onApproved={handleModalApproved}
         />
       )}
+      {/* Lineage modal */}
+      {lineageDataset !== null && (
+        <LineageModal
+          initialDataset={lineageDataset}
+          onClose={() => setLineageDataset(null)}
+        />
+      )}
       {/* Top Nav */}
       <header className="flex items-center justify-between px-6 py-3 bg-white border-b border-gray-200 shadow-sm">
         <div className="flex items-center gap-3">
@@ -262,6 +271,13 @@ export default function App() {
               {icon} {label}
             </button>
           ))}
+          {/* Lineage — opens modal, not a view */}
+          <button
+            onClick={() => setLineageDataset('')}
+            className="px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-150 text-gray-500 hover:text-gray-700 hover:bg-white/60"
+          >
+            🔗 Lineage
+          </button>
         </nav>
 
         <div className="text-right hidden sm:block">

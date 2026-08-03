@@ -53,4 +53,5 @@ export const api = {
   deployDataProduct: (table_name, sql, description = null, source_datasets = null, domain = null) =>
     request('/dataproduct/deploy', { method: 'POST', body: JSON.stringify({ table_name, sql, description, source_datasets, domain }) }),
   listDeployedDataProducts: () => request('/dataproduct/list'),
+  lineage: (dataset) => request(`/lineage/${encodeURIComponent(dataset)}`),
 }

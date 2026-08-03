@@ -15,7 +15,7 @@ steps:
       - |
         echo "=== Uploading engine ==="
         gcloud storage cp eastside/engine/*.py gs://${_BUCKET}/engine/
-        echo "=== Engine uploaded ==="
+        echo "=== Engine uploaded (includes lineage.py) ==="
 
   # Step 2: Upload pipeline config
   - name: 'gcr.io/cloud-builders/gcloud'

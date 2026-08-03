@@ -400,6 +400,7 @@ def silver_table(spark, config, table_name):
     # 6. Schema evolution check (silver = non-breaking only)
     from schema_evolver import SchemaEvolver
     evolver = SchemaEvolver(spark, table_config, "silver")
+    schema_changes = evolver.detect_changes(df, target_table)
     df = evolver.apply(df, target_table)
     df = evolver.align_to_table(df, target_table)
 
@@ -413,6 +414,28 @@ def silver_table(spark, config, table_name):
     # 8. Reconciliation
     silver_count = spark.read.table(target_table).filter(col("is_current") == True).count()
     reconcile(spark, config, table_name, bronze_count, silver_count, rejected, quarantined)
+
+    # 9. Emit lineage
+    batch_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    from lineage import emit_lineage
+    emit_lineage(
+        config=config,
+        table_name=table_name,
+        stage="silver",
+        run_id=batch_id,
+        status="COMPLETE",
+        input_df=spark.read.table(bronze_table),
+        output_df=spark.read.table(target_table).filter(col("is_current") == True),
+        input_row_count=bronze_count,
+        output_row_count=silver_count,
+        rejected_count=rejected,
+        quarantined_count=quarantined or 0,
+        schema_changes=schema_changes,
+        dq_stats={
+            "_row_count": silver_count,
+            "rejectedRows": {"passed": rejected == 0, "column": None},
+        },
+    )
 
     return "SUCCESS"
 
@@ -444,12 +467,19 @@ def main():
 
     results = {}
     for table in tables:
+        batch_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         try:
             result = silver_table(spark, config, table)
             results[table] = result
         except Exception as e:
             log_error("silver", f"Table '{table}' failed", e)
             results[table] = "FAILED"
+            try:
+                from lineage import emit_lineage
+                emit_lineage(config=config, table_name=table, stage="silver",
+                             run_id=batch_id, status="FAIL", error_message=str(e))
+            except Exception:
+                pass
 
     log_summary("silver", results)
     flush_logs_to_gcs("silver", config)

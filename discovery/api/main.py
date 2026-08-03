@@ -1100,6 +1100,71 @@ def deploy_dataproduct(req: DeployDataProductRequest):
         raise HTTPException(500, f"Failed to trigger Dagster job: {str(e)}")
 
 
+@app.get("/lineage/{dataset}")
+def get_lineage(dataset: str):
+    """Return lineage graph (nodes + edges) for a dataset from OpenLineage events in GCS."""
+    import os
+    bucket_name = os.environ.get("CONFIG_BUCKET", "bt-df-lkhouse-lakehouse")
+    prefix = f"lineage/{dataset}/"
+    nodes, edges, seen_nodes = [], [], set()
+
+    def _add_node(node_id: str, label: str, node_type: str):
+        if node_id not in seen_nodes:
+            seen_nodes.add(node_id)
+            nodes.append({"id": node_id, "data": {"label": label, "type": node_type}})
+
+    try:
+        from google.cloud import storage as gcs_storage
+        client = gcs_storage.Client()
+        blobs = list(client.list_blobs(bucket_name, prefix=prefix))
+        if not blobs:
+            # Return a minimal static graph so the UI always has something to show
+            _add_node("landing", f"landing/{dataset}", "source")
+            _add_node("bronze", f"bronze.{dataset}", "table")
+            _add_node("silver", f"silver.{dataset}", "table")
+            _add_node("gold", f"gold.{dataset}", "table")
+            edges = [
+                {"id": "e1", "source": "landing", "target": "bronze"},
+                {"id": "e2", "source": "bronze", "target": "silver"},
+                {"id": "e3", "source": "silver", "target": "gold"},
+            ]
+            return {"dataset": dataset, "nodes": nodes, "edges": edges, "source": "static"}
+
+        edge_set = set()
+        for blob in sorted(blobs, key=lambda b: b.updated or ""):
+            if not blob.name.endswith(".json"):
+                continue
+            try:
+                event = json.loads(blob.download_as_text())
+            except Exception:
+                continue
+
+            job = event.get("job", {})
+            job_id = job.get("name", "unknown_job")
+            job_label = job_id.split(".")[-1]  # last segment as display name
+            _add_node(job_id, job_label, "job")
+
+            for inp in event.get("inputs", []):
+                ds_id = inp.get("name", inp.get("namespace", "") + "/" + inp.get("name", ""))
+                _add_node(ds_id, ds_id.split("/")[-1], "dataset")
+                eid = f"{ds_id}->{job_id}"
+                if eid not in edge_set:
+                    edge_set.add(eid)
+                    edges.append({"id": eid, "source": ds_id, "target": job_id})
+
+            for out in event.get("outputs", []):
+                ds_id = out.get("name", out.get("namespace", "") + "/" + out.get("name", ""))
+                _add_node(ds_id, ds_id.split("/")[-1], "dataset")
+                eid = f"{job_id}->{ds_id}"
+                if eid not in edge_set:
+                    edge_set.add(eid)
+                    edges.append({"id": eid, "source": job_id, "target": ds_id})
+
+        return {"dataset": dataset, "nodes": nodes, "edges": edges, "source": "openlineage"}
+    except Exception as e:
+        raise HTTPException(500, f"Lineage fetch failed: {str(e)}")
+
+
 @app.get("/dataproduct/list")
 def list_deployed_dataproducts():
     """List all deployed data products from GCS deployment records."""
@@ -1713,7 +1778,7 @@ if static_dir.exists():
         if path.startswith(("health", "glossary", "applications", "domains",
                            "ask", "discover", "landing", "profile", "approve",
                            "correct", "suggestion", "generate", "catalog",
-                           "cache", "debug", "rag", "mcp", "logs", "brd", "dataproduct")):
+                           "cache", "debug", "rag", "mcp", "logs", "brd", "dataproduct", "lineage")):
             raise HTTPException(404, "Not found")
         file_path = static_dir / path
         if file_path.exists() and file_path.is_file():
