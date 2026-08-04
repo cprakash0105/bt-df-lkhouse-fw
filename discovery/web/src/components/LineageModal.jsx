@@ -58,7 +58,7 @@ function layoutGraph(nodes, edges) {
   return positions
 }
 
-function LineageGraph({ nodes, edges }) {
+export function LineageGraph({ nodes, edges }) {
   const positions = layoutGraph(nodes, edges)
 
   // Canvas size

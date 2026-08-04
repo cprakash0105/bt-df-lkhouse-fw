@@ -1128,9 +1128,15 @@ def get_lineage(dataset: str):
                 {"id": "e2", "source": "bronze", "target": "silver"},
                 {"id": "e3", "source": "silver", "target": "gold"},
             ]
-            return {"dataset": dataset, "nodes": nodes, "edges": edges, "source": "static"}
+            return {
+                "dataset": dataset, "nodes": nodes, "edges": edges,
+                "source": "static", "column_lineage": {}, "row_stats": {},
+            }
 
         edge_set = set()
+        column_lineage: dict = {}   # col_name -> [{stage, col, transform}]
+        row_stats: dict = {}        # stage -> {inputRows, outputRows, rejectedRows, ...}
+
         for blob in sorted(blobs, key=lambda b: b.updated or ""):
             if not blob.name.endswith(".json"):
                 continue
@@ -1141,26 +1147,49 @@ def get_lineage(dataset: str):
 
             job = event.get("job", {})
             job_id = job.get("name", "unknown_job")
-            job_label = job_id.split(".")[-1]  # last segment as display name
+            job_label = job_id.split(".")[-1]
+            # Derive stage from job name (e.g. "bronze.sensor_data" -> "bronze")
+            stage = job_id.split(".")[0] if "." in job_id else job_label
             _add_node(job_id, job_label, "job")
 
             for inp in event.get("inputs", []):
-                ds_id = inp.get("name", inp.get("namespace", "") + "/" + inp.get("name", ""))
-                _add_node(ds_id, ds_id.split("/")[-1], "dataset")
+                ds_id = inp.get("name", "")
+                _add_node(ds_id, ds_id.split("/")[-1].split(".")[-1], "dataset")
                 eid = f"{ds_id}->{job_id}"
                 if eid not in edge_set:
                     edge_set.add(eid)
                     edges.append({"id": eid, "source": ds_id, "target": job_id})
 
             for out in event.get("outputs", []):
-                ds_id = out.get("name", out.get("namespace", "") + "/" + out.get("name", ""))
-                _add_node(ds_id, ds_id.split("/")[-1], "dataset")
+                ds_id = out.get("name", "")
+                _add_node(ds_id, ds_id.split("/")[-1].split(".")[-1], "dataset")
                 eid = f"{job_id}->{ds_id}"
                 if eid not in edge_set:
                     edge_set.add(eid)
                     edges.append({"id": eid, "source": job_id, "target": ds_id})
 
-        return {"dataset": dataset, "nodes": nodes, "edges": edges, "source": "openlineage"}
+                # --- column lineage ---
+                col_lin = out.get("facets", {}).get("columnLineage", {}).get("fields", {})
+                for col_name, col_data in col_lin.items():
+                    transform = col_data.get("transformationType", "IDENTITY")
+                    entry = {"stage": stage, "col": col_name, "transform": transform}
+                    column_lineage.setdefault(col_name, []).append(entry)
+
+                # --- row stats ---
+                rs = out.get("facets", {}).get("rowStats", {})
+                if rs:
+                    row_stats[stage] = {
+                        k: v for k, v in rs.items() if not k.startswith("_")
+                    }
+
+        return {
+            "dataset": dataset,
+            "nodes": nodes,
+            "edges": edges,
+            "source": "openlineage",
+            "column_lineage": column_lineage,
+            "row_stats": row_stats,
+        }
     except Exception as e:
         raise HTTPException(500, f"Lineage fetch failed: {str(e)}")
 

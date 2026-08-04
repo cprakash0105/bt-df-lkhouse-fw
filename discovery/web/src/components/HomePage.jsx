@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { api } from '../api'
+import CatalogDetailModal from './CatalogDetailModal'
 
 export default function HomePage({ onChat }) {
   const [tree, setTree] = useState(null)
@@ -129,11 +130,9 @@ export default function HomePage({ onChat }) {
         )}
       </div>
 
-      {/* Right: Detail panel */}
+      {/* Detail modal */}
       {selectedNode && (
-        <div className="w-[340px] border-l border-gray-200 p-5 overflow-auto bg-white shadow-elevated">
-          <DetailPanel node={selectedNode} onClose={() => setSelectedNode(null)} />
-        </div>
+        <CatalogDetailModal node={selectedNode} onClose={() => setSelectedNode(null)} />
       )}
     </div>
   )

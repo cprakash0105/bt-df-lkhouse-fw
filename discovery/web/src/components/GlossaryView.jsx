@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { api } from '../api'
+import CatalogDetailModal from './CatalogDetailModal'
 
 export default function GlossaryView() {
   const [glossary, setGlossary] = useState(null)
@@ -109,28 +110,7 @@ export default function GlossaryView() {
         <CreateBDEPanel domains={domains} onCreate={handleCreate} onClose={() => setShowCreate(false)} />
       )}
       {!showCreate && selected && (
-        <div className="w-[320px] border-l border-gray-200 p-5 overflow-auto bg-white shadow-elevated">
-          <div className="flex justify-between items-start mb-4">
-            <h3 className="text-sm font-bold text-gray-800">{selected.name}</h3>
-            <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-600 text-xs p-1 hover:bg-gray-100 rounded">✕</button>
-          </div>
-          <div className="space-y-3 text-xs">
-            <div className="flex justify-between py-1 border-b border-gray-50"><span className="text-gray-400">Domain</span><span className="text-gray-700 font-medium">{selected.domain}</span></div>
-            <div className="flex justify-between py-1 border-b border-gray-50"><span className="text-gray-400">Type</span><span className="text-gray-700">{selected.information_type || '—'}</span></div>
-            <div className="flex justify-between py-1 border-b border-gray-50"><span className="text-gray-400">PII</span><span className={selected.is_pii ? 'text-red-600 font-medium' : 'text-emerald-600'}>{selected.is_pii ? 'Yes 🔴' : 'No 🟢'}</span></div>
-            {selected.synonyms && (
-              <div><span className="text-gray-400">Synonyms:</span> <span className="text-gray-600">{selected.synonyms.join(', ')}</span></div>
-            )}
-            {selected.dq_rules && Object.keys(selected.dq_rules).length > 0 && (
-              <div>
-                <p className="text-gray-400 mb-1.5 uppercase tracking-wider text-[10px]">DQ Rules (inherited)</p>
-                {Object.entries(selected.dq_rules).map(([k, v]) => (
-                  <div key={k} className="bg-indigo-50 px-3 py-1.5 rounded-md text-ontika-blue mb-1">{k}: {JSON.stringify(v)}</div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+        <CatalogDetailModal node={selected} onClose={() => setSelected(null)} />
       )}
     </div>
   )
