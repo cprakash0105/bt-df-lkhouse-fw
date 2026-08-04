@@ -127,6 +127,7 @@ export default function HomePage({ onChat, onNodeSelect }) {
           </div>
         )}
       </div>
+    </div>
   )
 }
 
