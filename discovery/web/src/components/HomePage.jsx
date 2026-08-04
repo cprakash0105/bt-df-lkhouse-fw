@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react'
 import { api } from '../api'
-import CatalogDetailModal from './CatalogDetailModal'
 
-export default function HomePage({ onChat }) {
+export default function HomePage({ onChat, onNodeSelect }) {
   const [tree, setTree] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [selectedNode, setSelectedNode] = useState(null)
   const [viewMode, setViewMode] = useState('business')
   const [techTree, setTechTree] = useState(null)
   const [stats, setStats] = useState({ bdes: '…', bas: '…', domains: '…' })
@@ -118,23 +116,17 @@ export default function HomePage({ onChat }) {
         ) : viewMode === 'business' ? (
           tree && tree.length > 0 ? (
             <div className="card-static p-4">
-              <OrgRoot tree={tree} onSelect={setSelectedNode} />
+              <OrgRoot tree={tree} onSelect={onNodeSelect} />
             </div>
           ) : (
-            <FallbackView onSelect={setSelectedNode} />
+            <FallbackView onSelect={onNodeSelect} />
           )
         ) : (
           <div className="card-static p-4">
-            <TechnicalTree techTree={techTree} onSelect={setSelectedNode} />
+            <TechnicalTree techTree={techTree} onSelect={onNodeSelect} />
           </div>
         )}
       </div>
-
-      {/* Detail modal */}
-      {selectedNode && (
-        <CatalogDetailModal node={selectedNode} onClose={() => setSelectedNode(null)} />
-      )}
-    </div>
   )
 }
 

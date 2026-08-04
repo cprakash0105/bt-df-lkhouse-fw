@@ -9,6 +9,7 @@ import GlossaryView from './components/GlossaryView'
 import TechnicalView from './components/TechnicalView'
 import DiscoveryModal from './components/DiscoveryModal'
 import LineageModal from './components/LineageModal'
+import CatalogDetailModal from './components/CatalogDetailModal'
 
 const VIEWS = {
   HOME: 'home',
@@ -31,6 +32,7 @@ export default function App() {
   const [modalSuggestion, setModalSuggestion] = useState(null)
   const [brdPrefill, setBrdPrefill] = useState(null)
   const [lineageDataset, setLineageDataset] = useState(null)
+  const [catalogNode, setCatalogNode] = useState(null)
 
   const addMessage = (msg) => setMessages(prev => [...prev, msg])
 
@@ -209,7 +211,7 @@ export default function App() {
       case VIEWS.DATA_PRODUCTS:
         return <DataProductsPanel onChat={handleSend} prefilledDataset={brdPrefill} onBrdPrefillUsed={() => setBrdPrefill(null)} />
       case VIEWS.GLOSSARY:
-        return <GlossaryView />
+        return <GlossaryView onNodeSelect={setCatalogNode} />
       case VIEWS.TECHNICAL:
         return <TechnicalView />
       case VIEWS.RESULTS:
@@ -217,7 +219,7 @@ export default function App() {
       case VIEWS.PROFILER:
         return <ProfilerPanel profileResult={profileResult} setProfileResult={setProfileResult} />
       case VIEWS.HOME:
-        return <HomePage onChat={handleSend} />
+        return <HomePage onChat={handleSend} onNodeSelect={setCatalogNode} />
     }
   }
 
@@ -231,6 +233,10 @@ export default function App() {
           onClose={() => setModalSuggestion(null)}
           onApproved={handleModalApproved}
         />
+      )}
+      {/* Catalog detail modal — BA/BDE click */}
+      {catalogNode && (
+        <CatalogDetailModal node={catalogNode} onClose={() => setCatalogNode(null)} />
       )}
       {/* Lineage modal */}
       {lineageDataset !== null && (

@@ -1,12 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import { api } from '../api'
-import CatalogDetailModal from './CatalogDetailModal'
 
-export default function GlossaryView() {
+export default function GlossaryView({ onNodeSelect }) {
   const [glossary, setGlossary] = useState(null)
   const [search, setSearch] = useState('')
   const [searchResults, setSearchResults] = useState(null)
-  const [selected, setSelected] = useState(null)
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [domains, setDomains] = useState([])
@@ -28,7 +26,6 @@ export default function GlossaryView() {
     try {
       await api.createBDE(data)
       setShowCreate(false)
-      // Refresh glossary
       const updated = await api.glossary()
       setGlossary(updated)
     } catch (e) {
@@ -36,11 +33,12 @@ export default function GlossaryView() {
     }
   }
 
+  const openNode = (node) => onNodeSelect?.({ ...node, type: node.type || 'term' })
+
   if (loading) return <div className="p-6 text-gray-400">Loading glossary...</div>
 
   return (
     <div className="flex h-full">
-      {/* Left: terms list */}
       <div className="flex-1 p-6 overflow-auto">
         <h2 className="text-2xl font-bold text-gray-800 mb-1">Business Glossary</h2>
         <div className="flex items-center justify-between mb-5">
@@ -72,7 +70,7 @@ export default function GlossaryView() {
           <div className="mb-5 card-static p-4 border-indigo-100">
             <p className="text-xs text-gray-500 mb-2">{searchResults.length} results for "{search}"</p>
             {searchResults.map((r, i) => (
-              <div key={i} className="text-xs text-gray-600 py-1.5 cursor-pointer hover:text-ontika-blue transition-colors" onClick={() => setSelected(r)}>
+              <div key={i} className="text-xs text-gray-600 py-1.5 cursor-pointer hover:text-ontika-blue transition-colors" onClick={() => openNode(r)}>
                 📖 <span className="font-medium">{r.name}</span>
                 <span className="text-gray-400 ml-2">[{r.domain}]</span>
                 {r.is_pii && <span className="badge-red ml-1 text-[9px]">PII</span>}
@@ -92,7 +90,7 @@ export default function GlossaryView() {
                 <div
                   key={t.id}
                   className="px-3 py-2 rounded-lg hover:bg-indigo-50/50 cursor-pointer flex items-center gap-2 transition-colors"
-                  onClick={() => setSelected(t)}
+                  onClick={() => openNode(t)}
                 >
                   <span className="text-xs">📖</span>
                   <span className="text-xs text-gray-700 font-medium">{t.name}</span>
@@ -105,12 +103,9 @@ export default function GlossaryView() {
         ))}
       </div>
 
-      {/* Right: detail panel or create form */}
+      {/* Create panel */}
       {showCreate && (
         <CreateBDEPanel domains={domains} onCreate={handleCreate} onClose={() => setShowCreate(false)} />
-      )}
-      {!showCreate && selected && (
-        <CatalogDetailModal node={selected} onClose={() => setSelected(null)} />
       )}
     </div>
   )
