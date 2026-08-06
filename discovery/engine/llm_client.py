@@ -61,8 +61,15 @@ class LLMClient:
             req = urllib.request.Request(url, data=payload.encode(), headers=headers)
             with urllib.request.urlopen(req, timeout=300) as resp:
                 result = json.loads(resp.read().decode())
-            msg = result["choices"][0]["message"]
-            text = msg.get("content") or msg.get("reasoning") or ""
+            text = msg.get("content") or ""
+            # Do not fall back to reasoning field — it contains internal chain-of-thought,
+            # not the final answer, and causes prompt text to leak into responses.
+            if not text:
+                # Some models put the answer in reasoning when content is empty;
+                # extract only the last sentence as a heuristic
+                reasoning = msg.get("reasoning") or ""
+                sentences = [s.strip() for s in reasoning.replace("\n", " ").split(".") if len(s.strip()) > 10]
+                text = (sentences[-1] + ".") if sentences else ""
             duration_ms = int((time.time() - t0) * 1000)
             usage = result.get("usage", {})
             _log.info("LLM call succeeded", model=self.model, duration_ms=duration_ms,

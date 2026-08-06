@@ -394,7 +394,13 @@ def describe_term(term_id: str):
             temperature=0.3,
         )
         if result and result != "__QUOTA_EXCEEDED__" and len(result.strip()) > 10:
-            desc = result.strip().rstrip(".") + "."
+            # Reject if the result looks like it contains prompt instructions (model echoed input)
+            poisoned = any(phrase in result.lower() for phrase in [
+                "do not mention", "output only", "max 30 words", "business context",
+                "data element name", "glossary writer", "clear sentence"
+            ])
+            if not poisoned:
+                desc = result.strip().rstrip(".") + "."
     except Exception as e:
         print(f"[API] describe_term LLM failed: {e}")
 
