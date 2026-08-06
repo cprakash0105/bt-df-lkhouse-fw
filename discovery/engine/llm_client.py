@@ -64,9 +64,17 @@ class LLMClient:
             msg = result["choices"][0]["message"]
             text = msg.get("content") or ""
             if not text:
-                # Reasoning models put the final answer at the end of the reasoning field
+                # Reasoning models put the final answer at the end of the reasoning field.
+                # Skip sentences that are internal deliberation rather than the actual answer.
                 reasoning = msg.get("reasoning") or ""
-                sentences = [s.strip() for s in reasoning.replace("\n", " ").split(".") if len(s.strip()) > 10]
+                _log.info("LLM reasoning fallback", reasoning_preview=reasoning[-300:])
+                _META = ("shouldn", "should", "let me", "i will", "i need", "i'll",
+                         "the description", "the sentence", "the answer", "the output",
+                         "don't", "do not", "avoid", "instead", "note that", "make sure")
+                sentences = [
+                    s.strip() for s in reasoning.replace("\n", " ").split(".")
+                    if len(s.strip()) > 15 and not any(m in s.lower() for m in _META)
+                ]
                 text = (sentences[-1] + ".") if sentences else ""
             duration_ms = int((time.time() - t0) * 1000)
             usage = result.get("usage", {})
