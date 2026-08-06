@@ -342,6 +342,69 @@ def create_bde(req: CreateBDERequest):
     }
 
 
+@app.get("/glossary/describe/{term_id}")
+def describe_term(term_id: str):
+    """Generate and return a human-readable description for a BDE via LLM.
+    Caches result to GCS so subsequent calls are instant."""
+    import os
+    bucket_name = os.environ.get("CONFIG_BUCKET", "bt-df-lkhouse-lakehouse")
+    cache_path = f"bde_descriptions/{term_id}.txt"
+
+    # Check GCS cache first
+    try:
+        from google.cloud import storage as gcs_storage
+        client = gcs_storage.Client()
+        for b in ["eastside-lakehouse", bucket_name]:
+            blob = client.bucket(b).blob(cache_path)
+            if blob.exists():
+                return {"term_id": term_id, "description": blob.download_as_text().strip(), "cached": True}
+    except Exception:
+        pass
+
+    term = kg.terms.get(term_id)
+    if not term:
+        raise HTTPException(404, f"BDE '{term_id}' not found")
+
+    # Generate via LLM
+    try:
+        from discovery.engine.llm_client import get_llm
+        llm = get_llm()
+        prompt = (
+            f"Write a single clear sentence (max 30 words) describing the business data element '{term.name}'. "
+            f"Domain: {term.domain}. Information type: {term.information_type}. Data type: {term.data_type}. "
+            f"{'This field contains personally identifiable information (PII).' if term.is_pii else ''} "
+            f"Focus on what this data element represents in a business context, not its technical type. "
+            f"Return only the sentence, no quotes, no prefix."
+        )
+        result = llm.generate(
+            system="You write concise business glossary descriptions. One sentence only, no quotes, no technical jargon.",
+            user=prompt,
+            max_tokens=80,
+            temperature=0.2,
+        )
+        if result and result != "__QUOTA_EXCEEDED__" and len(result.strip()) > 10:
+            description = result.strip().rstrip(".") + "."
+            # Cache to GCS
+            try:
+                client.bucket(bucket_name).blob(cache_path).upload_from_string(
+                    description, content_type="text/plain"
+                )
+            except Exception:
+                pass
+            return {"term_id": term_id, "description": description, "cached": False}
+    except Exception as e:
+        print(f"[API] describe_term LLM failed: {e}")
+
+    # Fallback: structured sentence
+    parts = [f"{term.name} is a {term.information_type.lower()} data element"]
+    if term.domain:
+        parts.append(f"in the {term.domain} domain")
+    if term.is_pii:
+        parts.append("containing personally identifiable information")
+    description = " ".join(parts) + "."
+    return {"term_id": term_id, "description": description, "cached": False}
+
+
 @app.get("/glossary/hierarchy")
 def get_glossary_hierarchy():
     """Get the full business hierarchy driven entirely by KC terms.

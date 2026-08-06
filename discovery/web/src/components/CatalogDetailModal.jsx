@@ -69,6 +69,17 @@ export default function CatalogDetailModal({ node, onClose }) {
 // ── Details Tab ───────────────────────────────────────────────────────────────
 
 function DetailsTab({ node, type }) {
+  const needsDescription = (type === 'term' || type === 'application') && !node.description
+  const [description, setDescription] = useState(node.description || '')
+  const [descLoading, setDescLoading] = useState(needsDescription)
+
+  useEffect(() => {
+    if (!needsDescription) return
+    api.describeTerm(node.id)
+      .then(r => setDescription(r.description))
+      .catch(() => setDescription(generateFallbackDescription(node, type)))
+      .finally(() => setDescLoading(false))
+  }, [node.id])
   return (
     <div className="p-6 space-y-5">
       {/* Core metadata */}
@@ -84,7 +95,10 @@ function DetailsTab({ node, type }) {
         {/* Description — full width below the grid */}
         <div className="mt-3 pt-3 border-t border-gray-50">
           <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Description</p>
-          <p className="text-xs text-gray-700 leading-relaxed">{generateDescription(node, type)}</p>
+          {descLoading
+            ? <p className="text-xs text-gray-400 italic animate-pulse">Generating description…</p>
+            : <p className="text-xs text-gray-700 leading-relaxed">{description || generateFallbackDescription(node, type)}</p>
+          }
         </div>
       </div>
 
@@ -138,7 +152,7 @@ function DetailsTab({ node, type }) {
   )
 }
 
-function generateDescription(node, type) {
+function generateFallbackDescription(node, type) {
   if (node.description) return node.description
   if (type === 'term') {
     const parts = []

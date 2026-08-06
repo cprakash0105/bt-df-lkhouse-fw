@@ -19,6 +19,7 @@ export const api = {
   glossary: () => request('/glossary'),
   glossaryHierarchy: () => request('/glossary/hierarchy'),
   searchGlossary: (q) => request(`/glossary/search?q=${encodeURIComponent(q)}`),
+  describeTerm: (termId) => request(`/glossary/describe/${encodeURIComponent(termId)}`),
   createBDE: (data) => request('/glossary', { method: 'POST', body: JSON.stringify(data) }),
   askCatalog: (question) => request('/ask', { method: 'POST', body: JSON.stringify({ requirement: question }) }),
   catalogTree: () => request('/catalog/tree'),
