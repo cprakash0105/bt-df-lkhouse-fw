@@ -144,17 +144,20 @@ class CatalogReader:
         name = dataplex_term.display_name or term_id
         description = dataplex_term.description or ""
 
-        # Parse structured data from description (we encode it there)
-        # First segment (before first " | ") is the human-readable description
-        raw_description = description
+        # Parse structured data from description (we encode it there).
+        # Format (old): "Auto-created by... | Data Type: X | ..."
+        # Format (new): "<human sentence> | Data Type: X | ..."
+        # First segment is human description only if it's not boilerplate.
+        _BOILERPLATE = ("auto-created", "auto created", "created by semantic")
         human_description = ""
         parts_list = description.split(" | ")
-        # If first part doesn't look like a key:value pair, it's the human description
-        if parts_list and ":" not in parts_list[0][:30]:
-            human_description = parts_list[0].strip()
+        first = parts_list[0].strip() if parts_list else ""
+        is_boilerplate = any(first.lower().startswith(b) for b in _BOILERPLATE)
+        is_kv = ":" in first[:30]
+        if first and not is_boilerplate and not is_kv:
+            human_description = first
             parts_list = parts_list[1:]
-        else:
-            parts_list = description.split(" | ")
+        # else: all parts are metadata key:value pairs, no human description stored yet
 
         synonyms = []
         data_type = "string"
