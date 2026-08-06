@@ -172,6 +172,9 @@ def _session_set(key, value):
 
 _mem_session = {"suggestion": None, "profile": None}
 
+# In-memory BDE description cache — persisted to GCS, survives within a process lifetime
+_bde_desc_cache: dict[str, str] = {}
+
 
 # --- Request/Response Models ---
 
@@ -344,20 +347,27 @@ def create_bde(req: CreateBDERequest):
 
 @app.get("/glossary/describe/{term_id}")
 def describe_term(term_id: str):
-    """Generate and return a human-readable description for a BDE via LLM.
-    Caches result to GCS so subsequent calls are instant."""
-    import os
+    """Return a human-readable description for a BDE.
+    Priority: memory cache → GCS cache → LLM → structured fallback.
+    """
+    # 1. Memory hit — instant, no I/O
+    if term_id in _bde_desc_cache:
+        return {"term_id": term_id, "description": _bde_desc_cache[term_id], "cached": True}
+
     bucket_name = os.environ.get("CONFIG_BUCKET", "bt-df-lkhouse-lakehouse")
     cache_path = f"bde_descriptions/{term_id}.txt"
+    gcs = None
 
-    # Check GCS cache first
+    # 2. GCS hit — warm memory and return
     try:
         from google.cloud import storage as gcs_storage
-        client = gcs_storage.Client()
+        gcs = gcs_storage.Client()
         for b in ["eastside-lakehouse", bucket_name]:
-            blob = client.bucket(b).blob(cache_path)
+            blob = gcs.bucket(b).blob(cache_path)
             if blob.exists():
-                return {"term_id": term_id, "description": blob.download_as_text().strip(), "cached": True}
+                desc = blob.download_as_text().strip()
+                _bde_desc_cache[term_id] = desc
+                return {"term_id": term_id, "description": desc, "cached": True}
     except Exception:
         pass
 
@@ -365,7 +375,8 @@ def describe_term(term_id: str):
     if not term:
         raise HTTPException(404, f"BDE '{term_id}' not found")
 
-    # Generate via LLM
+    # 3. LLM generation
+    desc = None
     try:
         from discovery.engine.llm_client import get_llm
         llm = get_llm()
@@ -383,26 +394,30 @@ def describe_term(term_id: str):
             temperature=0.3,
         )
         if result and result != "__QUOTA_EXCEEDED__" and len(result.strip()) > 10:
-            description = result.strip().rstrip(".") + "."
-            # Cache to GCS
-            try:
-                client.bucket(bucket_name).blob(cache_path).upload_from_string(
-                    description, content_type="text/plain"
-                )
-            except Exception:
-                pass
-            return {"term_id": term_id, "description": description, "cached": False}
+            desc = result.strip().rstrip(".") + "."
     except Exception as e:
         print(f"[API] describe_term LLM failed: {e}")
 
-    # Fallback: structured sentence
-    parts = [f"{term.name} is a {term.information_type.lower()} data element"]
-    if term.domain:
-        parts.append(f"in the {term.domain} domain")
-    if term.is_pii:
-        parts.append("containing personally identifiable information")
-    description = " ".join(parts) + "."
-    return {"term_id": term_id, "description": description, "cached": False}
+    # 4. Structured fallback
+    if not desc:
+        parts = [f"{term.name} is a {term.information_type.lower()} data element"]
+        if term.domain:
+            parts.append(f"in the {term.domain} domain")
+        if term.is_pii:
+            parts.append("containing personally identifiable information")
+        desc = " ".join(parts) + "."
+
+    # Store in memory + GCS
+    _bde_desc_cache[term_id] = desc
+    try:
+        if gcs:
+            gcs.bucket(bucket_name).blob(cache_path).upload_from_string(
+                desc, content_type="text/plain"
+            )
+    except Exception:
+        pass
+
+    return {"term_id": term_id, "description": desc, "cached": False}
 
 
 @app.get("/glossary/hierarchy")
