@@ -740,7 +740,8 @@ def cache_clear():
 
 @app.get("/debug/llm")
 def debug_llm():
-    """Test LLM connectivity directly."""
+    """Test LLM connectivity and return the RAW response for a describe_term call."""
+    import urllib.request as _ur
     from discovery.engine.llm_client import get_llm
     llm = get_llm()
     info = {
@@ -748,14 +749,31 @@ def debug_llm():
         "model": llm.model,
         "base_url": llm.base_url,
         "has_api_key": bool(llm.api_key),
-        "api_key_prefix": llm.api_key[:8] + "..." if llm.api_key else "NONE",
         "project": llm.project,
     }
-    # Try a simple call
+    # Raw call — return full response so we can see content vs reasoning
     try:
-        result = llm.generate(system="Say hello.", user="Hi", max_tokens=20)
-        info["test_response"] = result
-        info["status"] = "connected" if result else "no_response"
+        url = f"{llm.base_url}/chat/completions"
+        payload = json.dumps({
+            "model": llm.model,
+            "messages": [
+                {"role": "system", "content": "Write a single plain-English sentence (under 30 words) explaining what a business data field represents. Reply with only the sentence, no preamble."},
+                {"role": "user", "content": "Field: Customer Region. Domain: customer. Category: Dimension."},
+            ],
+            "max_tokens": 80,
+            "temperature": 0.3,
+        }).encode()
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {llm.api_key}"}
+        if llm.project:
+            headers["OpenAI-Project"] = llm.project
+        req = _ur.Request(url, data=payload, headers=headers)
+        with _ur.urlopen(req, timeout=30) as resp:
+            raw = json.loads(resp.read().decode())
+        msg = raw.get("choices", [{}])[0].get("message", {})
+        info["raw_content"] = msg.get("content")
+        info["raw_reasoning"] = (msg.get("reasoning") or "")[-500:]  # last 500 chars
+        info["full_message_keys"] = list(msg.keys())
+        info["status"] = "ok"
     except Exception as e:
         info["status"] = "error"
         info["error"] = str(e)
