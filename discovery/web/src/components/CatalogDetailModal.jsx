@@ -14,6 +14,7 @@ const TRANSFORM_STYLE = {
 export default function CatalogDetailModal({ node, onClose }) {
   const [tab, setTab] = useState(0)
   const type = node.type || 'term'
+  const isDataset = type === 'table' || type === 'dataset'
   const datasetId = node.id
 
   return (
@@ -56,9 +57,9 @@ export default function CatalogDetailModal({ node, onClose }) {
         {/* Tab body */}
         <div className="flex-1 overflow-auto">
           {tab === 0 && <DetailsTab node={node} type={type} />}
-          {tab === 1 && <SampleDataTab datasetId={datasetId} />}
+          {tab === 1 && <SampleDataTab datasetId={datasetId} isDataset={isDataset} node={node} type={type} />}
           {tab === 2 && <LineageTab datasetId={datasetId} />}
-          {tab === 3 && <DQTab datasetId={datasetId} node={node} />}
+          {tab === 3 && <DQTab datasetId={datasetId} isDataset={isDataset} node={node} />}
         </div>
       </div>
     </div>
@@ -78,7 +79,7 @@ function DetailsTab({ node, type }) {
           {node.data_type && <Row label="Data Type" value={node.data_type} />}
           {node.information_type && <Row label="Information Type" value={node.information_type} />}
           <Row label="PII" value={node.is_pii ? '🔴 Yes' : '🟢 No'} />
-          {node.description && <Row label="Description" value={node.description} />}
+          <Row label="Description" value={node.description || generateDescription(node, type)} />
           {node.term_count > 0 && <Row label="BDE Count" value={node.term_count} />}
         </div>
       </div>
@@ -133,6 +134,24 @@ function DetailsTab({ node, type }) {
   )
 }
 
+function generateDescription(node, type) {
+  if (type === 'term') {
+    const parts = []
+    if (node.information_type) parts.push(`${node.information_type} data element`)
+    if (node.domain) parts.push(`in the ${node.domain} domain`)
+    if (node.is_pii) parts.push('— contains PII')
+    if (node.synonyms?.length) parts.push(`(also known as: ${node.synonyms.join(', ')})`)
+    return parts.length ? parts.join(' ') : `Business data element: ${node.name}`
+  }
+  if (type === 'application') {
+    return `Business application managing data elements${node.domain ? ` in the ${node.domain} domain` : ''}.`
+  }
+  if (type === 'domain') {
+    return `Data domain grouping ${node.term_count || 0} business data elements.`
+  }
+  return ''
+}
+
 function Row({ label, value }) {
   return (
     <div className="flex justify-between text-xs py-1 border-b border-gray-50">
@@ -144,18 +163,20 @@ function Row({ label, value }) {
 
 // ── Sample Data Tab ───────────────────────────────────────────────────────────
 
-function SampleDataTab({ datasetId }) {
+function SampleDataTab({ datasetId, isDataset, node, type }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
   useEffect(() => {
+    if (!isDataset) { setLoading(false); return }
     api.profileDataset(datasetId)
       .then(setData)
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
-  }, [datasetId])
+  }, [datasetId, isDataset])
 
+  if (!isDataset) return <NonDatasetSampleView node={node} type={type} />
   if (loading) return <Loading text="Loading sample data…" />
   if (error) return <Err text={error} />
   if (!data) return <Empty text="No sample data available." />
@@ -352,18 +373,20 @@ function LineageTab({ datasetId }) {
 
 // ── Data Quality Tab ──────────────────────────────────────────────────────────
 
-function DQTab({ datasetId, node }) {
+function DQTab({ datasetId, isDataset, node }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
   useEffect(() => {
+    if (!isDataset) { setLoading(false); return }
     api.profileDataset(datasetId)
       .then(setData)
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
-  }, [datasetId])
+  }, [datasetId, isDataset])
 
+  if (!isDataset) return <NonDatasetDQView node={node} />
   if (loading) return <Loading text="Loading DQ scores…" />
   if (error) return <Err text={error} />
 
@@ -480,6 +503,65 @@ function DQTab({ datasetId, node }) {
 
       {!data && (
         <Empty text="Profiler service not available — DQ scores cannot be computed." />
+      )}
+    </div>
+  )
+}
+
+// ── Non-dataset fallback views ───────────────────────────────────────────────
+
+function NonDatasetSampleView({ node, type }) {
+  const label = type === 'application' ? 'Business Application' : type === 'term' ? 'Business Data Element' : 'Data Domain'
+  const fields = [
+    node.information_type && { label: 'Information Type', value: node.information_type },
+    node.domain && { label: 'Domain', value: node.domain },
+    node.is_pii != null && { label: 'PII', value: node.is_pii ? 'Yes' : 'No' },
+    node.synonyms?.length && { label: 'Synonyms', value: node.synonyms.join(', ') },
+    node.keywords?.length && { label: 'Keywords', value: node.keywords.join(', ') },
+    node.term_count > 0 && { label: 'BDE Count', value: node.term_count },
+  ].filter(Boolean)
+
+  return (
+    <div className="p-6 space-y-4">
+      <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl text-blue-700 text-xs">
+        ℹ️ {label} nodes are logical metadata — no physical sample data is available.
+      </div>
+      {fields.length > 0 && (
+        <div className="card-static p-4">
+          <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-3">Metadata Summary</p>
+          <div className="grid grid-cols-2 gap-x-8 gap-y-2">
+            {fields.map(f => <Row key={f.label} label={f.label} value={f.value} />)}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function NonDatasetDQView({ node }) {
+  const dqRules = node.dq_rules || {}
+  const hasRules = Object.keys(dqRules).length > 0
+
+  return (
+    <div className="p-6 space-y-4">
+      <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl text-blue-700 text-xs">
+        ℹ️ DQ scores are computed from physical dataset profiles. This node defines DQ rules that are inherited by all tables using this BDE.
+      </div>
+      {hasRules ? (
+        <div className="card-static p-4">
+          <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-3">DQ Rules (inherited by physical tables)</p>
+          <div className="space-y-1.5">
+            {Object.entries(dqRules).map(([rule, val]) => (
+              <div key={rule} className="flex items-center gap-2 px-3 py-2 bg-indigo-50 rounded-lg">
+                <span className="text-indigo-600 font-mono text-xs font-medium">✓ {rule}</span>
+                <span className="text-gray-400 text-xs">→</span>
+                <span className="text-gray-600 text-xs">{JSON.stringify(val)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <Empty text="No DQ rules defined for this element." />
       )}
     </div>
   )
