@@ -366,8 +366,15 @@ def describe_term(term_id: str):
             blob = gcs.bucket(b).blob(cache_path)
             if blob.exists():
                 desc = blob.download_as_text().strip()
-                _POISON = ("do not mention", "output only", "max 30 words",
-                           "no preamble", "plain-english sentence", "under 30 words")
+                _POISON = (
+                    # Prompt echoes
+                    "do not mention", "output only", "max 30 words",
+                    "no preamble", "plain-english sentence", "under 30 words",
+                    # Reasoning/meta-commentary leaking through
+                    "shouldn't start", "should not start", "don't start",
+                    "the description", "the sentence", "the element name",
+                    "we shouldn", "i should", "i will", "let me",
+                )
                 if any(p in desc.lower() for p in _POISON):
                     blob.delete()  # purge poisoned entry
                     break
@@ -423,6 +430,26 @@ def describe_term(term_id: str):
         pass
 
     return {"term_id": term_id, "description": desc, "cached": False}
+
+
+@app.delete("/glossary/describe/{term_id}/cache")
+def purge_description_cache(term_id: str):
+    """Manually purge a cached BDE description from memory + GCS."""
+    _bde_desc_cache.pop(term_id, None)
+    bucket_name = os.environ.get("CONFIG_BUCKET", "bt-df-lkhouse-lakehouse")
+    cache_path = f"bde_descriptions/{term_id}.txt"
+    purged = []
+    try:
+        from google.cloud import storage as gcs_storage
+        gcs = gcs_storage.Client()
+        for b in ["eastside-lakehouse", bucket_name]:
+            blob = gcs.bucket(b).blob(cache_path)
+            if blob.exists():
+                blob.delete()
+                purged.append(b)
+    except Exception as e:
+        return {"term_id": term_id, "purged_from": purged, "error": str(e)}
+    return {"term_id": term_id, "purged_from": purged}
 
 
 @app.get("/glossary/hierarchy")
