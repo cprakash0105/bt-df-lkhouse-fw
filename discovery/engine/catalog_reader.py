@@ -145,6 +145,17 @@ class CatalogReader:
         description = dataplex_term.description or ""
 
         # Parse structured data from description (we encode it there)
+        # First segment (before first " | ") is the human-readable description
+        raw_description = description
+        human_description = ""
+        parts_list = description.split(" | ")
+        # If first part doesn't look like a key:value pair, it's the human description
+        if parts_list and ":" not in parts_list[0][:30]:
+            human_description = parts_list[0].strip()
+            parts_list = parts_list[1:]
+        else:
+            parts_list = description.split(" | ")
+
         synonyms = []
         data_type = "string"
         information_type = "Dimension"
@@ -155,7 +166,7 @@ class CatalogReader:
         reference_code_set = None
 
         domain = ""
-        for part in description.split(" | "):
+        for part in parts_list:
             part = part.strip()
             if part.startswith("Synonyms:"):
                 synonyms = [s.strip() for s in part[9:].split(",")]
@@ -193,7 +204,7 @@ class CatalogReader:
             id=term_id,
             name=name,
             domain=domain,
-            description=description,
+            description=human_description,
             synonyms=synonyms,
             data_type=data_type,
             information_type=information_type,

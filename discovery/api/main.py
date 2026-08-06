@@ -360,7 +360,8 @@ def get_glossary_hierarchy():
     def _term_node(t):
         return {"id": t.id, "name": t.name, "type": "term",
                 "is_pii": t.is_pii, "dq_rules": t.dq_rules,
-                "data_type": t.data_type, "information_type": t.information_type}
+                "data_type": t.data_type, "information_type": t.information_type,
+                "description": t.description}
 
     hierarchy = []
     placed_domains = set()

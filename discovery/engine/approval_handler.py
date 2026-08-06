@@ -155,28 +155,35 @@ class ApprovalHandler:
         # Find the field in suggestions for additional metadata
         field = next((f for f in suggestion.fields if f.field_name == field_name), None)
 
-        desc_parts = [f"Auto-created by Semantic Discovery during onboarding of '{suggestion.asset_name}'"]
-        desc_parts.append(f"Data Type: {data_type}")
-        desc_parts.append(f"Information Type: {info_type}")
-        desc_parts.append(f"Classification: {'PII' if field and field.is_pii else 'Internal'}")
-        if field and field.dq_rules:
-            dq_str = ", ".join(f"{k}: {v}" for k, v in field.dq_rules.items())
-            desc_parts.append(f"DQ Rules: {dq_str}")
-        desc_parts.append(f"Domain: {domain}")
-        # Build synonym set: original field name + term name variants
+        # Generate a human-readable description via LLM (stored as first segment)
+        human_desc = _generate_bde_description(term_name, domain, info_type, data_type,
+                                                field.is_pii if field else False,
+                                                proposal.get("llm_reason", ""))
+
+        # Build synonym set
         synonyms = {field_name}
         term_lower = term_name.lower()
         synonyms.add(term_lower)
         synonyms.add(term_lower.replace(" ", "_"))
         synonyms.add(term_lower.replace(" ", "-"))
-        # Add any LLM-suggested aliases from the proposal
         for alias in proposal.get("synonyms", []):
             synonyms.add(alias.lower().strip())
-        desc_parts.append(f"Synonyms: {', '.join(sorted(synonyms))}")
-        if proposal.get("llm_reason"):
-            desc_parts.append(f"Description: {proposal['llm_reason']}")
 
-        description = " | ".join(desc_parts)
+        # Pipe-delimited metadata (human desc first so catalog_reader can extract it)
+        meta_parts = []
+        if human_desc:
+            meta_parts.append(human_desc)
+        meta_parts += [
+            f"Data Type: {data_type}",
+            f"Information Type: {info_type}",
+            f"Classification: {'PII' if field and field.is_pii else 'Internal'}",
+            f"Domain: {domain}",
+            f"Synonyms: {', '.join(sorted(synonyms))}",
+        ]
+        if field and field.dq_rules:
+            meta_parts.append(f"DQ Rules: {', '.join(f'{k}: {v}' for k, v in field.dq_rules.items())}")
+
+        description = " | ".join(meta_parts)
 
         term = dataplex_v1.GlossaryTerm(
             description=description,
@@ -393,3 +400,42 @@ class ApprovalHandler:
                 pass  # Silent - link already exists
             else:
                 print(f"[ApprovalHandler] EntryLink failed ({link_id}): {error_msg[:100]}")
+
+
+def _generate_bde_description(name: str, domain: str, info_type: str, data_type: str,
+                               is_pii: bool, llm_reason: str = "") -> str:
+    """Generate a concise human-readable description for a BDE via LLM.
+    Falls back to a structured sentence if LLM is unavailable."""
+    # Fast fallback — always works
+    def _fallback():
+        parts = [f"{name} is a {info_type.lower()} data element of type {data_type}"]
+        if domain:
+            parts.append(f"in the {domain} domain")
+        if is_pii:
+            parts.append("and contains personally identifiable information (PII)")
+        if llm_reason:
+            parts.append(f"— {llm_reason}")
+        return " ".join(parts) + "."
+
+    try:
+        from discovery.engine.llm_client import get_llm
+        llm = get_llm()
+        prompt = (
+            f"Write a single clear sentence (max 25 words) describing the business data element '{name}'. "
+            f"Domain: {domain}. Information type: {info_type}. Data type: {data_type}. "
+            f"{'This field contains PII.' if is_pii else ''} "
+            f"{'Context: ' + llm_reason if llm_reason else ''} "
+            f"Return only the sentence, no quotes, no prefix."
+        )
+        result = llm.generate(
+            system="You write concise business glossary descriptions. One sentence only, no quotes.",
+            user=prompt,
+            max_tokens=60,
+            temperature=0.2,
+        )
+        if result and result != "__QUOTA_EXCEEDED__" and len(result.strip()) > 10:
+            return result.strip().rstrip("."  ) + "."
+    except Exception:
+        pass
+
+    return _fallback()

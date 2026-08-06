@@ -20,6 +20,7 @@ class BusinessTerm:
     pattern: Optional[str] = None
     reference_code_set: Optional[str] = None
     dq_rules: dict = field(default_factory=dict)
+    description: str = ""
 
 
 @dataclass
@@ -300,6 +301,7 @@ class KnowledgeGraph:
                         classification=ct.classification, pattern=ct.pattern,
                         reference_code_set=ct.reference_code_set,
                         dq_rules=ct.dq_rules,
+                        description=ct.description,
                     )
 
                 # Also load categories as domains

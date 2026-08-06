@@ -79,8 +79,12 @@ function DetailsTab({ node, type }) {
           {node.data_type && <Row label="Data Type" value={node.data_type} />}
           {node.information_type && <Row label="Information Type" value={node.information_type} />}
           <Row label="PII" value={node.is_pii ? '🔴 Yes' : '🟢 No'} />
-          <Row label="Description" value={node.description || generateDescription(node, type)} />
           {node.term_count > 0 && <Row label="BDE Count" value={node.term_count} />}
+        </div>
+        {/* Description — full width below the grid */}
+        <div className="mt-3 pt-3 border-t border-gray-50">
+          <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Description</p>
+          <p className="text-xs text-gray-700 leading-relaxed">{generateDescription(node, type)}</p>
         </div>
       </div>
 
@@ -135,6 +139,7 @@ function DetailsTab({ node, type }) {
 }
 
 function generateDescription(node, type) {
+  if (node.description) return node.description
   if (type === 'term') {
     const parts = []
     if (node.information_type) parts.push(`${node.information_type} data element`)
@@ -144,7 +149,7 @@ function generateDescription(node, type) {
     return parts.length ? parts.join(' ') : `Business data element: ${node.name}`
   }
   if (type === 'application') {
-    return `Business application managing data elements${node.domain ? ` in the ${node.domain} domain` : ''}.`
+    return node.description || `Business application managing data elements${node.domain ? ` in the ${node.domain} domain` : ''}.`
   }
   if (type === 'domain') {
     return `Data domain grouping ${node.term_count || 0} business data elements.`
