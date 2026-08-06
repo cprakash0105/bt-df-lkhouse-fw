@@ -369,18 +369,18 @@ def describe_term(term_id: str):
     try:
         from discovery.engine.llm_client import get_llm
         llm = get_llm()
-        prompt = (
-            f"Write a single clear sentence (max 30 words) describing the business data element '{term.name}'. "
-            f"Domain: {term.domain}. Information type: {term.information_type}. Data type: {term.data_type}. "
-            f"{'This field contains personally identifiable information (PII).' if term.is_pii else ''} "
-            f"Focus on what this data element represents in a business context, not its technical type. "
-            f"Return only the sentence, no quotes, no prefix."
-        )
+        pii_note = " Contains PII." if term.is_pii else ""
         result = llm.generate(
-            system="You write concise business glossary descriptions. One sentence only, no quotes, no technical jargon.",
-            user=prompt,
+            system=(
+                "You are a business data glossary writer. "
+                "When given a data element name and its domain, write exactly one clear sentence (max 30 words) "
+                "describing what it represents in a business context. "
+                "Do not mention data types, technical terms, or repeat the element name as a prefix. "
+                "Do not include quotes. Output only the sentence."
+            ),
+            user=f"{term.name} — domain: {term.domain}, type: {term.information_type}.{pii_note}",
             max_tokens=80,
-            temperature=0.2,
+            temperature=0.3,
         )
         if result and result != "__QUOTA_EXCEEDED__" and len(result.strip()) > 10:
             description = result.strip().rstrip(".") + "."
