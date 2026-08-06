@@ -55,4 +55,7 @@ export const api = {
   listDeployedDataProducts: () => request('/dataproduct/list'),
   lineage: (dataset) => request(`/lineage/${encodeURIComponent(dataset)}`),
   bdeLineage: (termId) => request(`/lineage/bde/${encodeURIComponent(termId)}`),
+  dqScoreBde: (bdeId) => request(`/dq/score/${encodeURIComponent(bdeId)}`),
+  dqScoreBa: (baId) => request(`/dq/score/ba/${encodeURIComponent(baId)}`),
+  dqRollup: () => request('/dq/rollup', { method: 'POST' }),
 }

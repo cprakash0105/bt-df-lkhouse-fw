@@ -1099,6 +1099,52 @@ def deploy_dataproduct(req: DeployDataProductRequest):
         raise HTTPException(500, f"Failed to trigger Dagster job: {str(e)}")
 
 
+@app.get("/dq/score/{bde_id}")
+def get_dq_score_bde(bde_id: str):
+    """Get semantic DQ score for a BDE — aggregated across all physical tables."""
+    from discovery.engine.dq_rollup import get_bde_score
+    score = get_bde_score(bde_id)
+    if not score:
+        # Return rules-only response if no run results yet
+        term = kg.terms.get(bde_id)
+        if not term:
+            raise HTTPException(404, f"BDE '{bde_id}' not found")
+        return {
+            "bde_id": bde_id,
+            "score": None,
+            "status": "no_runs",
+            "dq_rules": term.dq_rules,
+            "message": "No DQ checks have run yet for this BDE. Rules are defined but not yet executed.",
+        }
+    return score
+
+
+@app.get("/dq/score/ba/{ba_id}")
+def get_dq_score_ba(ba_id: str):
+    """Get semantic DQ score for a BA — aggregated across all its BDEs."""
+    from discovery.engine.dq_rollup import get_ba_score
+    score = get_ba_score(ba_id)
+    if not score:
+        app_obj = kg.applications.get(ba_id)
+        if not app_obj:
+            raise HTTPException(404, f"BA '{ba_id}' not found")
+        return {
+            "ba_id": ba_id,
+            "score": None,
+            "status": "no_runs",
+            "message": "No DQ checks have run yet for this Business Application.",
+        }
+    return score
+
+
+@app.post("/dq/rollup")
+def trigger_dq_rollup():
+    """Manually trigger a DQ rollup from existing check results."""
+    from discovery.engine.dq_rollup import run_rollup
+    summary = run_rollup()
+    return {"status": "complete", **summary}
+
+
 @app.get("/lineage/bde/{term_id}")
 def get_bde_lineage(term_id: str):
     """Return semantic lineage graph for a BDE: owning BAs + physical datasets containing it."""

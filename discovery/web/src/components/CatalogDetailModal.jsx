@@ -374,80 +374,172 @@ function LineageTab({ datasetId, isDataset }) {
 
 // ── Data Quality Tab ──────────────────────────────────────────────────────────
 
+const scoreColor = (s) => s >= 80 ? 'text-emerald-600' : s >= 50 ? 'text-amber-500' : 'text-red-500'
+const barColor = (s) => s >= 80 ? 'bg-emerald-500' : s >= 50 ? 'bg-amber-400' : 'bg-red-400'
+
+function ScoreHeader({ score, subtitle, detail }) {
+  return (
+    <div className="card-static p-5 flex items-center gap-6">
+      <div className="text-center min-w-[64px]">
+        <p className={`text-4xl font-bold ${scoreColor(score)}`}>{score}</p>
+        <p className="text-[10px] text-gray-400 uppercase tracking-wider mt-1">DQ Score</p>
+      </div>
+      <div className="flex-1">
+        <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden">
+          <div className={`h-full ${barColor(score)} rounded-full transition-all`} style={{ width: `${score}%` }} />
+        </div>
+        <div className="flex justify-between text-[10px] text-gray-400 mt-1"><span>0</span><span>50</span><span>100</span></div>
+      </div>
+      <div className="text-right text-xs text-gray-400">
+        <p className="font-medium text-gray-600">{subtitle}</p>
+        {detail && <p>{detail}</p>}
+      </div>
+    </div>
+  )
+}
+
 function DQTab({ datasetId, isDataset, node }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    if (!isDataset) { setLoading(false); return }
+    if (!isDataset) {
+      const call = node.type === 'application'
+        ? api.dqScoreBa(datasetId)
+        : api.dqScoreBde(datasetId)
+      call.then(setData).catch(e => setError(e.message)).finally(() => setLoading(false))
+      return
+    }
     api.profileDataset(datasetId)
-      .then(setData)
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false))
-  }, [datasetId, isDataset])
+      .then(setData).catch(e => setError(e.message)).finally(() => setLoading(false))
+  }, [datasetId, isDataset, node.type])
 
-  if (!isDataset) return <NonDatasetDQView node={node} />
   if (loading) return <Loading text="Loading DQ scores…" />
   if (error) return <Err text={error} />
 
+  // ── Semantic DQ: BA node ──
+  if (!isDataset && node.type === 'application') {
+    if (data?.status === 'no_runs') return <SemanticDQNoRuns message={data.message} />
+    if (!data) return <Empty text="No DQ data available." />
+    return (
+      <div className="p-6 space-y-5">
+        <ScoreHeader score={data.score} subtitle={`${data.bde_count} BDEs evaluated`} detail={`Last computed: ${data.computed_at?.slice(0,10) || '—'}`} />
+        <div className="card-static overflow-hidden">
+          <div className="bg-gray-50 border-b border-gray-100 px-4 py-2 text-[10px] text-gray-400 uppercase tracking-wider">BDE scores — worst first</div>
+          <table className="w-full text-xs">
+            <thead className="border-b border-gray-100">
+              <tr className="text-gray-500 uppercase tracking-wider text-[10px]">
+                <th className="px-4 py-3 text-left font-semibold">BDE</th>
+                <th className="px-4 py-3 text-center font-semibold">Score</th>
+                <th className="px-4 py-3 text-left font-semibold">Bar</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(data.bdes || []).map((b, i) => (
+                <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
+                  <td className="px-4 py-2.5 font-mono text-gray-700">{b.bde_id}</td>
+                  <td className={`px-4 py-2.5 text-center font-bold ${scoreColor(b.score)}`}>{b.score}</td>
+                  <td className="px-4 py-2.5">
+                    <div className="w-24 h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div className={`h-full ${barColor(b.score)} rounded-full`} style={{ width: `${b.score}%` }} />
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Semantic DQ: BDE node ──
+  if (!isDataset) {
+    if (data?.status === 'no_runs') return <SemanticDQNoRuns message={data.message} dqRules={data.dq_rules} />
+    if (!data) return <Empty text="No DQ data available." />
+    return (
+      <div className="p-6 space-y-5">
+        <ScoreHeader
+          score={data.score}
+          subtitle={`Across ${data.tables?.length || 0} table(s)`}
+          detail={`${data.column_count} column checks · ${data.computed_at?.slice(0,10) || '—'}`}
+        />
+        {data.tables?.length > 0 && (
+          <div className="card-static p-4">
+            <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Physical tables checked</p>
+            <div className="flex flex-wrap gap-1.5">
+              {data.tables.map(t => <span key={t} className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs font-mono">{t}</span>)}
+            </div>
+          </div>
+        )}
+        {data.columns?.length > 0 && (
+          <div className="card-static overflow-hidden">
+            <div className="bg-gray-50 border-b border-gray-100 px-4 py-2 text-[10px] text-gray-400 uppercase tracking-wider">Per-table column results</div>
+            <table className="w-full text-xs">
+              <thead className="border-b border-gray-100">
+                <tr className="text-gray-500 uppercase tracking-wider text-[10px]">
+                  <th className="px-4 py-3 text-left font-semibold">Table</th>
+                  <th className="px-4 py-3 text-left font-semibold">Column</th>
+                  <th className="px-4 py-3 text-center font-semibold">Score</th>
+                  <th className="px-4 py-3 text-left font-semibold">Rule results</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.columns.map((c, i) => (
+                  <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="px-4 py-2.5 text-gray-400 font-mono">{c.table}</td>
+                    <td className="px-4 py-2.5 font-mono text-gray-700">
+                      {c.column}{c.is_pii && <span className="ml-1 badge-red text-[9px]">PII</span>}
+                    </td>
+                    <td className={`px-4 py-2.5 text-center font-bold ${scoreColor(c.score)}`}>{c.score}</td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex flex-wrap gap-1">
+                        {Object.entries(c.results || {}).map(([rule, r]) => (
+                          <span key={rule} className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                            r.passed === true ? 'bg-emerald-50 text-emerald-700' :
+                            r.passed === false ? 'bg-red-50 text-red-600' : 'bg-gray-100 text-gray-400'
+                          }`}>
+                            {r.passed === true ? '✓' : r.passed === false ? '✗' : '?'} {rule}
+                            {r.passed === false && r.fail_count != null && ` (${r.fail_count.toLocaleString()} fails)`}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ── Physical dataset DQ (profiler-based, existing logic) ──
   const fields = data?.fields || data?.columns || []
   const dqRules = node.dq_rules || {}
-
-  // Compute per-column DQ score from profile stats
   const scored = fields.map(f => {
     let score = 100
     const issues = []
     const nullPct = (f.null_pct ?? 0) * 100
-    if (nullPct > 0) {
-      score -= Math.min(40, nullPct * 2)
-      issues.push(`${Math.round(nullPct)}% nulls`)
-    }
-    // Check against BDE-level DQ rules
+    if (nullPct > 0) { score -= Math.min(40, nullPct * 2); issues.push(`${Math.round(nullPct)}% nulls`) }
     const rules = f.dq_rules || dqRules
-    if (rules.not_null && nullPct > 0) {
-      score -= 20
-      issues.push('not_null violated')
-    }
-    if (rules.unique && f.cardinality_ratio != null && f.cardinality_ratio < 0.99) {
-      score -= 15
-      issues.push('uniqueness low')
-    }
+    if (rules.not_null && nullPct > 0) { score -= 20; issues.push('not_null violated') }
+    if (rules.unique && f.cardinality_ratio != null && f.cardinality_ratio < 0.99) { score -= 15; issues.push('uniqueness low') }
     return { ...f, dqScore: Math.max(0, Math.round(score)), issues }
   })
-
-  const overallScore = scored.length
-    ? Math.round(scored.reduce((s, f) => s + f.dqScore, 0) / scored.length)
-    : null
-
-  const scoreColor = (s) => s >= 80 ? 'text-emerald-600' : s >= 50 ? 'text-amber-500' : 'text-red-500'
-  const barColor = (s) => s >= 80 ? 'bg-emerald-500' : s >= 50 ? 'bg-amber-400' : 'bg-red-400'
+  const overallScore = scored.length ? Math.round(scored.reduce((s, f) => s + f.dqScore, 0) / scored.length) : null
 
   return (
     <div className="p-6 space-y-5">
-      {/* Overall score */}
       {overallScore !== null && (
-        <div className="card-static p-5 flex items-center gap-6">
-          <div className="text-center">
-            <p className={`text-4xl font-bold ${scoreColor(overallScore)}`}>{overallScore}</p>
-            <p className="text-[10px] text-gray-400 uppercase tracking-wider mt-1">Overall DQ Score</p>
-          </div>
-          <div className="flex-1">
-            <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden">
-              <div className={`h-full ${barColor(overallScore)} rounded-full transition-all`} style={{ width: `${overallScore}%` }} />
-            </div>
-            <div className="flex justify-between text-[10px] text-gray-400 mt-1">
-              <span>0</span><span>50</span><span>100</span>
-            </div>
-          </div>
-          <div className="text-right text-xs text-gray-400">
-            <p>{scored.filter(f => f.dqScore >= 80).length} columns passing</p>
-            <p>{scored.filter(f => f.dqScore < 80).length} columns need attention</p>
-          </div>
-        </div>
+        <ScoreHeader
+          score={overallScore}
+          subtitle={`${scored.filter(f => f.dqScore >= 80).length} columns passing`}
+          detail={`${scored.filter(f => f.dqScore < 80).length} need attention`}
+        />
       )}
-
-      {/* BDE-level rules */}
       {Object.keys(dqRules).length > 0 && (
         <div className="card-static p-4">
           <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-3">Inherited DQ Rules</p>
@@ -460,28 +552,23 @@ function DQTab({ datasetId, isDataset, node }) {
           </div>
         </div>
       )}
-
-      {/* Per-column scores */}
       {scored.length > 0 && (
         <div className="card-static overflow-hidden">
-          <div className="bg-gray-50 border-b border-gray-100 px-4 py-2 text-[10px] text-gray-400 uppercase tracking-wider">
-            Per-column DQ scores
-          </div>
+          <div className="bg-gray-50 border-b border-gray-100 px-4 py-2 text-[10px] text-gray-400 uppercase tracking-wider">Per-column DQ scores</div>
           <table className="w-full text-xs">
             <thead className="border-b border-gray-100">
               <tr className="text-gray-500 uppercase tracking-wider text-[10px]">
                 <th className="px-4 py-3 text-left font-semibold">Column</th>
                 <th className="px-4 py-3 text-center font-semibold">Score</th>
-                <th className="px-4 py-3 text-left font-semibold">Score bar</th>
+                <th className="px-4 py-3 text-left font-semibold">Bar</th>
                 <th className="px-4 py-3 text-left font-semibold">Issues</th>
               </tr>
             </thead>
             <tbody>
               {scored.map((f, i) => (
-                <tr key={i} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
                   <td className="px-4 py-2.5 font-mono text-gray-800 font-medium">
-                    {f.name}
-                    {f.is_pii && <span className="ml-1 badge-red text-[9px]">PII</span>}
+                    {f.name}{f.is_pii && <span className="ml-1 badge-red text-[9px]">PII</span>}
                   </td>
                   <td className={`px-4 py-2.5 text-center font-bold ${scoreColor(f.dqScore)}`}>{f.dqScore}</td>
                   <td className="px-4 py-2.5">
@@ -492,8 +579,7 @@ function DQTab({ datasetId, isDataset, node }) {
                   <td className="px-4 py-2.5 text-gray-400">
                     {f.issues.length > 0
                       ? f.issues.map((iss, j) => <span key={j} className="mr-2 text-amber-600">⚠ {iss}</span>)
-                      : <span className="text-emerald-500">✓ clean</span>
-                    }
+                      : <span className="text-emerald-500">✓ clean</span>}
                   </td>
                 </tr>
               ))}
@@ -501,9 +587,28 @@ function DQTab({ datasetId, isDataset, node }) {
           </table>
         </div>
       )}
+      {!data && <Empty text="Profiler service not available — DQ scores cannot be computed." />}
+    </div>
+  )
+}
 
-      {!data && (
-        <Empty text="Profiler service not available — DQ scores cannot be computed." />
+function SemanticDQNoRuns({ message, dqRules }) {
+  return (
+    <div className="p-6 space-y-4">
+      <div className="p-4 bg-amber-50 border border-amber-100 rounded-xl text-amber-700 text-xs">⏳ {message}</div>
+      {dqRules && Object.keys(dqRules).length > 0 && (
+        <div className="card-static p-4">
+          <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-3">Defined DQ Rules (not yet executed)</p>
+          <div className="space-y-1.5">
+            {Object.entries(dqRules).map(([rule, val]) => (
+              <div key={rule} className="flex items-center gap-2 px-3 py-2 bg-indigo-50 rounded-lg">
+                <span className="text-indigo-600 font-mono text-xs font-medium">{rule}</span>
+                <span className="text-gray-400 text-xs">→</span>
+                <span className="text-gray-600 text-xs">{JSON.stringify(val)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   )
@@ -534,35 +639,6 @@ function NonDatasetSampleView({ node, type }) {
             {fields.map(f => <Row key={f.label} label={f.label} value={f.value} />)}
           </div>
         </div>
-      )}
-    </div>
-  )
-}
-
-function NonDatasetDQView({ node }) {
-  const dqRules = node.dq_rules || {}
-  const hasRules = Object.keys(dqRules).length > 0
-
-  return (
-    <div className="p-6 space-y-4">
-      <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl text-blue-700 text-xs">
-        ℹ️ DQ scores are computed from physical dataset profiles. This node defines DQ rules that are inherited by all tables using this BDE.
-      </div>
-      {hasRules ? (
-        <div className="card-static p-4">
-          <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-3">DQ Rules (inherited by physical tables)</p>
-          <div className="space-y-1.5">
-            {Object.entries(dqRules).map(([rule, val]) => (
-              <div key={rule} className="flex items-center gap-2 px-3 py-2 bg-indigo-50 rounded-lg">
-                <span className="text-indigo-600 font-mono text-xs font-medium">✓ {rule}</span>
-                <span className="text-gray-400 text-xs">→</span>
-                <span className="text-gray-600 text-xs">{JSON.stringify(val)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <Empty text="No DQ rules defined for this element." />
       )}
     </div>
   )

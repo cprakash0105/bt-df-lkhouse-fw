@@ -35,6 +35,11 @@ class DataProductConfig(Config):
     sql_gcs_path: str  # gs://eastside-lakehouse/config/consumption/{table}.sql
 
 
+class DQConfig(Config):
+    table: str = "all"  # specific table or "all" to check all contracted tables
+    layer: str = "gold"
+
+
 # ============================================================
 # HELPERS
 # ============================================================
@@ -264,6 +269,39 @@ def gold_asset(context: AssetExecutionContext, config: GoldConfig, dataproc: Dat
             tag_columns(table, tbl_config, context)
         except Exception as e:
             context.log.warning(f"Column tagging skipped for {table}: {e}")
+
+
+@asset(
+    group_name="eastside",
+    deps=[gold_asset],
+    retry_policy=RetryPolicy(max_retries=1, delay=30),
+    op_tags={"dagster/hook/alert_on_failure": "", "dagster/hook/log_on_success": ""},
+    metadata={"layer": "dq", "description": "Semantic DQ checks: BDE rules → physical BQ tables → BDE/BA scores"},
+)
+def dq_asset(context: AssetExecutionContext, config: DQConfig):
+    """Run DQ checks for all contracted tables, then roll up to BDE/BA scores."""
+    import sys
+    sys.path.insert(0, "/home/dataproc")
+    from eastside.engine.dq_checker import run_checks
+    from discovery.engine.dq_rollup import run_rollup
+    from discovery.engine.dq_contract import list_contracts
+
+    tables = [config.table] if config.table != "all" else list_contracts()
+    if not tables:
+        context.log.info("DQ: no contracts found — skipping")
+        return
+
+    for table in tables:
+        context.log.info(f"DQ [{table}]: running checks (layer={config.layer})")
+        result = run_checks(table, run_id=context.run_id, layer=config.layer)
+        score = result.get("overall_score")
+        if score is not None:
+            context.log.info(f"DQ [{table}]: score={score}")
+        else:
+            context.log.warning(f"DQ [{table}]: {result.get('error', 'unknown error')}")
+
+    summary = run_rollup()
+    context.log.info(f"DQ rollup complete: {summary['bde_count']} BDEs, {summary['ba_count']} BAs scored")
 
 
 @asset(

@@ -114,7 +114,16 @@ class ApprovalHandler:
             else:
                 results["errors"].append("Failed to push config to GCS")
 
-        # 5. Create EntryLinks (dataset->BDEs, dataset->BA)
+        # 5. Generate DQ contract (semantic rules → physical columns)
+        try:
+            from discovery.engine.dq_contract import generate_contract
+            from discovery.engine.knowledge_graph import KnowledgeGraph
+            kg = KnowledgeGraph()
+            generate_contract(suggestion, kg)
+        except Exception as e:
+            results["errors"].append(f"DQ contract generation failed: {e}")
+
+        # 6. Create EntryLinks (dataset->BDEs, dataset->BA)
         self._create_entry_links(suggestion)
 
         _log.info("Approval processed", asset_name=suggestion.asset_name,
