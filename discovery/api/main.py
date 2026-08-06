@@ -425,7 +425,6 @@ def get_glossary_hierarchy():
 @app.get("/applications")
 def get_applications():
     from discovery.engine.catalog_cache.sync import DOMAIN_TO_APPS
-    # Enrich with domain info
     app_to_domain = {}
     for domain_id, app_ids in DOMAIN_TO_APPS.items():
         for app_id in app_ids:

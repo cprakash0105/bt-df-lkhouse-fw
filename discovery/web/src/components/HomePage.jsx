@@ -392,13 +392,17 @@ async function buildFallbackTree() {
           name: a.name,
           type: 'application',
           description: a.description,
+          keywords: a.keywords,
           children: (glossary[d.name] || []).slice(0, 10).map(t => ({
             id: t.id,
             name: t.name,
             type: 'term',
             is_pii: t.is_pii,
             dq_rules: t.dq_rules,
-            data_type: t.information_type,
+            data_type: t.data_type,
+            information_type: t.information_type,
+            synonyms: t.synonyms,
+            domain: d.name,
           }))
         }))
       }))
