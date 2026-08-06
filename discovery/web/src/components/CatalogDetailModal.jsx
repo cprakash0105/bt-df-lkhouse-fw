@@ -58,7 +58,7 @@ export default function CatalogDetailModal({ node, onClose }) {
         <div className="flex-1 overflow-auto">
           {tab === 0 && <DetailsTab node={node} type={type} />}
           {tab === 1 && <SampleDataTab datasetId={datasetId} isDataset={isDataset} node={node} type={type} />}
-          {tab === 2 && <LineageTab datasetId={datasetId} />}
+          {tab === 2 && <LineageTab datasetId={datasetId} isDataset={isDataset} />}
           {tab === 3 && <DQTab datasetId={datasetId} isDataset={isDataset} node={node} />}
         </div>
       </div>
@@ -244,7 +244,7 @@ function NullBar({ value }) {
 
 // ── Lineage Tab ───────────────────────────────────────────────────────────────
 
-function LineageTab({ datasetId }) {
+function LineageTab({ datasetId, isDataset }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -252,11 +252,12 @@ function LineageTab({ datasetId }) {
   const [hoveredCol, setHoveredCol] = useState(null)
 
   useEffect(() => {
-    api.lineage(datasetId)
+    const call = isDataset ? api.lineage(datasetId) : api.bdeLineage(datasetId)
+    call
       .then(setData)
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
-  }, [datasetId])
+  }, [datasetId, isDataset])
 
   if (loading) return <Loading text="Loading lineage…" />
   if (error) return <Err text={error} />

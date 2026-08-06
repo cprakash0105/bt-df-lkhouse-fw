@@ -1099,6 +1099,65 @@ def deploy_dataproduct(req: DeployDataProductRequest):
         raise HTTPException(500, f"Failed to trigger Dagster job: {str(e)}")
 
 
+@app.get("/lineage/bde/{term_id}")
+def get_bde_lineage(term_id: str):
+    """Return semantic lineage graph for a BDE: owning BAs + physical datasets containing it."""
+    term = kg.terms.get(term_id)
+    if not term:
+        raise HTTPException(404, f"BDE '{term_id}' not found")
+
+    nodes, edges = [], []
+    seen = set()
+
+    def _node(nid, label, ntype):
+        if nid not in seen:
+            seen.add(nid)
+            nodes.append({"id": nid, "data": {"label": label, "type": ntype}})
+
+    # Central BDE node
+    _node(term_id, term.name, "term")
+
+    # BAs that own this BDE (via dataset_definitions: dataset -> source_application -> BA)
+    # Build term -> datasets mapping from kg.datasets
+    term_datasets = [
+        ds for ds in kg.datasets.values()
+        if term_id in ds.data_elements
+    ]
+
+    # Also find BAs by domain match (terms in same domain as BA keywords)
+    for app in kg.applications.values():
+        domain_terms = kg.get_terms_by_domain(term.domain)
+        if any(t.id == term_id for t in domain_terms):
+            _node(app.id, app.name, "application")
+            edges.append({"id": f"{app.id}->{term_id}", "source": app.id, "target": term_id})
+
+    # Physical datasets containing this BDE
+    for ds in term_datasets:
+        _node(ds.name, ds.name, "dataset")
+        edges.append({"id": f"{term_id}->{ds.name}", "source": term_id, "target": ds.name})
+        # Link source BA -> dataset too
+        if ds.source_application:
+            app_id = ds.source_application.lower()
+            _node(app_id, kg.applications[app_id].name if app_id in kg.applications else ds.source_application, "application")
+            edges.append({"id": f"{app_id}->{ds.name}", "source": app_id, "target": ds.name})
+
+    # If no datasets found from definitions, show domain-level datasets from GCS landing
+    if not term_datasets:
+        # Add a hint node
+        hint_id = f"landing/{term.domain}"
+        _node(hint_id, f"{term.domain} landing zone", "source")
+        edges.append({"id": f"{term_id}->{hint_id}", "source": term_id, "target": hint_id})
+
+    return {
+        "dataset": term_id,
+        "nodes": nodes,
+        "edges": edges,
+        "source": "semantic",
+        "column_lineage": {},
+        "row_stats": {},
+    }
+
+
 @app.get("/lineage/{dataset}")
 def get_lineage(dataset: str):
     """Return lineage graph (nodes + edges) for a dataset from OpenLineage events in GCS."""

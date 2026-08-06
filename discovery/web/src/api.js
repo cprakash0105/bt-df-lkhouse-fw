@@ -54,4 +54,5 @@ export const api = {
     request('/dataproduct/deploy', { method: 'POST', body: JSON.stringify({ table_name, sql, description, source_datasets, domain }) }),
   listDeployedDataProducts: () => request('/dataproduct/list'),
   lineage: (dataset) => request(`/lineage/${encodeURIComponent(dataset)}`),
+  bdeLineage: (termId) => request(`/lineage/bde/${encodeURIComponent(termId)}`),
 }
