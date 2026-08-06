@@ -367,8 +367,7 @@ def describe_term(term_id: str):
             if blob.exists():
                 desc = blob.download_as_text().strip()
                 _POISON = ("do not mention", "output only", "max 30 words",
-                           "business context", "data element name", "glossary writer",
-                           "clear sentence", "no data types", "technical terms")
+                           "no preamble", "plain-english sentence", "under 30 words")
                 if any(p in desc.lower() for p in _POISON):
                     blob.delete()  # purge poisoned entry
                     break
@@ -386,24 +385,18 @@ def describe_term(term_id: str):
     try:
         from discovery.engine.llm_client import get_llm
         llm = get_llm()
-        pii_note = " Contains PII." if term.is_pii else ""
+        pii_note = " It contains personally identifiable information." if term.is_pii else ""
         result = llm.generate(
-            system=(
-                "You are a business data glossary writer. "
-                "When given a data element name and its domain, write exactly one clear sentence (max 30 words) "
-                "describing what it represents in a business context. "
-                "Do not mention data types, technical terms, or repeat the element name as a prefix. "
-                "Do not include quotes. Output only the sentence."
-            ),
-            user=f"{term.name} — domain: {term.domain}, type: {term.information_type}.{pii_note}",
+            system="Write a single plain-English sentence (under 30 words) explaining what a business data field represents. Reply with only the sentence, no preamble.",
+            user=f"Field: {term.name}. Domain: {term.domain}. Category: {term.information_type}.{pii_note}",
             max_tokens=80,
             temperature=0.3,
         )
         if result and result != "__QUOTA_EXCEEDED__" and len(result.strip()) > 10:
-            # Reject if the result looks like it contains prompt instructions (model echoed input)
+            # Only reject if the model clearly echoed prompt instructions verbatim
             poisoned = any(phrase in result.lower() for phrase in [
-                "do not mention", "output only", "max 30 words", "business context",
-                "data element name", "glossary writer", "clear sentence"
+                "do not mention", "output only", "max 30 words", "no preamble",
+                "plain-english sentence", "under 30 words"
             ])
             if not poisoned:
                 desc = result.strip().rstrip(".") + "."
