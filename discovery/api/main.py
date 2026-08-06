@@ -358,7 +358,7 @@ def describe_term(term_id: str):
     cache_path = f"bde_descriptions/{term_id}.txt"
     gcs = None
 
-    # 2. GCS hit — warm memory and return
+    # 2. GCS hit — warm memory and return (skip if value looks poisoned)
     try:
         from google.cloud import storage as gcs_storage
         gcs = gcs_storage.Client()
@@ -366,6 +366,12 @@ def describe_term(term_id: str):
             blob = gcs.bucket(b).blob(cache_path)
             if blob.exists():
                 desc = blob.download_as_text().strip()
+                _POISON = ("do not mention", "output only", "max 30 words",
+                           "business context", "data element name", "glossary writer",
+                           "clear sentence", "no data types", "technical terms")
+                if any(p in desc.lower() for p in _POISON):
+                    blob.delete()  # purge poisoned entry
+                    break
                 _bde_desc_cache[term_id] = desc
                 return {"term_id": term_id, "description": desc, "cached": True}
     except Exception:
