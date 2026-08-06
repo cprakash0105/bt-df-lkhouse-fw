@@ -36,6 +36,7 @@ export const api = {
     request('/profile', { method: 'POST', body: JSON.stringify({ data, format, dataset_name }) }),
   profileDataset: (dataset_name) =>
     request('/profile/dataset', { method: 'POST', body: JSON.stringify({ dataset_name }) }),
+  sampleDataProduct: (table_name) => request(`/dataproduct/sample/${encodeURIComponent(table_name)}`),
 
   approve: (fields = null) => request('/approve', { method: 'POST', body: JSON.stringify({ fields }) }),
   correct: (field, action, values = null, bde = null) =>

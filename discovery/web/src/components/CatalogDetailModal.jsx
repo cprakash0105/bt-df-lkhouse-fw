@@ -186,19 +186,64 @@ function SampleDataTab({ datasetId, isDataset, node, type }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const isDataProduct = node.layer === 'dataproduct'
 
   useEffect(() => {
     if (!isDataset) { setLoading(false); return }
-    api.profileDataset(datasetId)
-      .then(setData)
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false))
-  }, [datasetId, isDataset])
+    if (isDataProduct) {
+      api.sampleDataProduct(node.name)
+        .then(setData).catch(e => setError(e.message)).finally(() => setLoading(false))
+    } else {
+      api.profileDataset(datasetId)
+        .then(setData).catch(e => setError(e.message)).finally(() => setLoading(false))
+    }
+  }, [datasetId, isDataset, isDataProduct])
 
   if (!isDataset) return <NonDatasetSampleView node={node} type={type} />
   if (loading) return <Loading text="Loading sample data…" />
   if (error) return <Err text={error} />
   if (!data) return <Empty text="No sample data available." />
+
+  // ── Data product: render BQ rows table ──
+  if (isDataProduct) {
+    const cols = data.columns || []
+    const rows = data.rows || []
+    return (
+      <div className="p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <p className="text-sm font-semibold text-gray-800">{data.bq_table}</p>
+            <p className="text-xs text-gray-400">{data.row_count?.toLocaleString()} rows · {data.column_count} columns · BigQuery</p>
+          </div>
+        </div>
+        <div className="card-static overflow-auto">
+          <table className="w-full text-xs">
+            <thead className="bg-gray-50 border-b border-gray-100 sticky top-0">
+              <tr className="text-gray-500 uppercase tracking-wider text-[10px]">
+                {cols.map(c => (
+                  <th key={c.name} className="px-3 py-3 text-left font-semibold whitespace-nowrap">
+                    {c.name}
+                    <span className="ml-1 text-gray-300 normal-case font-normal">{c.type}</span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, i) => (
+                <tr key={i} className="border-b border-gray-50 hover:bg-indigo-50/30 transition-colors">
+                  {cols.map(c => (
+                    <td key={c.name} className="px-3 py-2 text-gray-700 font-mono whitespace-nowrap max-w-[200px] truncate">
+                      {row[c.name] == null ? <span className="text-gray-300">null</span> : String(row[c.name])}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="p-6">

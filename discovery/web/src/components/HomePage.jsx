@@ -427,10 +427,10 @@ async function loadTechTree() {
         { id: 'reservoir', name: 'Reservoir (GCS/Parquet)', type: 'layer', layer: 'reservoir', children: [] },
         { id: 'ccn', name: 'CCN (Iceberg/BLMS)', type: 'layer', layer: 'ccn', children: [] },
         { id: 'dataproduct', name: 'Data Products (BigQuery)', type: 'layer', layer: 'dataproduct', children: [
-          { id: 'dp_loan', name: 'loan_eligibility_360', type: 'table', children: [] },
-          { id: 'dp_spend', name: 'customer_spend_360', type: 'table', children: [] },
-          { id: 'dp_health', name: 'customer_health_score', type: 'table', children: [] },
-          { id: 'dp_monitor', name: 'pipeline_monitor', type: 'table', children: [] },
+          { id: 'dp_loan', name: 'loan_eligibility_360', type: 'table', layer: 'dataproduct', children: [] },
+          { id: 'dp_spend', name: 'customer_spend_360', type: 'table', layer: 'dataproduct', children: [] },
+          { id: 'dp_health', name: 'customer_health_score', type: 'table', layer: 'dataproduct', children: [] },
+          { id: 'dp_monitor', name: 'pipeline_monitor', type: 'table', layer: 'dataproduct', children: [] },
         ]},
       ],
     }]

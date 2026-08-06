@@ -1383,6 +1383,52 @@ def get_lineage(dataset: str):
         raise HTTPException(500, f"Lineage fetch failed: {str(e)}")
 
 
+@app.get("/dataproduct/sample/{table_name}")
+def sample_dataproduct(table_name: str, limit: int = 50):
+    """Fetch sample rows + schema from a deployed data product in BigQuery."""
+    try:
+        from google.cloud import bigquery
+        bq = bigquery.Client(project=PROJECT_ID)
+        full_table = f"`{PROJECT_ID}.eastside_dataproduct.{table_name}`"
+
+        # Schema
+        bq_table = bq.get_table(f"{PROJECT_ID}.eastside_dataproduct.{table_name}")
+        columns = [
+            {"name": f.name, "type": f.field_type, "description": f.description or ""}
+            for f in bq_table.schema
+        ]
+
+        # Row count
+        row_count = bq_table.num_rows
+
+        # Sample rows
+        rows_result = bq.query(
+            f"SELECT * FROM {full_table} LIMIT {limit}"
+        ).result()
+        rows = [dict(row) for row in rows_result]
+
+        # Coerce non-serialisable types
+        import datetime, decimal
+        def _coerce(v):
+            if isinstance(v, (datetime.date, datetime.datetime)):
+                return v.isoformat()
+            if isinstance(v, decimal.Decimal):
+                return float(v)
+            return v
+        rows = [{k: _coerce(v) for k, v in row.items()} for row in rows]
+
+        return {
+            "table_name": table_name,
+            "bq_table": f"eastside_dataproduct.{table_name}",
+            "row_count": row_count,
+            "column_count": len(columns),
+            "columns": columns,
+            "rows": rows,
+        }
+    except Exception as e:
+        raise HTTPException(502, f"BigQuery error: {str(e)}")
+
+
 @app.get("/dataproduct/list")
 def list_deployed_dataproducts():
     """List all deployed data products from GCS deployment records."""
@@ -1624,6 +1670,7 @@ def _list_brd_specs() -> list:
 # --- Helpers ---
 
 DAGSTER_URL = os.environ.get("DAGSTER_URL", "http://34.89.76.230")
+PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "bt-df-lkhouse")
 
 
 def _trigger_dagster_job(table_name: str) -> Optional[str]:
@@ -1996,7 +2043,7 @@ if static_dir.exists():
         if path.startswith(("health", "glossary", "applications", "domains",
                            "ask", "discover", "landing", "profile", "approve",
                            "correct", "suggestion", "generate", "catalog",
-                           "cache", "debug", "rag", "mcp", "logs", "brd", "dataproduct", "lineage")):
+                           "cache", "debug", "rag", "mcp", "logs", "brd", "dataproduct", "lineage", "dq")):
             raise HTTPException(404, "Not found")
         file_path = static_dir / path
         if file_path.exists() and file_path.is_file():
